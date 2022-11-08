@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os, re, ast
-import dbpy.np_json as json
+import statpy.dbpy.np_json as json
 import numpy as np
 
 try:

@@ -8,6 +8,37 @@ from scipy.integrate import quad
 from scipy.special import gamma
 
 
+def get_p_value(chi2, dof):
+    return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
+
+def fit_std_err(t, p, dmodel_dp, cov_p):
+    return (dmodel_dp(t,p) @ cov_p @ dmodel_dp(t,p))**0.5
+
+def jackknife_samples(f, x):
+    N = len(x)
+    mean = np.mean(x, axis=0)
+    return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
+
+def jackknife_covariance(jk_parameter, f, x):
+    N = len(x)
+    f_mean = f(np.mean(x, axis=0))
+    def outer_sqr(a):
+        return np.outer(a,a)
+    return np.sum(np.array([outer_sqr(jk_parameter[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N
+
+#def jackknife_samples(self, f, x):
+#    #self.fx = f(x)
+#    jk = jackknife(x)
+#    return np.array([f(jk.sample(k)) for k in range(jk.N)])
+
+#def jackknife_covariance(self, jk_parameter, fx):
+#    N = len(jk_parameter)
+#    def outer_sqr(a):
+#        return np.outer(a,a)
+#    return np.array([outer_sqr((jk_parameter[k] - fx)) for k in range(N)]) * (N - 1)
+
+
+
 # default Nelder-Mead parameter
 nm_parameter = {
     "tol": None,
@@ -60,43 +91,12 @@ class fit:
             return self._opt_NelderMead(f, y)
         if self.method == "Migrad":
             return self._opt_Migrad(f, y)
-        
-    def get_p_value(self, chi2, dof):
-        return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
-
-    def fit_std_err(self, t, p, dmodel_dp, cov_p):
-        return (dmodel_dp(t,p) @ cov_p @ dmodel_dp(t,p))**0.5
-
-    def jackknife_samples(self, f, x):
-        N = len(x)
-        mean = np.mean(x, axis=0)
-        return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
-
-    def jackknife_covariance(self, jk_parameter, f, x):
-        N = len(x)
-        f_mean = f(np.mean(x, axis=0))
-        def outer_sqr(a):
-            return np.outer(a,a)
-        return np.sum(np.array([outer_sqr(jk_parameter[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N
-
-    #def jackknife_samples(self, f, x):
-    #    #self.fx = f(x)
-    #    jk = jackknife(x)
-    #    return np.array([f(jk.sample(k)) for k in range(jk.N)])
-
-
-    #def jackknife_covariance(self, jk_parameter, fx):
-    #    N = len(jk_parameter)
-    #    def outer_sqr(a):
-    #        return np.outer(a,a)
-    #    return np.array([outer_sqr((jk_parameter[k] - fx)) for k in range(N)]) * (N - 1) 
-
-
+         
 ###################################################################################################################################
 
     def jackknife(self, verbose=False):
-        self.jk_parameter = self.jackknife_samples(lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y)
-        self.covariance = self.jackknife_covariance(self.jk_parameter, lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y)
+        self.jk_parameter = jackknife_samples(lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y)
+        self.covariance = jackknife_covariance(self.jk_parameter, lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
         return self.covariance 
@@ -106,8 +106,8 @@ class fit:
         self.best_parameter, self.chi2, = self.estimate_parameters(self.chi_squared, self.y_est)
         self.best_parameter_cov = self.jackknife(verbose)
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = self.get_p_value(self.chi2, self.dof)
-        self.fit_err =  lambda trange: self.fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
+        self.p = get_p_value(self.chi2, self.dof)
+        self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         if verbose:    
             for i in range(len(self.best_parameter)):
                 print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
@@ -116,8 +116,8 @@ class fit:
 ###################################################################################################################################
 
     def multi_mc_jackknife(self, parameter_estimator, verbose=False):
-        self.jk_parameter = np.array([self.jackknife_samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:]) for i in range(len(self.t))]) 
-        self.covariances = np.array([self.jackknife_covariance(self.jk_parameter[i], lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.jk_parameter = np.array([jackknife_samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.covariances = np.array([jackknife_covariance(self.jk_parameter[i], lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:]) for i in range(len(self.t))]) 
         if verbose:
             for i in range(len(self.t)):
                 print(f"jackknife parameter covariance from t[{i}] is ", self.covariances[i])
@@ -128,8 +128,8 @@ class fit:
         self.best_parameter, self.chi2 = self.estimate_parameters(self.chi_squared, self.y_est)
         self.best_parameter_cov = self.multi_mc_jackknife(lambda y: self.estimate_parameters(self.chi_squared, y), verbose)
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = self.get_p_value(self.chi2, self.dof)
-        self.fit_err =  lambda trange: self.fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
+        self.p = get_p_value(self.chi2, self.dof)
+        self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         if verbose:
             for i in range(len(self.best_parameter)):
                 print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5} (jackknife)")
@@ -183,41 +183,11 @@ class LM_fit:
             print(f"converged after {iterations+1} iterations")
         return p, chi2, J
 
-    def get_p_value(self, chi2, dof):
-        return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
-
-    def fit_std_err(self, t, p, dmodel_dp, cov_p):
-        return (dmodel_dp(t,p) @ cov_p @ dmodel_dp(t,p))**0.5
-
-    def jackknife_samples(self, f, x):
-        N = len(x)
-        mean = np.mean(x, axis=0)
-        return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
-
-    def jackknife_covariance(self, jk_parameter, f, x):
-        N = len(x)
-        f_mean = f(np.mean(x, axis=0))
-        def outer_sqr(a):
-            return np.outer(a,a)
-        return np.sum(np.array([outer_sqr(jk_parameter[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N
-
-    #def jackknife_samples(self, f, x):
-    #    #self.fx = f(x)
-    #    jk = jackknife(x)
-    #    return np.array([f(jk.sample(k)) for k in range(jk.N)])
-
-
-    #def jackknife_covariance(self, jk_parameter, fx):
-    #    N = len(jk_parameter)
-    #    def outer_sqr(a):
-    #        return np.outer(a,a)
-    #    return np.array([outer_sqr((jk_parameter[k] - fx)) for k in range(N)]) * (N - 1) 
-
 ####################################################################################################################################################################
 
     def jackknife(self, verbose=False):
-        self.jk_parameter = self.jackknife_samples(lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y)
-        self.covariance = self.jackknife_covariance(self.jk_parameter, lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y)
+        self.jk_parameter = jackknife_samples(lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y)
+        self.covariance = jackknife_covariance(self.jk_parameter, lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
         return self.covariance 
@@ -228,10 +198,10 @@ class LM_fit:
         self.best_parameter_cov = self.jackknife(verbose)
         self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = self.get_p_value(self.chi2, self.dof)
+        self.p = get_p_value(self.chi2, self.dof)
         self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), 
                             self.best_parameter_cov_lm)
-        self.fit_err =  lambda trange: self.fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
+        self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         if verbose:
             for i in range(len(self.best_parameter)):
                 print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5} (jackknife)") #, {self.best_parameter_cov_lm[i][i]**0.5} (error propagation)")
@@ -241,8 +211,8 @@ class LM_fit:
 ####################################################################################################################################################################
 
     def multi_mc_jackknife(self, verbose=False):
-        self.jk_parameter = np.array([self.jackknife_samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:]) for i in range(len(self.t))]) 
-        self.covariances = np.array([self.jackknife_covariance(self.jk_parameter[i], lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.jk_parameter = np.array([jackknife_samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.covariances = np.array([jackknife_covariance(self.jk_parameter[i], lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:]) for i in range(len(self.t))]) 
         if verbose:
             for i in range(len(self.t)):
                 print(f"jackknife parameter covariance from t[{i}] is ", self.covariances[i])
@@ -255,8 +225,8 @@ class LM_fit:
         self.best_parameter_cov = self.multi_mc_jackknife(verbose)
         self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = self.get_p_value(self.chi2, self.dof)
-        self.fit_err =  lambda trange: self.fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
+        self.p = get_p_value(self.chi2, self.dof)
+        self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), 
                             self.best_parameter_cov_lm)
         if verbose:

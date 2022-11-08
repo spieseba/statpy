@@ -2,7 +2,7 @@
 
 import os
 import numpy as np
-import dbpy.np_json as json
+import statpy.dbpy.np_json as json
 import statpy as sp
 
 class DBpy:
