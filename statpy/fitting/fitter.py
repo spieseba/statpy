@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 #from iminuit import Minuit
 from .levenberg_marquardt import LevenbergMarquardt, jacobian, param_cov_lm, fit_std_err_lm
 from ..statistics.jackknife import samples, covariance_samples

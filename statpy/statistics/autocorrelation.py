@@ -1,9 +1,7 @@
 import numpy as np
-from collections import Counter
-
 
 # autocovariance
-def covariance(sample, tmax):
+def autocovariance(sample, tmax):
     n = len(sample)
     y_bar = np.mean(sample, axis=0)
     Cy = np.zeros(tmax)
@@ -17,7 +15,7 @@ def covariance(sample, tmax):
 
 # autocorrelation function
 def gamma(sample, tmax):
-    cov = covariance(sample, tmax)
+    cov = autocovariance(sample, tmax)
     return cov/cov[0]
 
 # integrated autocorrelation time 
