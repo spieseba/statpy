@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class bootstrap():
     def __init__(self, x=None, seed=None):
         self.x = x
@@ -27,19 +26,3 @@ class bootstrap():
         f_arr = np.array([f(sample) for sample in samples])
         f_arr_mean = np.mean(f_arr, axis=0)
         return np.mean( [ (f_arr[k] - f_arr_mean)**2  for k in range(K) ] )
-
-        
-
-'''
-# generate bootstrap sample from data
-def bootstrap(data,returnIndices=False,seed=None):
-    np.random.seed(seed)
-    n = len(data)
-    indices = sorted(np.random.randint(n,size=n))
-    sample = data[indices]
-
-    if returnIndices:
-        return (indices,sample)
-    else:
-        return sample
-'''
