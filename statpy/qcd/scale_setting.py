@@ -1,6 +1,5 @@
 import numpy as np
-from ..statistics.jackknife import jackknife
-
+from ..statistics.jackknife import variance
 
 def derivative(farr, method="central", h=0.01):
     if method == "central":
@@ -82,25 +81,21 @@ class scale:
             print(f"lattice spacing: {afm:.6f} +- {afm_std:.6f} fm")  
         return aGeV_inv, aGeV_inv_std
 
-    def comp_t0_phys(self):
-        return np.sqrt(self.comp_tau0(self.comp_t2E(self.E_mean))) * 0.1973 / 0.1638 # taken from arXiv:1401.3270
+    def comp_t0_phys(self, E_mean):
+        return np.sqrt(self.comp_tau0(self.comp_t2E(E_mean))) * 0.1973 / 0.1638 # taken from arXiv:1401.3270
 
-    def comp_w0_phys(self):
-        return self.comp_wau0(self.comp_tdt2E(self.E_mean)) * 0.1973 / 0.1670 # taken from arXiv:1401.3270
+    def comp_w0_phys(self, E_mean):
+        return self.comp_wau0(self.comp_tdt2E(E_mean)) * 0.1973 / 0.1670 # taken from arXiv:1401.3270
         
     def lattice_spacing(self, scale):
-        jk = jackknife(self.E)
         if scale == 't0':
-            self.t2E = self.comp_t2E(self.E_mean); self.t2E_std = np.sqrt( jk.variance(lambda E_mean: self.comp_t2E(E_mean)) )
-            self.tau0 = self.comp_tau0(self.t2E); self.tau0_std = np.sqrt( jk.variance(lambda E_mean: self.comp_tau0(self.comp_t2E(E_mean))) )
+            self.t2E = self.comp_t2E(self.E_mean); self.t2E_std = np.sqrt( variance(lambda x: self.comp_t2E(x), self.E) )    
+            self.tau0 = self.comp_tau0(self.t2E); self.tau0_std = np.sqrt( variance(lambda x: self.comp_tau0(self.comp_t2E(x)), self.E) )
             self.aGeV_inv_t0, self.aGeV_inv_std_t0 = self.get_cutoff_t0(self.tau0, self.tau0_std, verbose=True)
             return self.tau0, self.tau0_std, self.t2E, self.t2E_std, self.aGeV_inv_t0, self.aGeV_inv_std_t0
 
         if scale == 'w0':
-            self.tdt2E = self.comp_tdt2E(self.E_mean); self.tdt2E_std = np.sqrt( jk.variance(lambda E_mean: self.comp_tdt2E(E_mean)) )
-            self.wau0 = self.comp_wau0(self.tdt2E); self.wau0_std = np.sqrt( jk.variance(lambda E_mean: self.comp_wau0(self.comp_tdt2E(E_mean))) )
+            self.tdt2E = self.comp_tdt2E(self.E_mean); self.tdt2E_std = np.sqrt( variance(lambda x: self.comp_tdt2E(x), self.E) ) 
+            self.wau0 = self.comp_wau0(self.tdt2E); self.wau0_std = np.sqrt( variance(lambda x: self.comp_wau0(self.comp_t2E(x)), self.E) ) 
             self.aGeV_inv_w0, self.aGeV_inv_std_w0 = self.get_cutoff_w0(self.wau0, self.wau0_std, verbose=True)
             return self.wau0, self.wau0_std, self.tdt2E, self.tdt2E_std, self.aGeV_inv_w0, self.aGeV_inv_std_w0
-
-
-

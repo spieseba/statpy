@@ -2,11 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from iminuit import Minuit
 from .levenberg_marquardt import LevenbergMarquardt, jacobian, param_cov_lm, fit_std_err_lm
-from ..statistics.jackknife import jackknife
+from ..statistics.jackknife import samples, covariance_samples
 import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
-
 
 def get_p_value(chi2, dof):
     return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
@@ -14,35 +13,10 @@ def get_p_value(chi2, dof):
 def fit_std_err(t, p, dmodel_dp, cov_p):
     return (dmodel_dp(t,p) @ cov_p @ dmodel_dp(t,p))**0.5
 
-def jackknife_samples(f, x):
-    N = len(x)
-    mean = np.mean(x, axis=0)
-    return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
-
-def jackknife_covariance(jk_parameter, f, x):
-    N = len(x)
-    f_mean = f(np.mean(x, axis=0))
-    def outer_sqr(a):
-        return np.outer(a,a)
-    return np.sum(np.array([outer_sqr(jk_parameter[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N
-
-#def jackknife_samples(self, f, x):
-#    #self.fx = f(x)
-#    jk = jackknife(x)
-#    return np.array([f(jk.sample(k)) for k in range(jk.N)])
-
-#def jackknife_covariance(self, jk_parameter, fx):
-#    N = len(jk_parameter)
-#    def outer_sqr(a):
-#        return np.outer(a,a)
-#    return np.array([outer_sqr((jk_parameter[k] - fx)) for k in range(N)]) * (N - 1)
-
-
-
 # default Nelder-Mead parameter
 nm_parameter = {
     "tol": None,
-    "maxiter": None,
+    "maxiter": None
 }
 
 class fit:
@@ -95,8 +69,8 @@ class fit:
 ###################################################################################################################################
 
     def jackknife(self, verbose=False):
-        self.jk_parameter = jackknife_samples(lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y)
-        self.covariance = jackknife_covariance(self.jk_parameter, lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y)
+        self.jk_parameter = samples(lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y)
+        self.covariance = covariance_samples(lambda y: self.estimate_parameters(self.chi_squared, self.estimator(y))[0], self.y, self.jk_parameter)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
         return self.covariance 
@@ -116,8 +90,8 @@ class fit:
 ###################################################################################################################################
 
     def multi_mc_jackknife(self, parameter_estimator, verbose=False):
-        self.jk_parameter = np.array([jackknife_samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:]) for i in range(len(self.t))]) 
-        self.covariances = np.array([jackknife_covariance(self.jk_parameter[i], lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.jk_parameter = np.array([samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.covariances = np.array([covariance_samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i,:], self.jk_parameter[i]) for i in range(len(self.t))]) 
         if verbose:
             for i in range(len(self.t)):
                 print(f"jackknife parameter covariance from t[{i}] is ", self.covariances[i])
@@ -186,8 +160,8 @@ class LM_fit:
 ####################################################################################################################################################################
 
     def jackknife(self, verbose=False):
-        self.jk_parameter = jackknife_samples(lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y)
-        self.covariance = jackknife_covariance(self.jk_parameter, lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y)
+        self.jk_parameter = samples(lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y)
+        self.covariance = covariance_samples(lambda x: self.estimate_parameters(self.t, self.estimator(x), self.W, self.model)[0], self.y, self.jk_parameter)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
         return self.covariance 
@@ -211,8 +185,8 @@ class LM_fit:
 ####################################################################################################################################################################
 
     def multi_mc_jackknife(self, verbose=False):
-        self.jk_parameter = np.array([jackknife_samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:]) for i in range(len(self.t))]) 
-        self.covariances = np.array([jackknife_covariance(self.jk_parameter[i], lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.jk_parameter = np.array([samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:]) for i in range(len(self.t))]) 
+        self.covariances = np.array([covariance_samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model)[0], self.y[i,:], self.jk_parameter[i]) for i in range(len(self.t))]) 
         if verbose:
             for i in range(len(self.t)):
                 print(f"jackknife parameter covariance from t[{i}] is ", self.covariances[i])
