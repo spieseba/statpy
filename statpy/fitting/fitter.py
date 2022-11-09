@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from iminuit import Minuit
+#from iminuit import Minuit
 from .levenberg_marquardt import LevenbergMarquardt, jacobian, param_cov_lm, fit_std_err_lm
 from ..statistics.jackknife import samples, covariance_samples
 import scipy.optimize as opt
@@ -39,7 +39,7 @@ class fit:
         self.model = model
         self.p0 = p0
         self.estimator = estimator
-        assert method in ["Nelder-Mead", "Migrad"]
+        assert method in ["Nelder-Mead"] #, "Migrad"]
         self.method = method
         self.min_params = minimizer_params
 
@@ -54,17 +54,17 @@ class fit:
         assert opt_res.success == True
         return opt_res.x, opt_res.fun
 
-    def _opt_Migrad(self, f, y):
-        m = Minuit(lambda p: f(p, y), self.p0)
-        m.migrad()
-        assert m.valid == True
-        return np.array(m.values), m.fval
+#    def _opt_Migrad(self, f, y):
+#        m = Minuit(lambda p: f(p, y), self.p0)
+#        m.migrad()
+#        assert m.valid == True
+#        return np.array(m.values), m.fval
         
     def estimate_parameters(self, f, y):
         if self.method == "Nelder-Mead":
             return self._opt_NelderMead(f, y)
-        if self.method == "Migrad":
-            return self._opt_Migrad(f, y)
+#        if self.method == "Migrad":
+#            return self._opt_Migrad(f, y)
          
 ###################################################################################################################################
 
