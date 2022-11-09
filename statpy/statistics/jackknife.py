@@ -1,39 +1,43 @@
 import numpy as np
 
+################################################ functions of means ################################################
 
-class jackknife():
-    def __init__(self, x):
-        self.x = x
-        self.N = len(x)
-    
-    def __call__(self):
-        pass
+def samples(f, x):
+    N = len(x)
+    mean = np.mean(x, axis=0)
+    return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
 
-    def sample(self, idx):
-        return np.delete(self.x, idx, axis=0)
+def variance(f, x):
+    N = len(x)
+    mean = np.mean(x, axis=0)
+    f_mean = f(mean)
+    return np.mean([ ( f( (N * mean - x[k]) / (N - 1) ) - f_mean )**2 for k in range(N) ], axis=0) * (N - 1)
 
-    # function of means
-    def variance(self, f):
-        x_mean = np.mean(self.x, axis=0)
-        f_mean = f(x_mean)
-        return np.mean([ ( f( (self.N * x_mean - self.x[k]) / (self.N - 1) ) - f_mean )**2 for k in range(self.N) ], axis=0) * (self.N - 1)
+def covariance(f, x):
+    N = len(x)
+    mean = np.mean(x, axis=0)
+    f_mean = f(mean)
+    def outer_prod(a):
+        return np.outer(a,a)
+    return np.mean( [outer_prod( f( (N * mean - x[k]) / (N - 1) ) - f_mean  ) for k in range(N)], axis=0) * (N - 1) 
 
-    # function of means
-    def covariance(self, f):
-        x_mean = np.mean(self.x, axis=0)
-        f_mean = f(x_mean)
-        def outer_prod(a):
-            return np.outer(a,a)
-        return np.mean( [outer_prod( f( (self.N * x_mean - self.x[k]) / (self.N - 1) ) - f_mean  ) for k in range(self.N)], axis=0)  * (self.N - 1)        
+def covariance_samples(f, x, f_samples):
+    N = len(x)
+    f_mean = f(np.mean(x, axis=0))
+    def outer_sqr(a):
+        return np.outer(a,a)
+    return np.sum(np.array([outer_sqr(f_samples[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N   
 
-    def variance2(self, f):
-        f_x = f(self.x)
-        return np.mean([ (f(np.delete(self.x, k, axis=0)) - f_x)**2 for k in range(self.N)], axis=0) * (self.N - 1)
+################################################ arbitrary functions ################################################
 
-    def covariance2(self, f, return_samples=False):
-        f_x = f(self.x)
-        def outer_prod(a):
-            return np.outer(a,a)
-        if return_samples:
-            return np.array([outer_prod( (f(np.delete(self.x, k, axis=0)) - f_x) ) for k in range(self.N)]) * (self.N - 1)
-        return np.mean([outer_prod( (f(np.delete(self.x, k, axis=0)) - f_x) ) for k in range(self.N)], axis=0) * (self.N - 1) 
+def variance_general(f, x):
+    N = len(x)
+    f_x = f(x)
+    return np.mean([ (f(np.delete(x, k, axis=0)) - f_x)**2 for k in range(N)], axis=0) * (N - 1)
+        
+def covariance_general(f, x):
+    N = len(x)
+    f_x = f(x)
+    def outer_prod(a):
+        return np.outer(a,a)
+    return np.mean([outer_prod( (f(np.delete(x, k, axis=0)) - f_x) ) for k in range(N)], axis=0) * (N - 1) 
