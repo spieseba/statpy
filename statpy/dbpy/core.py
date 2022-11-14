@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os
+import os, sys
 import numpy as np
 import statpy.dbpy.np_json as json
 import statpy as sp
@@ -32,6 +32,14 @@ class DBpy:
     def print(self, verbosity):
         print(self.__str__(verbosity=verbosity))  
 
+    def print_sample(self, tag, sample_tag, verbosity=0):
+        for cfg_tag, val in self.database[tag][sample_tag].items():
+            s += f'\t└── {cfg_tag}\n'
+            if verbosity >= 1:
+                s += '\t\t' + f'{val.__str__()}'.replace('\n', '\n\t\t')
+            s += '\n'
+
+
     def _add_data(self, data, tag, sample_tag, cfg_tag):
         if tag in self.database:
             if sample_tag in self.database[tag]:
@@ -41,36 +49,35 @@ class DBpy:
         else:
             self.database[tag] = {sample_tag: {cfg_tag: data}} 
 
-    def add_data(self, data, tag, sample_tag, cfg_tag, safeGuard=True):
-        if safeGuard:
-            try: 
-                self.database[tag][sample_tag][cfg_tag]
-                print(f"{cfg_tag} is already in database for {tag}/{sample_tag}")
-            except KeyError:
+    def add_data(self, data, tag, sample_tag, cfg_tag):
+        try: 
+            self.database[tag][sample_tag][cfg_tag]
+            if query_yes_no(f"{cfg_tag} is already in database for {tag}/{sample_tag} Overwrite?"):
                 self._add_data(data, tag, sample_tag, cfg_tag)
-        else:
+        except KeyError:
             self._add_data(data, tag, sample_tag, cfg_tag)
 
-    def _add_data_arr(self, data, tag, sample_tag, cfg_prefix):
+    def _add_data_arr(self, data, tag, sample_tag, idxs, cfg_prefix):
         for idx in range(len(data)):
-            self._add_data(data[idx], tag, sample_tag, cfg_prefix + str(idx))
+            self._add_data(data[idx], tag, sample_tag, cfg_prefix + str(idxs[idx]))
 
-    def add_data_arr(self, data, tag, sample_tag, cfg_prefix="", safeGuard=True):
-        if safeGuard:
-            try:
-                self.database[tag][sample_tag]
-                print(f"{sample_tag} is already in database for {tag}")
-            except KeyError:
-                self._add_data_arr(data, tag, sample_tag, cfg_prefix)
-        else: 
-            self._add_data_arr(data, tag, sample_tag, cfg_prefix)
+    def add_data_arr(self, data, tag, sample_tag, idxs=None, cfg_prefix=""):
+        if idxs == None:
+            idxs = range(len(data))
+        try:
+            self.database[tag][sample_tag]
+            if query_yes_no(f"{sample_tag} is already in database for {tag}. Overwrite?"):
+                self._add_data_arr(data, tag, sample_tag, idxs, cfg_prefix)
+        except KeyError:
+            self._add_data_arr(data, tag, sample_tag, idxs, cfg_prefix)
 
     def add_tag_entry(self, dst_tag, src, src_tag):
         with open(src) as f:
             src_db = json.load(f)
         try:
             self.database[dst_tag]
-            print(f"{dst_tag} is already in database")
+            if query_yes_no(f"{dst_tag} is already in database. Overwrite?"):
+                self.database[dst_tag] = src_db[src_tag]
         except KeyError:
             self.database[dst_tag] = src_db[src_tag]
 
@@ -81,11 +88,29 @@ class DBpy:
             self.database[dst_tag]
             try: 
                 self.database[dst_tag][dst_sample_tag]
-                print(f"{dst_sample_tag} is already in database for {dst_tag}.")
+                if query_yes_no(f"{dst_sample_tag} is already in database for {dst_tag}. Overwrite?"):
+                    self.database[dst_tag][dst_sample_tag] = src_db[src_tag]
             except KeyError:
                 self.database[dst_tag][dst_sample_tag] = src_db[src_tag]
         except KeyError:
             self.database[dst_tag] = {dst_sample_tag: src_db[src_tag]}
+
+    def apply_f(self, f, tag, sample_tag, dst_tag, dst_sample_tag, overwrite=False):
+        f_dict = {}
+        for cfg_idx, cfg_val in self.database[tag][sample_tag].items():  
+            f_dict[cfg_idx] = f(cfg_val)
+        try:
+            self.database[dst_tag]
+            try: 
+                self.database[dst_tag][dst_sample_tag]
+                if overwrite:
+                    self.database[dst_tag][dst_sample_tag] = f_dict
+                elif query_yes_no(f"{dst_tag} is already in database. Overwrite?"):
+                    self.database[dst_tag][dst_sample_tag] = f_dict
+            except KeyError:
+                self.database[dst_tag][dst_sample_tag] = f_dict 
+        except KeyError:
+            self.database[dst_tag] = {dst_sample_tag: f_dict}
 
     def delete(self, tag):
         self._delete(tag, self.database)
@@ -111,21 +136,21 @@ class DBpy:
         try:
             return self.database[tag][sample_tag][cfg_tag]
         except KeyError:
-            print("requested data not in database")
+            print(f"requested data not in database. tag = {tag}, sample_tag = {sample_tag}, cfg_tag = {cfg_tag}")
             return None
         
     def get_data_dict(self, tag, sample_tag):
         try:
             return dict(self.database[tag][sample_tag])
         except KeyError:
-            print("requested data not in database")
+            print(f"requested data not in database. tag = {tag}, sample_tag = {sample_tag}")
             return None
 
     def get_data_arr(self, tag, sample_tag):
         try: 
             return np.array(list(self.get_data_dict(tag, sample_tag).values()))
         except KeyError:
-            print("requested data not in database")
+            print(f"requested data not in database. tag = {tag}, sample_tag = {sample_tag}")
             return None
 
     def save(self):
@@ -140,7 +165,8 @@ class DBpy:
             self._add_data(mean, tag, sample_tag + "_mean", "-")
         return mean
 
-    def jackknife(self, f, tag, sample_tag, jk_suffix="_jackknife", eps=1.0, store=True):
+    def jackknife_resampling(self, f, tag, sample_tag, jk_suffix="_jackknife", eps=1.0, store=True, dst_tag=None):
+        if dst_tag==None: dst_tag = tag
         data = self.get_data_dict(tag, sample_tag)
         mean = self.sample_mean(tag, sample_tag.split("_binned")[0])
         jk_tag = sample_tag + jk_suffix
@@ -148,18 +174,20 @@ class DBpy:
         for cfg_tag in data.keys():
             jk_sample[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) )
         if store:
-            self.database[tag][jk_tag] = jk_sample
+            self.database[dst_tag][jk_tag] = jk_sample
         return jk_sample
-        
-    def jackknife_variance(self, f, tag, sample_tag, jk_suffix="_jackknife", store=True):
+
+    def jackknife_variance(self, f, tag, sample_tag, jk_suffix="_jackknife", eps=1.0, store=True, dst_tag=None):
+        if dst_tag==None: dst_tag = tag
+        self.jackknife_resampling(f, tag, sample_tag, jk_suffix, eps, store, dst_tag)
         f_mean = f( self.database[tag][sample_tag.split("_binned")[0] + "_mean"]["-"] )
-        jk_data = self.get_data_arr(tag, sample_tag + jk_suffix)
+        jk_data = self.get_data_arr(dst_tag, sample_tag + jk_suffix)
         N = len(jk_data)
         jk_var = np.mean([ (jk_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
         if store:
-            self.add_data(jk_var, tag, sample_tag + "_jkvar", "-") 
+            self.add_data(jk_var, dst_tag, sample_tag + "_jkvar", "-") 
         return jk_var
-
+        
     def bin(self, binsize, tag, sample_tag, cfg_prefix="", store=True):
         data_arr = self.get_data_arr(tag, sample_tag)
         binned_data = {}
@@ -169,12 +197,11 @@ class DBpy:
             self.database[tag][f"{sample_tag}_binned{binsize}"] = binned_data
         return binned_data
 
-    def binning_study(self, f, tag, sample_tag, binsizes=[1,2,4,8], keep_binsizes=[]):
+    def binning_study(self, tag, sample_tag, binsizes=[1,2,4,8], keep_binsizes=[]):
         stds = {}
         for binsize in binsizes:
             self.bin(binsize, tag, sample_tag)
-            self.jackknife(f, tag, sample_tag + f"_binned{binsize}")
-            stds[binsize] = np.array([y**0.5 for y in self.jackknife_variance(f, tag, sample_tag + f"_binned{binsize}")])
+            stds[binsize] = np.array([y**0.5 for y in self.jackknife_variance(lambda x: x, tag, sample_tag + f"_binned{binsize}")])
         # clean up
         for binsize in [binsize for binsize in binsizes if binsize not in keep_binsizes]:
             del self.database[tag][sample_tag + f"_binned{binsize}"]
@@ -214,3 +241,36 @@ class DBpy:
         
         if return_fitter:
             return fitter
+
+
+##################################################################################################################
+
+def query_yes_no(question, default="yes"):
+    """Ask a yes/no question via raw_input() and return their answer.
+
+    "question" is a string that is presented to the user.
+    "default" is the presumed answer if the user just hits <Enter>.
+            It must be "yes" (the default), "no" or None (meaning
+            an answer is required of the user).
+
+    The "answer" return value is True for "yes" or False for "no".
+    """
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == "":
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")

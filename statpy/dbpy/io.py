@@ -2,6 +2,7 @@
 
 import os, re, ast
 import statpy.dbpy.np_json as json
+from statpy.dbpy.core import query_yes_no
 import numpy as np
 
 try:
@@ -40,8 +41,10 @@ class IO:
 
 def convert(src, dst, src_tags, dst_tags, cfg_prefix="", verbose=False):
     if os.path.isfile(dst):
-        print(f"file {dst} already exists. Delete or rename it")
-        exit()
+        if query_yes_no(f"file {dst} already exists. Overwrite?"):
+            pass
+        else:        
+            exit()
     database = {}
     for dst_tag in dst_tags:
         database[dst_tag] = {}
@@ -59,12 +62,17 @@ def convert(src, dst, src_tags, dst_tags, cfg_prefix="", verbose=False):
 
 def convert_from_old_format(src, dst, src_tags, dst_tags, cfg_prefix="", verbose=False):
     if os.path.isfile(dst):
-        print(f"file {dst} already exists. Delete or rename it")
-        exit()
-    database = {}
+        if query_yes_no(f"file {dst} already exists. Overwrite?"):
+            pass
+        else:        
+            exit()
+    else:
+        database = {}
     for dst_tag in dst_tags:
         database[dst_tag] = {}
     ensemble = [os.path.join(src, f) for f in os.listdir(src) if os.path.isfile(os.path.join(src, f))]
+    # remove ,json
+    ensemble = [ x for x in ensemble if ".json" not in x ]
     ensemble.sort(key=lambda f: int(re.sub('\D', '', f)))
     for cfg in ensemble:
         if verbose:
