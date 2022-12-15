@@ -6,5 +6,5 @@ setup(
     description="statistics library for lattice QCD",
     author="Sebastian Spiegel",
     packages=["statpy"],
-    install_requires=["numpy"]
+    install_requires=["numpy", "scipy", "matplotlib", "iminuit"]
 )
