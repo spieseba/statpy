@@ -28,6 +28,12 @@ def covariance_samples(f, x, f_samples):
         return np.outer(a,a)
     return np.sum(np.array([outer_sqr(f_samples[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N   
 
+def covariance_samples2(f_mean, f_samples):
+    N = len(f_samples)
+    def outer_sqr(a):
+        return np.outer(a,a)
+    return np.sum(np.array([outer_sqr(f_samples[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N  
+
 ################################################ arbitrary functions ################################################
 
 def variance_general(f, x):

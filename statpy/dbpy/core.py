@@ -4,15 +4,25 @@ import os, sys
 import numpy as np
 import statpy.dbpy.np_json as json
 import statpy as sp
+import matplotlib.pyplot as plt
 
 class DBpy:
-    def __init__(self, file):
+    def __init__(self, file, safe_mode=False):
         self.file = file
         if os.path.isfile(self.file):
             with open(self.file) as f:
                 self.database = json.load(f)
         else:
             self.database = {}
+        
+        self.safe_mode = safe_mode
+
+
+    def _query_yes_no(self, question, default="yes"):
+        if self.safe_mode:
+            query_yes_no(question, default)
+        else: 
+            return True
 
     def __str__(self, verbosity=0):
         s = 'DATABASE CONSISTS OF\n\n\n'
@@ -39,7 +49,6 @@ class DBpy:
                 s += '\t\t' + f'{val.__str__()}'.replace('\n', '\n\t\t')
             s += '\n'
 
-
     def _add_data(self, data, tag, sample_tag, cfg_tag):
         if tag in self.database:
             if sample_tag in self.database[tag]:
@@ -52,12 +61,18 @@ class DBpy:
     def add_data(self, data, tag, sample_tag, cfg_tag):
         try: 
             self.database[tag][sample_tag][cfg_tag]
-            if query_yes_no(f"{cfg_tag} is already in database for {tag}/{sample_tag} Overwrite?"):
+            if self._query_yes_no(f"{cfg_tag} is already in database for {tag}/{sample_tag} Overwrite?"):
                 self._add_data(data, tag, sample_tag, cfg_tag)
         except KeyError:
             self._add_data(data, tag, sample_tag, cfg_tag)
 
-    def _add_data_arr(self, data, tag, sample_tag, idxs, cfg_prefix):
+    def _add_data_arr(self, data, tag, sample_tag, idxs, cfg_prefix, overwrite=True):
+        try:
+            self.database[tag]
+        except KeyError:
+            self.database[tag] = {}
+        if overwrite:
+            self.database[tag][sample_tag] = {}
         for idx in range(len(data)):
             self._add_data(data[idx], tag, sample_tag, cfg_prefix + str(idxs[idx]))
 
@@ -66,7 +81,7 @@ class DBpy:
             idxs = range(len(data))
         try:
             self.database[tag][sample_tag]
-            if query_yes_no(f"{sample_tag} is already in database for {tag}. Overwrite?"):
+            if self._query_yes_no(f"{sample_tag} is already in database for {tag}. Overwrite?"):
                 self._add_data_arr(data, tag, sample_tag, idxs, cfg_prefix)
         except KeyError:
             self._add_data_arr(data, tag, sample_tag, idxs, cfg_prefix)
@@ -76,7 +91,7 @@ class DBpy:
             src_db = json.load(f)
         try:
             self.database[dst_tag]
-            if query_yes_no(f"{dst_tag} is already in database. Overwrite?"):
+            if self._query_yes_no(f"{dst_tag} is already in database. Overwrite?"):
                 self.database[dst_tag] = src_db[src_tag]
         except KeyError:
             self.database[dst_tag] = src_db[src_tag]
@@ -88,7 +103,7 @@ class DBpy:
             self.database[dst_tag]
             try: 
                 self.database[dst_tag][dst_sample_tag]
-                if query_yes_no(f"{dst_sample_tag} is already in database for {dst_tag}. Overwrite?"):
+                if self._query_yes_no(f"{dst_sample_tag} is already in database for {dst_tag}. Overwrite?"):
                     self.database[dst_tag][dst_sample_tag] = src_db[src_tag]
             except KeyError:
                 self.database[dst_tag][dst_sample_tag] = src_db[src_tag]
@@ -105,7 +120,7 @@ class DBpy:
                 self.database[dst_tag][dst_sample_tag]
                 if overwrite:
                     self.database[dst_tag][dst_sample_tag] = f_dict
-                elif query_yes_no(f"{dst_tag} is already in database. Overwrite?"):
+                elif self._query_yes_no(f"{dst_tag} is already in database. Overwrite?"):
                     self.database[dst_tag][dst_sample_tag] = f_dict
             except KeyError:
                 self.database[dst_tag][dst_sample_tag] = f_dict 
@@ -172,21 +187,23 @@ class DBpy:
         jk_tag = sample_tag + jk_suffix
         jk_sample = {}
         for cfg_tag in data.keys():
-            jk_sample[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) )
+            jk_sample[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) ) 
         if store:
             self.database[dst_tag][jk_tag] = jk_sample
         return jk_sample
 
-    def jackknife_variance(self, f, tag, sample_tag, jk_suffix="_jackknife", eps=1.0, store=True, dst_tag=None):
+    def jackknife_variance(self, f, tag, sample_tag, jk_suffix="_jackknife", eps=1.0, dst_tag=None, dst_sample_tag=None, return_var=True, store=True):
         if dst_tag==None: dst_tag = tag
+        if dst_sample_tag==None: dst_sample_tag = sample_tag
         self.jackknife_resampling(f, tag, sample_tag, jk_suffix, eps, store, dst_tag)
         f_mean = f( self.database[tag][sample_tag.split("_binned")[0] + "_mean"]["-"] )
         jk_data = self.get_data_arr(dst_tag, sample_tag + jk_suffix)
         N = len(jk_data)
-        jk_var = np.mean([ (jk_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
+        var = np.mean([ (jk_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
         if store:
-            self.add_data(jk_var, dst_tag, sample_tag + "_jkvar", "-") 
-        return jk_var
+            self.add_data_arr(var, dst_tag, dst_sample_tag + "_jkvar")
+        if return_var:
+            return var
         
     def bin(self, binsize, tag, sample_tag, cfg_prefix="", store=True):
         data_arr = self.get_data_arr(tag, sample_tag)
@@ -209,11 +226,58 @@ class DBpy:
             del self.database[tag][sample_tag + f"_binned{binsize}_jkvar"]
         return stds   
 
+
+################################### SCALE SETTING ###################################
+
+    def energy_density(self, Et_tag, sample_tag, tlo, thi, return_Edens=True):
+        Edens = np.mean(self.get_data_arr(Et_tag, sample_tag)[:,:,tlo:thi], axis=2).real
+        self.add_data_arr(Edens, "Edens" + Et_tag.split("Et")[1], sample_tag)
+        if return_Edens:
+            return Edens
+
+    def set_scale(self, Edens_tag, sample_tag, binsize, tau, scales=["t0", "w0"], dst_suffix="", store=True):
+        Edens_binned = sp.statistics.bin(self.get_data_arr(Edens_tag, sample_tag), binsize)
+        if binsize != 1:
+            sample_tag = sample_tag + f"_binned{binsize}"
+            self.add_data_arr(Edens_binned, Edens_tag, sample_tag)
+        print("effective number of measurements: ", len(Edens_binned))
+        scale = sp.qcd.scale_setting.scale(tau, Edens_binned)
+        if "t0" in scales:
+            sqrt_tau0, sqrt_tau0_std, t2E, t2E_std, aGeV_inv_t0, aGeV_inv_std_t0 = scale.lattice_spacing("t0")
+            if store:
+                self.add_data(sqrt_tau0, "flow_scale_t0" + dst_suffix, sample_tag, "sqrt_tau0")
+                self.add_data(sqrt_tau0_std, "flow_scale_t0" + dst_suffix, sample_tag, "sqrt_tau0_std")
+                self.add_data(t2E, "flow_scale_t0" + dst_suffix, sample_tag, "t2E")
+                self.add_data(t2E_std, "flow_scale_t0" + dst_suffix, sample_tag, "t2E_std")
+                self.add_data(aGeV_inv_t0, "flow_scale_t0" + dst_suffix, sample_tag, "aGeV_inv")
+                self.add_data(aGeV_inv_std_t0, "flow_scale_t0" + dst_suffix, sample_tag, "aGeV_inv_std")
+        if "w0" in scales:
+            wau0, wau0_std, tdt2E, tdt2E_std, aGeV_inv_w0, aGeV_inv_std_w0 = scale.lattice_spacing("w0")
+            if store:
+                self.add_data(wau0, "flow_scale_w0" + dst_suffix, sample_tag, "wau0")
+                self.add_data(wau0_std, "flow_scale_w0" + dst_suffix, sample_tag, "wau0_std")
+                self.add_data(tdt2E, "flow_scale_w0" + dst_suffix, sample_tag, "tdt2E")
+                self.add_data(tdt2E_std, "flow_scale_w0" + dst_suffix, sample_tag, "tdt2E_std")
+                self.add_data(aGeV_inv_w0, "flow_scale_w0" + dst_suffix, sample_tag, "aGeV_inv")
+                self.add_data(aGeV_inv_std_w0, "flow_scale_w0" + dst_suffix, sample_tag, "aGeV_inv_std")
+
+    
+
+    
+
 ###################################### FITTING ######################################
 
-    def multi_mc_fit(self, t, tag, sample_tag, C, model, p0, estimator, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
+    def multi_mc_fit(self, t, tags, sample_tags, C, model, p0, estimator, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
 
-        y = np.array([self.get_data_arr(tag, sample_tag + f"{ti}") for ti in t])
+        mos = []
+        for tag, sample_tag in zip(tags, sample_tags):
+            mos.append(list(map(lambda e: (tag, e), sample_tag)))
+        y = []
+        for mo in mos:
+            for ts in mo:
+                ta, s = ts
+                y.append(self.get_data_arr(ta, s))
+
         assert isinstance(model, dict)
         model_func = list(model.values())[0]        
         assert method in ["Levenberg-Marquardt", "Migrad", "Nelder-Mead"]
@@ -225,25 +289,208 @@ class DBpy:
         fitter.multi_mc_fit(verbose)
 
         if store:
-            self.database[tag][fit_tag] = {}
-            self.database[tag][fit_tag]["t"] = t
-            self.database[tag][fit_tag]["C"] = C
-            self.database[tag][fit_tag]["model"] = list(model.keys())[0]
-            self.database[tag][fit_tag]["minimizer"] = method
-            self.database[tag][fit_tag]["minimizer_params"] = minimizer_params
-            self.database[tag][fit_tag]["p0"] = p0
-            self.database[tag][fit_tag]["best_parameter"] = fitter.best_parameter
-            self.database[tag][fit_tag]["best_parameter_cov"] = fitter.best_parameter_cov
-            self.database[tag][fit_tag]["jk_parameter"] = fitter.jk_parameter
-            self.database[tag][fit_tag]["pval"] = fitter.p
-            self.database[tag][fit_tag]["dof"] = fitter.dof
-            self.database[tag][fit_tag]["fit_err"] = fitter.fit_err
+            self.add_data(t, fit_tag, "t", "-")
+            self.add_data(C, fit_tag, "C", "-")
+            self.add_data(list(model.keys())[0], fit_tag, "model", "-")
+            self.add_data(method, fit_tag, "minimizer", "-")
+            self.add_data(minimizer_params, fit_tag, "minimizer_params", "-")
+            self.add_data(p0, fit_tag, "p0", "-")
+            self.add_data(fitter.best_parameter, fit_tag, "best_parameter", "-")
+            self.add_data(fitter.best_parameter_cov, fit_tag, "best_parameter_cov", "-")
+            self.add_data(fitter.jk_parameter, fit_tag, "jk_parameter", "-")
+            self.add_data(fitter.p, fit_tag, "pval", "-")
+            self.add_data(fitter.chi2, fit_tag, "chi2", "-")
+            self.add_data(fitter.dof, fit_tag, "dof", "-")
+            self.add_data(fitter.fit_err, fit_tag, "fit_err", "-")
         
         if return_fitter:
             return fitter
 
+###################################### SPECTROSCOPY ######################################
 
-##################################################################################################################
+    def Ct_binning_study(self, Ct_tag, sample_tag, binsizes, keep_binsizes, t=None, shift=0):
+        stds = self.binning_study(Ct_tag, sample_tag, binsizes, keep_binsizes)
+        nbins = list(stds.keys())
+        if t == None:
+            print(f"Binning study of {Ct_tag} (nbin={nbins}):\n", [np.roll(stds[n], shift) for n in nbins])
+        else:
+            print(f"Binning study of {Ct_tag} for t={t} (nbin={nbins}):\n", [np.roll(stds[n], shift)[t] for n in nbins])
+
+    def effective_mass_log(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
+        st = sample_tag.split("_binned")[0]
+        self.apply_f(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, st + "_mean", dst_tag, sample_tag + "_mean", overwrite=True)
+        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, dst_sample_tag=sample_tag, return_var=False, store=store)    
+        return self.get_data(dst_tag, sample_tag + "_mean", "-"), self.get_data_arr(dst_tag, sample_tag + "_jkvar")**0.5
+
+    def effective_mass_acosh(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
+        st = sample_tag.split("_binned")[0]
+        self.apply_f(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, st + "_mean", dst_tag, sample_tag + "_mean", overwrite=True)
+        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, dst_sample_tag=sample_tag, return_var=False, store=store)    
+        return self.get_data(dst_tag, sample_tag + "_mean", "-"), self.get_data_arr(dst_tag, sample_tag + "_jkvar")**0.5
+
+    def effective_mass_const_fit(self, t, mt_tag, sample_tag, dst_tag, p0, method, minimizer_params={}, verbose=True, store=True):    
+        mt = self.get_data(mt_tag, sample_tag + "_mean", "-")[t]
+        mt_cov = np.diag(self.get_data_arr(mt_tag, sample_tag + "_jkvar"))[t[0]:t[-1]+1,t[0]:t[-1]+1]
+        m, p, chi2, dof, model = sp.qcd.spectroscopy.const_fit(t, np.array([mt]), mt_cov, p0, method, minimizer_params, error=False, verbose=False)
+
+        mt_jackknife = self.get_data_dict(mt_tag, sample_tag + "_jackknife")
+        m_jackknife = []
+        for mt_jk in mt_jackknife.values():
+            m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, np.array([mt_jk[t]]), mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
+            m_jackknife.append(m_jk)
+
+        m_cov = sp.statistics.jackknife.covariance_samples2(m, m_jackknife)
+        model = sp.qcd.spectroscopy.const_model()
+        fit_err = lambda t: (model.parameter_gradient(t,m) @ m_cov @ model.parameter_gradient(t,m))**0.5
+
+        if verbose:
+            print("*** constant mass fit ***")
+            print("fit window:", t)
+            print(f"m_eff = {m[0]} +- {m_cov[0][0]**.5}")
+            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
+
+        if store:
+            try:
+                self.database[dst_tag]
+            except KeyError:
+                self.database[dst_tag] = {}
+            self.database[dst_tag][sample_tag] = {}
+            self.database[dst_tag][sample_tag]["fit_window"] = t
+            self.database[dst_tag][sample_tag]["mt_cov"] = mt_cov
+            self.database[dst_tag][sample_tag]["model"] = "const."
+            self.database[dst_tag][sample_tag]["model_func"] = model
+            self.database[dst_tag][sample_tag]["minimizer"] = method
+            self.database[dst_tag][sample_tag]["minimizer_params"] = minimizer_params
+            self.database[dst_tag][sample_tag]["p0"] = p0
+            self.database[dst_tag][sample_tag]["m_eff"] = m
+            self.database[dst_tag][sample_tag]["m_eff_cov"] = m_cov
+            self.database[dst_tag][sample_tag]["m_eff_jackknife"] = m_jackknife
+            self.database[dst_tag][sample_tag]["pval"] = p
+            self.database[dst_tag][sample_tag]["chi2"] = chi2
+            self.database[dst_tag][sample_tag]["dof"] = dof
+            self.database[dst_tag][sample_tag]["fit_err"] = fit_err
+
+        return m[0], m_cov[0][0]**.5
+
+
+    def correlator_exp_fit(self, t, Ct_tag, sample_tag, dst_tag, dst_sample_tag, cov, p0, symmetric=False, method="Nelder-Mead", minimizer_params={}, shift=0, store=True, make_plot=False, verbose=False):        
+
+        Ct_sample = np.roll(self.get_data_arr(Ct_tag, sample_tag), shift); Nt = Ct_sample.shape[1]
+        Ct_sample = Ct_sample[:,t]
+        cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1)[t[0]:t[-1]+1,t[0]:t[-1]+1].real
+        best_parameter, best_parameter_cov, jk_parameter, fit_err, p, chi2, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_sample, cov, p0, symmetric, Nt, method, minimizer_params=minimizer_params, verbose=verbose)
+
+        if symmetric:
+            model_str = "p[0] * [exp(-p[1]t) + exp(-p[1](T-t))]"
+        else:
+            model_str = "p[0] * exp(-p[1]t)"
+
+        if make_plot:
+            fig, ax = plt.subplots(figsize=(10,5))
+            # data
+            Ct = np.roll(self.get_data(Ct_tag, sample_tag.split("_binned")[0] + "_mean", "-"), shift)
+            ts = np.arange(len(Ct))
+            Ct_std = np.roll(self.get_data_arr(Ct_tag, sample_tag + f"_jkvar")[0], shift)**0.5
+            ax.errorbar(ts, Ct, Ct_std, ls="", marker=".", capsize=3, color="red", label="data")
+            # fit + err
+            trange = np.arange(ts[0]-5.0, 50, 0.01)
+            fy = model(trange, best_parameter)
+            fyerr = [fit_err(t) for t in trange]
+            ax.fill_between(trange,fy-fyerr,fy+fyerr,alpha=0.1,color="blue")
+            fit_label = f"p[0] = {best_parameter[0]:.3f} +- {best_parameter_cov[0][0]**0.5:.3f}, p[1] = {best_parameter[1]:.3f} +- {best_parameter_cov[1][1]**0.5:.3f}"
+            ax.plot(trange,fy,c="blue", label=fit_label)
+            ax.axvspan(t[0], t[-1], facecolor='grey', alpha=0.4, label="fit window")
+            # adjust plot
+            ax.set_xlim(ts[0]-2, ts[-1]+2)
+            ax.set_ylim(-0.05, Ct[0]*1.1)
+            ax.set_xlabel(r"$t$")
+            ax.set_ylabel(r"$C(t)$")
+            ax.grid()
+            ax.legend()
+            ax.set_title(f"model = {model_str}, minimization method: {method}, pval = {p:.3f}")
+            plt.tight_layout()
+            
+        if store:
+            try:
+                self.database[dst_tag]
+            except KeyError:
+                self.database[dst_tag] = {}
+            self.database[dst_tag][dst_sample_tag] = {}
+            self.database[dst_tag][dst_sample_tag]["fit_window"] = t
+            self.database[dst_tag][dst_sample_tag]["cov"] = cov
+            self.database[dst_tag][dst_sample_tag]["model"] = model_str
+            self.database[dst_tag][dst_sample_tag]["model_func"] = model
+            self.database[dst_tag][dst_sample_tag]["minimizer"] = method
+            self.database[dst_tag][dst_sample_tag]["minimizer_params"] = minimizer_params
+            self.database[dst_tag][dst_sample_tag]["p0"] = p0
+            self.database[dst_tag][dst_sample_tag]["best_parameter"] = best_parameter
+            self.database[dst_tag][dst_sample_tag]["best_parameter_cov"] = best_parameter_cov
+            self.database[dst_tag][dst_sample_tag]["jk_parameter"] = jk_parameter
+            self.database[dst_tag][dst_sample_tag]["pval"] = p
+            self.database[dst_tag][dst_sample_tag]["chi2"] = chi2
+            self.database[dst_tag][dst_sample_tag]["dof"] = dof
+            self.database[dst_tag][dst_sample_tag]["fit_err"] = fit_err
+
+    def effective_mass_exp_fit(self, tmax, nt, Ct_tag, sample_tag, dst_tag, dst_sample_tag, cov, p0, symmetric=False, method="Nelder-Mead", minimizer_params={}, 
+                            shift=0, make_plots=False, verbose=False, store=True):
+        mt = []; mt_var = []; mt_jackknife = []
+        for t0 in range(tmax):
+            t = np.arange(t0, t0+nt)
+            self.correlator_exp_fit(t, Ct_tag, sample_tag, dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", cov, p0, symmetric, method, minimizer_params, shift, make_plot=make_plots, verbose=verbose)
+            mt.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "best_parameter")[1])
+            mt_var.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "best_parameter_cov")[1][1])
+            mt_jackknife.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "jk_parameter")[:,1])
+        mt = np.array(mt); mt_var = np.array(mt_var); mt_jackknife = np.array(mt_jackknife)
+
+        mt_jackknife_sample = {}
+        for cfg in range(mt_jackknife.shape[1]):
+            mt_jackknife_sample[str(cfg)] = mt_jackknife[:,cfg]
+
+        self.add_data(mt, dst_tag, dst_sample_tag + "_mean", "-")
+        self.add_data_arr(mt_var, dst_tag, dst_sample_tag + "_jkvar")
+        self.database[dst_tag][dst_sample_tag + "_jackknife"] = mt_jackknife_sample
+
+
+        return mt, mt_var
+
+
+    #def correlator_exp_fit_over_range(self, Ct_tag, sample_tag, cov, p0, tlo, thi, nt, tskip=1, symmetric=True, method="Nelder-Mead", minimizer_params={}, shift=0, store=True, dst_tag=None, return_masses=True, verbose=False, make_plot=False):
+    #    mt = []
+    #    mt_var = []
+    #    mt_jk = []
+#
+    #    if verbose:
+    #        print("number of correlator measurements", len(self.database[Ct_tag][sample_tag]))
+    #        print()
+#
+    #    dst_tag = Ct_tag + "_FIT"
+    #    for t0 in range(tlo,thi,tskip):
+    #        t = np.arange(t0, t0 + nt)
+    #        twindow_sample_tag = sample_tag + f"_t0{t[0]}"
+    #        self.correlator_exp_fit(t, Ct_tag, sample_tag, dst_tag, twindow_sample_tag, cov, p0, symmetric, method=method, minimizer_params=minimizer_params, shift=shift, make_plot=make_plot, store=store, verbose=verbose)
+#
+    #        m = self.database[Ct_tag + "_FIT"][twindow_sample_tag]["best_parameter"][1]
+    #        m_var = self.database[Ct_tag + "_FIT"][twindow_sample_tag]["best_parameter_cov"][1][1] 
+    #        if verbose:
+    #            print(f"fitted mass: {m} +- {m_var**.5}\n")
+    #        mt.append(m)
+    #        mt_var.append(m_var)
+    #        mt_jk.append(self.database[Ct_tag + "_FIT"][twindow_sample_tag]["jk_parameter"][:,1])
+#
+    #    if store:
+    #        mt_tag = "mt" + Ct_tag.split("Ct")[1] + "_exp_fit"
+    #        self.add_data(np.array(mt), mt_tag, sample_tag + "_mean", "-")
+    #        self.add_data(np.array(mt_var), mt_tag, sample_tag + "_jkvar", "-")
+    #        self.add_data_arr(np.array(mt_jk), mt_tag, sample_tag + "_jackknife")
+    #    
+    #    if return_masses:
+    #        return np.array(mt), np.array(mt_var)**.5
+
+
+
+################################################################################################################################################
+################################################################################################################################################
+################################################################################################################################################
 
 def query_yes_no(question, default="yes"):
     """Ask a yes/no question via raw_input() and return their answer.

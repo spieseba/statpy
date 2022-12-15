@@ -1,5 +1,6 @@
 import numpy as np
 from ..statistics.jackknife import variance
+import matplotlib.pyplot as plt
 
 def derivative(farr, method="central", h=0.01):
     if method == "central":
@@ -44,25 +45,26 @@ class scale:
                 break
         if xa == 0.0:
             print(f"c = {c} not reached -- check plot")
+            self.make_plot()
             return None
         m = (c - fb) / (fa - fb)
         x0 = xa * m + xb * (1.0 - m)   
         return x0
 
-    def comp_tau0(self, t2E):
-        return self.lin_interp(self.tau, t2E, self.ct0) 
+    def comp_sqrt_tau0(self, t2E):
+        return np.sqrt(self.lin_interp(self.tau, t2E, self.ct0))
 
     def comp_wau0(self, tdt2E):
         return np.sqrt(self.lin_interp(self.tau[1:-1], tdt2E[1:-1], self.cw0))
 
-    def get_cutoff_t0(self, tau0, tau0_std, verbose=False):
+    def get_cutoff_t0(self, sqrt_tau0, sqrt_tau0_std, verbose=False):
         sqrt_t0_fm = 0.1638; sqrt_t0_fm_err = 0.0010 # taken from arXiv:1401.3270
-        afm = sqrt_t0_fm / np.sqrt(tau0) 
-        afm_std = np.sqrt( sqrt_t0_fm_err**2 / tau0 + tau0_std**2 * sqrt_t0_fm**2 / (4 * tau0**3) )
+        afm = sqrt_t0_fm / sqrt_tau0 
+        afm_std = np.sqrt( sqrt_t0_fm_err**2 / sqrt_tau0**2 + sqrt_tau0_std**2 * sqrt_t0_fm**2 / sqrt_tau0**4  )
         aGeV = afm / 0.1973; aGeV_std = afm_std / 0.1973
         aGeV_inv = 1.0/aGeV; aGeV_inv_std = abs(aGeV_std/aGeV**2)
         if verbose:
-            print(f"scale: tau0 = {tau0:.6f} +- {tau0_std:.6f}")
+            print(f"scale: sqrt(tau0) = {sqrt_tau0:.6f} +- {sqrt_tau0_std:.6f}")
             print(f"cutoff: {aGeV_inv:.6f} +- {aGeV_inv_std:.6f} GeV")
             print(f"lattice spacing: {aGeV:.6f} +- {aGeV_std:.6f} 1/GeV")
             print(f"lattice spacing: {afm:.6f} +- {afm_std:.6f} fm")  
@@ -82,20 +84,40 @@ class scale:
         return aGeV_inv, aGeV_inv_std
 
     def comp_t0_phys(self, E_mean):
-        return np.sqrt(self.comp_tau0(self.comp_t2E(E_mean))) * 0.1973 / 0.1638 # taken from arXiv:1401.3270
+        return self.comp_sqrt_tau0(self.comp_t2E(E_mean)) * 0.1973 / 0.1638 # taken from arXiv:1401.3270
 
     def comp_w0_phys(self, E_mean):
         return self.comp_wau0(self.comp_tdt2E(E_mean)) * 0.1973 / 0.1670 # taken from arXiv:1401.3270
         
     def lattice_spacing(self, scale):
-        if scale == 't0':
+        self.scale = scale
+        if self.scale == "t0":
             self.t2E = self.comp_t2E(self.E_mean); self.t2E_std = np.sqrt( variance(lambda x: self.comp_t2E(x), self.E) )    
-            self.tau0 = self.comp_tau0(self.t2E); self.tau0_std = np.sqrt( variance(lambda x: self.comp_tau0(self.comp_t2E(x)), self.E) )
-            self.aGeV_inv_t0, self.aGeV_inv_std_t0 = self.get_cutoff_t0(self.tau0, self.tau0_std, verbose=True)
-            return self.tau0, self.tau0_std, self.t2E, self.t2E_std, self.aGeV_inv_t0, self.aGeV_inv_std_t0
+            self.sqrt_tau0 = self.comp_sqrt_tau0(self.t2E); self.sqrt_tau0_std = np.sqrt( variance(lambda x: self.comp_sqrt_tau0(self.comp_t2E(x)), self.E) )
+            self.aGeV_inv_t0, self.aGeV_inv_std_t0 = self.get_cutoff_t0(self.sqrt_tau0, self.sqrt_tau0_std, verbose=True)
+            return self.sqrt_tau0, self.sqrt_tau0_std, self.t2E, self.t2E_std, self.aGeV_inv_t0, self.aGeV_inv_std_t0
 
-        if scale == 'w0':
+        if self.scale == "w0":
             self.tdt2E = self.comp_tdt2E(self.E_mean); self.tdt2E_std = np.sqrt( variance(lambda x: self.comp_tdt2E(x), self.E) ) 
             self.wau0 = self.comp_wau0(self.tdt2E); self.wau0_std = np.sqrt( variance(lambda x: self.comp_wau0(self.comp_t2E(x)), self.E) ) 
             self.aGeV_inv_w0, self.aGeV_inv_std_w0 = self.get_cutoff_w0(self.wau0, self.wau0_std, verbose=True)
             return self.wau0, self.wau0_std, self.tdt2E, self.tdt2E_std, self.aGeV_inv_w0, self.aGeV_inv_std_w0
+
+
+    def make_plot(self):
+        
+        if self.scale == "t0":
+            fig, ax = plt.subplots(figsize=(16,9))
+            ax.errorbar(self.tau[::10], self.t2E[::10], self.t2E_std[::10])
+            ax.grid(True)
+            ax.set_xlim(-0.05, self.tau[-1]+0.05)
+            ax.set_xlabel(r"$\tau$")
+            ax.set_ylabel(r"$\tau^2 \cdot \left\langle E(\tau) \right\rangle$")  
+
+        if self.scale == "w0":
+            fig, ax = plt.subplots(figsize=(16,9))
+            ax.errorbar(self.tau[2:-2][::10], self.tdt2E[2:-2][::10], self.tdt2E_std[2:-2][::10])
+            ax.grid(True)
+            ax.set_xlim(-0.05, self.tau[-1]+0.05)
+            ax.set_xlabel(r"$\tau$")
+            ax.set_ylabel(r"$\tau \frac{d}{d\tau} \left( \tau^2 \left\langle E(\tau) \right\rangle \right)$")

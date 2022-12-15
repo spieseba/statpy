@@ -4,7 +4,7 @@ import numpy as np
 lm_parameter = {
     "delta": 1e-5,
     "lmbd0": 1e-2,
-    "max_iter": None,
+    "maxiter": None,
     "eps1": 1e-3,
     "eps2": 1e-3,
     "eps3": 1e-1,
@@ -28,7 +28,7 @@ class LevenbergMarquardt:
                                 C (2D numpy array): 2D array containing the covariance matrix of the data if known. Default is None.
                                 delta (float): fractional increment of p for numerical derivatives. Default is 1e-3.
                                 lmbd0 (float): damping parameter which determines whether Levenberg-Marquardt update resembles gradient descent or Gauss-Newton update. Default is 1e-2.
-                                max_iter (int): maximum number of iterations. Default is 10 * N_parameter
+                                maxiter (int): maximum number of iterations. Default is 10 * N_parameter
                                 eps1 (float): convergence tolerance for gradient: max|J^T W (y - y_hat)| < eps1. Default is 1e-3.
                                 eps2 (float): convergence tolerance for parameters: max|h_i / p_i| < eps2. Default is 1e-3.
                                 eps3 (float): convergence tolerance for reduced chi2: chi^2/(N_data - N_parameter + 1) < eps3. Default is 1e-1.
@@ -50,15 +50,16 @@ class LevenbergMarquardt:
         self.t = t; self.y = y; self.W = W
         self.model = model
         self.p0 = p0
+        self.Np = len(p0)
         # change default minimization parameters with user specified input
         for param, value in lm_parameter_user.items():
             lm_parameter[param] = value
         self.delta = lm_parameter["delta"]
         self.lmbd0 = lm_parameter["lmbd0"]
-        if lm_parameter["max_iter"] == None:
-            self.max_iter = 10 * len(self.p0)
+        if lm_parameter["maxiter"] == None:
+            self.maxiter = 10 * len(self.p0)
         else:
-            self.max_iter = lm_parameter["max_iter"]
+            self.maxiter = lm_parameter["maxiter"]
         # convergence criteria
         self.eps1 = lm_parameter["eps1"]
         self.eps2 = lm_parameter["eps2"]
@@ -80,7 +81,7 @@ class LevenbergMarquardt:
         J = jacobian(self.model, self.t, p, self.delta)()
         lmbd = lambda_inits[self.update_type](self.lmbd0, J)
         nu = 2
-        for i in range(self.max_iter):
+        for i in range(self.maxiter):
             J = jacobian(self.model, self.t, p, self.delta)()
             converged, p, lmbd, chi2, nu = update(p, lmbd, J, nu)
             if converged:
@@ -105,7 +106,7 @@ class LevenbergMarquardt:
         if np.max(np.abs(b)) < self.eps1:
             return True, p, None, chi2, None
         # check criterion 3
-        if chi2 / (len(yp) - len(p) + 1) < self.eps3:
+        if chi2 / (self.Np - len(p) + 1) < self.eps3:
             return True, p, None, chi2, None
 
         # use eq.13 to determine h
@@ -136,7 +137,7 @@ class LevenbergMarquardt:
         if np.max(np.abs(b)) < self.eps1:
             return True, p, None, chi2, None
         # check criterion 3
-        if chi2 / (len(yp) - len(p) + 1) < self.eps3:
+        if chi2 / (self.Np - len(p) + 1) < self.eps3:
             return True, p, None, chi2, None
 
         # use eq.12 to determine h
@@ -169,7 +170,7 @@ class LevenbergMarquardt:
         if np.max(np.abs(b)) < self.eps1:
             return True, p, None, chi2, None
         # check criterion 3
-        if chi2 / (len(yp) - len(p) + 1) < self.eps3:
+        if chi2 / (self.Np - len(p) + 1) < self.eps3:
             return True, p, None, chi2, None
 
         # use eq.12 to determine h
