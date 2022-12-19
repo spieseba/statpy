@@ -453,41 +453,6 @@ class DBpy:
 
         return mt, mt_var
 
-
-    #def correlator_exp_fit_over_range(self, Ct_tag, sample_tag, cov, p0, tlo, thi, nt, tskip=1, symmetric=True, method="Nelder-Mead", minimizer_params={}, shift=0, store=True, dst_tag=None, return_masses=True, verbose=False, make_plot=False):
-    #    mt = []
-    #    mt_var = []
-    #    mt_jk = []
-#
-    #    if verbose:
-    #        print("number of correlator measurements", len(self.database[Ct_tag][sample_tag]))
-    #        print()
-#
-    #    dst_tag = Ct_tag + "_FIT"
-    #    for t0 in range(tlo,thi,tskip):
-    #        t = np.arange(t0, t0 + nt)
-    #        twindow_sample_tag = sample_tag + f"_t0{t[0]}"
-    #        self.correlator_exp_fit(t, Ct_tag, sample_tag, dst_tag, twindow_sample_tag, cov, p0, symmetric, method=method, minimizer_params=minimizer_params, shift=shift, make_plot=make_plot, store=store, verbose=verbose)
-#
-    #        m = self.database[Ct_tag + "_FIT"][twindow_sample_tag]["best_parameter"][1]
-    #        m_var = self.database[Ct_tag + "_FIT"][twindow_sample_tag]["best_parameter_cov"][1][1] 
-    #        if verbose:
-    #            print(f"fitted mass: {m} +- {m_var**.5}\n")
-    #        mt.append(m)
-    #        mt_var.append(m_var)
-    #        mt_jk.append(self.database[Ct_tag + "_FIT"][twindow_sample_tag]["jk_parameter"][:,1])
-#
-    #    if store:
-    #        mt_tag = "mt" + Ct_tag.split("Ct")[1] + "_exp_fit"
-    #        self.add_data(np.array(mt), mt_tag, sample_tag + "_mean", "-")
-    #        self.add_data(np.array(mt_var), mt_tag, sample_tag + "_jkvar", "-")
-    #        self.add_data_arr(np.array(mt_jk), mt_tag, sample_tag + "_jackknife")
-    #    
-    #    if return_masses:
-    #        return np.array(mt), np.array(mt_var)**.5
-
-
-
 ################################################################################################################################################
 ################################################################################################################################################
 ################################################################################################################################################
