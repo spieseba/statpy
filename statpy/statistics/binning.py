@@ -12,18 +12,3 @@ def bin(data, b, *argv):
             mean = np.mean(data[i*b:(i+1)*b], axis=0)
         bata.append(mean)
     return np.array(bata) 
-
-#def bin(data, binsize):
-#    data_binned = [] 
-#    for i in range(0, len(data), binsize):
-#        data_avg = 0; append_bin = True
-#        for j in range(0,binsize):
-#            try:
-#                data_avg += data[i+j]
-#            except IndexError:
-#                append_bin = False
-#                continue
-#        if append_bin:
-#            data_binned.append(data_avg / binsize)
-#    return np.array(data_binned)
-
