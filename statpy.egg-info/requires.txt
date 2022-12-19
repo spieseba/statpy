@@ -1,1 +1,4 @@
+iminuit
+matplotlib
 numpy
+scipy
