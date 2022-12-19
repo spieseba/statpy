@@ -339,7 +339,7 @@ class DBpy:
             m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, np.array([mt_jk[t]]), mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
             m_jackknife.append(m_jk)
 
-        m_cov = sp.statistics.jackknife.covariance_samples2(m, m_jackknife)
+        m_cov = sp.statistics.jackknife.covariance2(m, m_jackknife)
         model = sp.qcd.spectroscopy.const_model()
         fit_err = lambda t: (model.parameter_gradient(t,m) @ m_cov @ model.parameter_gradient(t,m))**0.5
 

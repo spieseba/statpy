@@ -1,7 +1,7 @@
 import numpy as np
 from iminuit import Minuit
 from .levenberg_marquardt import LevenbergMarquardt, jacobian, param_cov_lm, fit_std_err_lm
-from ..statistics.jackknife import samples, covariance_samples
+from ..statistics.jackknife import samples, covariance
 import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
@@ -72,7 +72,7 @@ class fit:
 
     def jackknife(self, parameter_estimator, verbose=False):
         self.jk_parameter = samples(lambda y: parameter_estimator(self.estimator(y))[0], self.y)
-        self.covariance = covariance_samples(lambda y: parameter_estimator(self.estimator(y))[0], self.y, self.jk_parameter)
+        self.covariance = covariance(lambda y: parameter_estimator(self.estimator(y))[0], self.y, self.jk_parameter)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
         return self.covariance 
@@ -96,7 +96,7 @@ class fit:
 
     def multi_mc_jackknife(self, parameter_estimator, verbose=False):
         self.jk_parameter = np.array([samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i]) for i in range(len(self.t))]) 
-        self.covariances = np.array([covariance_samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i], self.jk_parameter[i]) for i in range(len(self.t))]) 
+        self.covariances = np.array([covariance(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i], self.jk_parameter[i]) for i in range(len(self.t))]) 
         if verbose:
             for i in range(len(self.t)):
                 print(f"jackknife parameter covariance from t[{i}] is ", self.covariances[i])
@@ -166,7 +166,7 @@ class LM_fit:
 
     def jackknife(self, p0, verbose=False):
         self.jk_parameter = samples(lambda y: self.estimate_parameters(self.t, self.estimator(y), self.W, self.model, p0)[0], self.y)
-        self.covariance = covariance_samples(lambda y: self.estimate_parameters(self.t, self.estimator(y), self.W, self.model, p0)[0], self.y, self.jk_parameter)
+        self.covariance = covariance(lambda y: self.estimate_parameters(self.t, self.estimator(y), self.W, self.model, p0)[0], self.y, self.jk_parameter)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
         return self.covariance 
@@ -194,7 +194,7 @@ class LM_fit:
 
     def multi_mc_jackknife(self, verbose=False):
         self.jk_parameter = np.array([samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model, self.best_parameter)[0], self.y[i]) for i in range(len(self.t))]) 
-        self.covariances = np.array([covariance_samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model, self.best_parameter)[0], self.y[i], self.jk_parameter[i]) for i in range(len(self.t))]) 
+        self.covariances = np.array([covariance(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model, self.best_parameter)[0], self.y[i], self.jk_parameter[i]) for i in range(len(self.t))]) 
         if verbose:
             for i in range(len(self.t)):
                 print(f"jackknife parameter covariance from t[{i}] is ", self.covariances[i])
