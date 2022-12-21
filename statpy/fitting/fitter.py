@@ -32,12 +32,17 @@ class fit:
                 estimator (function): function which takes sample (y or y[i]) as an input and returns desired quantity.
                 method (string): minimization method. Can be "Nelder-Mead" or "Migrad". Default is "Nelder-Mead".
     """
-    def __init__(self, t, y, C, model, p0, estimator, method="Nelder-Mead", minimizer_params={}):
+    def __init__(self, t, y, C, model, p0, estimator, weights=None, method="Nelder-Mead", minimizer_params={}):
         self.t = t; self.y = y; self.C = C
         self.W = np.linalg.inv(C)
         self.model = model
         self.p0 = p0
         self.estimator = estimator
+        if weights is None:
+            self.weights = np.ones(len(y))
+        else:
+            self.weights = weights
+            self.y = weights * self.y
         assert method in ["Nelder-Mead", "Migrad"]
         self.method = method
         self.min_params = minimizer_params
@@ -57,9 +62,7 @@ class fit:
     def _opt_Migrad(self, f, y, p0):
         m = Minuit(lambda p: f(p, y), p0)
         m.migrad()
-        assert m.valid == True
-        self.boolean = False
-        
+        #assert m.valid == True
         return np.array(m.values), m.fval
         
     def estimate_parameters(self, f, y, p0):
@@ -71,7 +74,7 @@ class fit:
 ###################################################################################################################################
 
     def jackknife(self, parameter_estimator, verbose=False):
-        self.jk_parameter = samples(lambda y: parameter_estimator(self.estimator(y))[0], self.y)
+        self.jk_parameter = samples(lambda y: parameter_estimator(self.estimator(y))[0], self.y, self.weights)
         self.covariance = covariance(lambda y: parameter_estimator(self.estimator(y))[0], self.y, self.jk_parameter)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
@@ -143,12 +146,17 @@ class LM_fit:
                                         2: Quadratic update
                                         3: Nielsen's lambda update equations
     """
-    def __init__(self, t, y, C, model, p0, estimator, minimizer_params={}):
+    def __init__(self, t, y, C, model, p0, estimator, weights=None, minimizer_params={}):
         self.t = t; self.y = y; self.C = C
         self.W = np.linalg.inv(C)
         self.model = model
         self.p0 = p0
         self.estimator = estimator
+        if weights is None:
+            self.weights = np.ones(len(y))
+        else:
+            self.weights = weights
+            self.y = weights * self.y
         self.min = LevenbergMarquardt
         self.min_params = minimizer_params
 
@@ -165,7 +173,7 @@ class LM_fit:
 ####################################################################################################################################################################
 
     def jackknife(self, p0, verbose=False):
-        self.jk_parameter = samples(lambda y: self.estimate_parameters(self.t, self.estimator(y), self.W, self.model, p0)[0], self.y)
+        self.jk_parameter = samples(lambda y: self.estimate_parameters(self.t, self.estimator(y), self.W, self.model, p0)[0], self.y, self.weights)
         self.covariance = covariance(lambda y: self.estimate_parameters(self.t, self.estimator(y), self.W, self.model, p0)[0], self.y, self.jk_parameter)
         if verbose:
                 print(f"jackknife parameter covariance is ", self.covariance)
