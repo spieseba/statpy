@@ -2,7 +2,7 @@ import numpy as np
 
 ################################################ functions of means ################################################
 
-def samples(f, x, *argv): #weights=None):
+def samples(f, x, *argv): 
     N = len(x)
     if len(argv) != 0:
         weights = argv[0]
@@ -21,9 +21,8 @@ def variance(f, x, *argv):
     f_mean = f(mean)
     if len(argv) != 0:
         f_samples = argv[0]
-        return np.sum(np.array([(f_samples[j] - f_mean)**2 for j in range(N)]), axis=0) * (N-1) / N   #np.mean((f_samples - f_mean)**2, axis=0) * (N-1)
+        return np.sum(np.array([(f_samples[j] - f_mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
     return np.mean([ ( f( (N * mean - x[k]) / (N - 1) ) - f_mean )**2 for k in range(N) ], axis=0) * (N-1)
-    
 
 def covariance(f, x, *argv):
     N = len(x)
@@ -36,7 +35,6 @@ def covariance(f, x, *argv):
         return np.sum(np.array([outer_sqr(f_samples[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N 
     return np.mean( [outer_sqr( f( (N * mean - x[k]) / (N - 1) ) - f_mean  ) for k in range(N)], axis=0) * (N-1) 
       
-
 def covariance2(f_mean, f_samples):
     N = len(f_samples)
     def outer_sqr(a):
