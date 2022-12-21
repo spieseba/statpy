@@ -40,7 +40,7 @@ def effective_mass_acosh(Ct, tmax, shift=0):
     Ct = np.roll(Ct, shift).real
     return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(1,tmax)])
 
-def correlator_exp_fit(t, Ct, cov, p0, symmetric=False, Nt=0, method="Nelder-Mead", minimizer_params={}, shift=0, verbose=True):
+def correlator_exp_fit(t, Ct, cov, p0, weights=None, symmetric=False, Nt=0, method="Nelder-Mead", minimizer_params={}, shift=0, verbose=True):
     assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
     Ct = np.roll(Ct, shift).real
     cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1).real
@@ -55,9 +55,9 @@ def correlator_exp_fit(t, Ct, cov, p0, symmetric=False, Nt=0, method="Nelder-Mea
         print("fit window:", t)
 
     if method in ["Nelder-Mead", "Migrad"]:
-        fitter = sp.fitting.fit(t, Ct, cov, model, p0, lambda x: x, method, minimizer_params=minimizer_params)
+        fitter = sp.fitting.fit(t, Ct, cov, model, p0, lambda x: x, weights=weights, method=method, minimizer_params=minimizer_params)
     else:
-        fitter = sp.fitting.LM_fit(t, Ct, cov, model, p0, lambda x: x, minimizer_params=minimizer_params)
+        fitter = sp.fitting.LM_fit(t, Ct, cov, model, p0, lambda x: x, weights=weights, minimizer_params=minimizer_params)
     fitter.fit(verbose)
 
     return fitter.best_parameter, fitter.best_parameter_cov, fitter.jk_parameter ,fitter.fit_err, fitter.p, fitter.chi2, fitter.dof, model

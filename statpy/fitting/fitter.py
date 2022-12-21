@@ -62,7 +62,7 @@ class fit:
     def _opt_Migrad(self, f, y, p0):
         m = Minuit(lambda p: f(p, y), p0)
         m.migrad()
-        #assert m.valid == True
+        assert m.valid == True
         return np.array(m.values), m.fval
         
     def estimate_parameters(self, f, y, p0):
