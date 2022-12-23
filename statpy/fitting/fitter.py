@@ -39,7 +39,7 @@ class fit:
         self.p0 = p0
         self.estimator = estimator
         if weights is None:
-            self.weights = np.ones(len(y))
+            self.weights = np.ones(len(y))[:,None]
         else:
             self.weights = weights
             self.y = weights * self.y
@@ -153,7 +153,7 @@ class LM_fit:
         self.p0 = p0
         self.estimator = estimator
         if weights is None:
-            self.weights = np.ones(len(y))
+            self.weights = np.ones(len(y))[:,None]
         else:
             self.weights = weights
             self.y = weights * self.y

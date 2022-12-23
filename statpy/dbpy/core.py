@@ -378,7 +378,7 @@ class DBpy:
         Ct_sample = np.roll(self.get_data_arr(Ct_tag, sample_tag), shift); Nt = Ct_sample.shape[1]
         Ct_sample = Ct_sample[:,t]
         cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1)[t[0]:t[-1]+1,t[0]:t[-1]+1].real
-        best_parameter, best_parameter_cov, jk_parameter, fit_err, p, chi2, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_sample, cov, p0, symmetric, Nt, method, minimizer_params=minimizer_params, verbose=verbose)
+        best_parameter, best_parameter_cov, jk_parameter, fit_err, p, chi2, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_sample, cov, p0, weights=None, symmetric=symmetric, Nt=Nt, method=method, minimizer_params=minimizer_params, verbose=verbose)
 
         if symmetric:
             model_str = "p[0] * [exp(-p[1]t) + exp(-p[1](T-t))]"

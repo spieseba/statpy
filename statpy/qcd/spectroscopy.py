@@ -68,10 +68,10 @@ def const_fit(t, y, cov, p0, method="Nelder-Mead", minimizer_params={}, error=Tr
     model = const_model()
 
     if method in ["Nelder-Mead", "Migrad"]:
-        fitter = sp.fitting.fit(t, y, cov, model, p0, lambda x: x, method, minimizer_params)
+        fitter = sp.fitting.fit(t, y, cov, model, p0, estimator=lambda x: x, weights=None, method=method, minimizer_params=minimizer_params)
         fitter.fit(verbose, error)
     else:
-        fitter = sp.fitting.LM_fit(t, y, cov, model, p0, lambda x: x, minimizer_params)
+        fitter = sp.fitting.LM_fit(t, y, cov, model, p0, estimator=lambda x: x, weights=None, minimizer_params=minimizer_params)
         fitter.fit(verbose, error)
 
     if error:
