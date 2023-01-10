@@ -60,6 +60,19 @@ def convert(src, dst, src_tags, dst_tags, cfg_prefix="", verbose=False):
     with open(dst, "w") as f:
         json.dump(database, f)
 
+def onvert_old_to_new(src, src_tags, dst_tags):
+    ensemble = [os.path.join(src, f) for f in os.listdir(src) if os.path.isfile(os.path.join(src, f))]
+    ensemble.sort(key=lambda f: int(re.sub('\D', '', f)))
+    for cfg in ensemble:
+        print(cfg)
+        database = {}
+        with open(cfg) as f:
+            data = json.load(f)
+        for src_tag, dst_tag in zip(src_tags, dst_tags):
+            database[dst_tag] = np.array(ast.literal_eval(data[src_tag]))
+        with open(cfg, "w") as f:
+            json.dump(database, f)
+
 def convert_from_old_format(src, dst, src_tags, dst_tags, cfg_prefix="", verbose=False):
     if os.path.isfile(dst):
         if query_yes_no(f"file {dst} already exists. Overwrite?"):
