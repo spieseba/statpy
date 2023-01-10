@@ -18,9 +18,9 @@ class scale:
                 E (numpy array): 2D array containing energy density measurements on every configuration for every evaluated flow time tau. axis 0: data, axis 1: flow time
                 
     """
-    def __init__(self, tau, E, ct0=0.3, cw0=0.3):
+    def __init__(self, tau, E, nskip=0, ct0=0.3, cw0=0.3):
         self.tau = tau
-        self.E = E
+        self.E = E[nskip:]
         self.E_mean = np.mean(self.E, axis=0)
         self.ct0 = ct0        
         self.cw0 = cw0

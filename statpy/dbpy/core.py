@@ -235,8 +235,8 @@ class DBpy:
         if return_Edens:
             return Edens
 
-    def set_scale(self, Edens_tag, sample_tag, binsize, tau, scales=["t0", "w0"], dst_suffix="", store=True):
-        Edens_binned = sp.statistics.bin(self.get_data_arr(Edens_tag, sample_tag), binsize)
+    def set_scale(self, Edens_tag, sample_tag, binsize, tau, nskip=0, scales=["t0", "w0"], dst_suffix="", store=True):
+        Edens_binned = sp.statistics.bin(self.get_data_arr(Edens_tag, sample_tag)[nskip:], binsize)
         if binsize != 1:
             sample_tag = sample_tag + f"_binned{binsize}"
             self.add_data_arr(Edens_binned, Edens_tag, sample_tag)
@@ -267,7 +267,7 @@ class DBpy:
 
 ###################################### FITTING ######################################
 
-    def multi_mc_fit(self, t, tags, sample_tags, C, model, p0, estimator, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
+    def multi_mc_fit(self, t, tags, sample_tags, C, model, p0, estimator, weights=None, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
 
         mos = []
         for tag, sample_tag in zip(tags, sample_tags):
@@ -282,9 +282,9 @@ class DBpy:
         model_func = list(model.values())[0]        
         assert method in ["Levenberg-Marquardt", "Migrad", "Nelder-Mead"]
         if method in ["Migrad", "Nelder-Mead"]:
-            fitter = sp.fitting.fit(t, y, C, model_func, p0, estimator, method, minimizer_params)
+            fitter = sp.fitting.fit(t, y, C, model_func, p0, estimator, weights, method, minimizer_params)
         else:
-            fitter = sp.fitting.LM_fit(t, y, C, model_func, p0, estimator, minimizer_params)
+            fitter = sp.fitting.LM_fit(t, y, C, model_func, p0, estimator, weights, minimizer_params)
 
         fitter.multi_mc_fit(verbose)
 
