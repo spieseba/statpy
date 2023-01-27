@@ -180,28 +180,32 @@ class DBpy:
             self._add_data(mean, tag, sample_tag + "_mean", "-")
         return mean
 
-    def jackknife_resampling(self, f, tag, sample_tag, jk_suffix="_jackknife", eps=1.0, store=True, dst_tag=None):
+    def jackknife_resampling(self, f, tag, sample_tag, eps=1.0, store=True, dst_tag=None, dst_sample_tag=None):
         if dst_tag==None: dst_tag = tag
         data = self.get_data_dict(tag, sample_tag)
         mean = self.sample_mean(tag, sample_tag.split("_binned")[0])
-        jk_tag = sample_tag + jk_suffix
         jk_sample = {}
         for cfg_tag in data.keys():
             jk_sample[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) ) 
         if store:
+            if dst_sample_tag == None:
+                jk_tag = sample_tag + "_jks"
+            else: 
+                jk_tag = dst_sample_tag
             self.database[dst_tag][jk_tag] = jk_sample
         return jk_sample
 
-    def jackknife_variance(self, f, tag, sample_tag, jk_suffix="_jackknife", eps=1.0, dst_tag=None, dst_sample_tag=None, return_var=True, store=True):
+    def jackknife_variance(self, f, tag, sample_tag, eps=1.0, dst_tag=None, dst_sample_tag=None, dst_jks_sample_tag=None, return_var=True, store=True):
         if dst_tag==None: dst_tag = tag
-        if dst_sample_tag==None: dst_sample_tag = sample_tag
-        self.jackknife_resampling(f, tag, sample_tag, jk_suffix, eps, store, dst_tag)
+        if dst_sample_tag==None: dst_sample_tag = sample_tag + "_jkvar"
+        if dst_jks_sample_tag==None: dst_jks_sample_tag = sample_tag + "_jks"
+        self.jackknife_resampling(f, tag, sample_tag, eps, store, dst_tag, dst_jks_sample_tag)
         f_mean = f( self.database[tag][sample_tag.split("_binned")[0] + "_mean"]["-"] )
-        jk_data = self.get_data_arr(dst_tag, sample_tag + jk_suffix)
+        jk_data = self.get_data_arr(dst_tag, dst_jks_sample_tag)
         N = len(jk_data)
         var = np.mean([ (jk_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
         if store:
-            self.add_data_arr(var, dst_tag, dst_sample_tag + "_jkvar")
+            self.add_data_arr(var, dst_tag, dst_sample_tag)
         if return_var:
             return var
         
@@ -222,7 +226,7 @@ class DBpy:
         # clean up
         for binsize in [binsize for binsize in binsizes if binsize not in keep_binsizes]:
             del self.database[tag][sample_tag + f"_binned{binsize}"]
-            del self.database[tag][sample_tag + f"_binned{binsize}_jackknife"]
+            del self.database[tag][sample_tag + f"_binned{binsize}_jks"]
             del self.database[tag][sample_tag + f"_binned{binsize}_jkvar"]
         return stds   
 
@@ -297,7 +301,7 @@ class DBpy:
             self.add_data(p0, fit_tag, "p0", "-")
             self.add_data(fitter.best_parameter, fit_tag, "best_parameter", "-")
             self.add_data(fitter.best_parameter_cov, fit_tag, "best_parameter_cov", "-")
-            self.add_data(fitter.jk_parameter, fit_tag, "jk_parameter", "-")
+            self.add_data(fitter.jks_parameter, fit_tag, "jks_parameter", "-")
             self.add_data(fitter.p, fit_tag, "pval", "-")
             self.add_data(fitter.chi2, fit_tag, "chi2", "-")
             self.add_data(fitter.dof, fit_tag, "dof", "-")
@@ -319,13 +323,13 @@ class DBpy:
     def effective_mass_log(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
         st = sample_tag.split("_binned")[0]
         self.apply_f(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, st + "_mean", dst_tag, sample_tag + "_mean", overwrite=True)
-        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, dst_sample_tag=sample_tag, return_var=False, store=store)    
+        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)    
         return self.get_data(dst_tag, sample_tag + "_mean", "-"), self.get_data_arr(dst_tag, sample_tag + "_jkvar")**0.5
 
     def effective_mass_acosh(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
         st = sample_tag.split("_binned")[0]
         self.apply_f(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, st + "_mean", dst_tag, sample_tag + "_mean", overwrite=True)
-        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, dst_sample_tag=sample_tag, return_var=False, store=store)    
+        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)    
         return self.get_data(dst_tag, sample_tag + "_mean", "-"), self.get_data_arr(dst_tag, sample_tag + "_jkvar")**0.5
 
     def effective_mass_const_fit(self, t, mt_tag, sample_tag, dst_tag, p0, method, minimizer_params={}, verbose=True, store=True):    
@@ -333,13 +337,13 @@ class DBpy:
         mt_cov = np.diag(self.get_data_arr(mt_tag, sample_tag + "_jkvar"))[t[0]:t[-1]+1,t[0]:t[-1]+1]
         m, p, chi2, dof, model = sp.qcd.spectroscopy.const_fit(t, np.array([mt]), mt_cov, p0, method, minimizer_params, error=False, verbose=False)
 
-        mt_jackknife = self.get_data_dict(mt_tag, sample_tag + "_jackknife")
-        m_jackknife = []
-        for mt_jk in mt_jackknife.values():
+        mt_jks = self.get_data_dict(mt_tag, sample_tag + "_jks")
+        m_jks = []
+        for mt_jk in mt_jks.values():
             m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, np.array([mt_jk[t]]), mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
-            m_jackknife.append(m_jk)
+            m_jks.append(m_jk)
 
-        m_cov = sp.statistics.jackknife.covariance2(m, m_jackknife)
+        m_cov = sp.statistics.jackknife.covariance2(m, m_jks)
         model = sp.qcd.spectroscopy.const_model()
         fit_err = lambda t: (model.parameter_gradient(t,m) @ m_cov @ model.parameter_gradient(t,m))**0.5
 
@@ -364,7 +368,7 @@ class DBpy:
             self.database[dst_tag][sample_tag]["p0"] = p0
             self.database[dst_tag][sample_tag]["m_eff"] = m
             self.database[dst_tag][sample_tag]["m_eff_cov"] = m_cov
-            self.database[dst_tag][sample_tag]["m_eff_jackknife"] = m_jackknife
+            self.database[dst_tag][sample_tag]["m_eff_jks"] = m_jks
             self.database[dst_tag][sample_tag]["pval"] = p
             self.database[dst_tag][sample_tag]["chi2"] = chi2
             self.database[dst_tag][sample_tag]["dof"] = dof
@@ -378,7 +382,7 @@ class DBpy:
         Ct_sample = np.roll(self.get_data_arr(Ct_tag, sample_tag), shift); Nt = Ct_sample.shape[1]
         Ct_sample = Ct_sample[:,t]
         cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1)[t[0]:t[-1]+1,t[0]:t[-1]+1].real
-        best_parameter, best_parameter_cov, jk_parameter, fit_err, p, chi2, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_sample, cov, p0, weights=None, symmetric=symmetric, Nt=Nt, method=method, minimizer_params=minimizer_params, verbose=verbose)
+        best_parameter, best_parameter_cov, jks_parameter, fit_err, p, chi2, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_sample, cov, p0, weights=None, symmetric=symmetric, Nt=Nt, method=method, minimizer_params=minimizer_params, verbose=verbose)
 
         if symmetric:
             model_str = "p[0] * [exp(-p[1]t) + exp(-p[1](T-t))]"
@@ -425,7 +429,7 @@ class DBpy:
             self.database[dst_tag][dst_sample_tag]["p0"] = p0
             self.database[dst_tag][dst_sample_tag]["best_parameter"] = best_parameter
             self.database[dst_tag][dst_sample_tag]["best_parameter_cov"] = best_parameter_cov
-            self.database[dst_tag][dst_sample_tag]["jk_parameter"] = jk_parameter
+            self.database[dst_tag][dst_sample_tag]["jks_parameter"] = jks_parameter
             self.database[dst_tag][dst_sample_tag]["pval"] = p
             self.database[dst_tag][dst_sample_tag]["chi2"] = chi2
             self.database[dst_tag][dst_sample_tag]["dof"] = dof
@@ -433,22 +437,22 @@ class DBpy:
 
     def effective_mass_exp_fit(self, tmax, nt, Ct_tag, sample_tag, dst_tag, dst_sample_tag, cov, p0, symmetric=False, method="Nelder-Mead", minimizer_params={}, 
                             shift=0, make_plots=False, verbose=False, store=True):
-        mt = []; mt_var = []; mt_jackknife = []
+        mt = []; mt_var = []; mt_jks = []
         for t0 in range(tmax):
             t = np.arange(t0, t0+nt)
             self.correlator_exp_fit(t, Ct_tag, sample_tag, dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", cov, p0, symmetric, method, minimizer_params, shift, make_plot=make_plots, verbose=verbose)
             mt.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "best_parameter")[1])
             mt_var.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "best_parameter_cov")[1][1])
-            mt_jackknife.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "jk_parameter")[:,1])
-        mt = np.array(mt); mt_var = np.array(mt_var); mt_jackknife = np.array(mt_jackknife)
+            mt_jks.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "jks_parameter")[:,1])
+        mt = np.array(mt); mt_var = np.array(mt_var); mt_jks = np.array(mt_jks)
 
-        mt_jackknife_sample = {}
-        for cfg in range(mt_jackknife.shape[1]):
-            mt_jackknife_sample[str(cfg)] = mt_jackknife[:,cfg]
+        mt_jks_dict = {}
+        for cfg in range(mt_jks.shape[1]):
+            mt_jks_dict[str(cfg)] = mt_jks[:,cfg]
 
         self.add_data(mt, dst_tag, dst_sample_tag + "_mean", "-")
         self.add_data_arr(mt_var, dst_tag, dst_sample_tag + "_jkvar")
-        self.database[dst_tag][dst_sample_tag + "_jackknife"] = mt_jackknife_sample
+        self.database[dst_tag][dst_sample_tag + "_jks"] = mt_jks_dict
 
 
         return mt, mt_var
