@@ -43,14 +43,14 @@ def covariance2(f_mean, f_samples):
 
 ################################################ arbitrary functions ################################################
 
-def variance_general(f, x):
+def variance_general(f, x, data_axis=0):
     N = len(x)
     f_x = f(x)
-    return np.mean([ (f(np.delete(x, k, axis=0)) - f_x)**2 for k in range(N)], axis=0) * (N-1)
+    return np.mean([ (f(np.delete(x, k, axis=data_axis)) - f_x)**2 for k in range(N)], axis=0) * (N-1)
         
-def covariance_general(f, x):
+def covariance_general(f, x, data_axis=0):
     N = len(x)
     f_x = f(x)
     def outer_prod(a):
         return np.outer(a,a)
-    return np.mean([outer_prod( (f(np.delete(x, k, axis=0)) - f_x) ) for k in range(N)], axis=0) * (N - 1) 
+    return np.mean([outer_prod( (f(np.delete(x, k, axis=data_axis)) - f_x) ) for k in range(N)], axis=0) * (N - 1) 
