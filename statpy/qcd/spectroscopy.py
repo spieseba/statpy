@@ -69,7 +69,7 @@ def correlator_exp_fit(t, Ct, cov, p0, weights=None, symmetric=False, Nt=0, meth
     else:
         fitter = sp.fitting.LM_fit(t, Ct, cov, model, p0, lambda x: x, weights=weights, minimizer_params=minimizer_params)
     fitter.fit(verbose)
-    return fitter.best_parameter, fitter.best_parameter_cov, fitter.jk_parameter ,fitter.fit_err, fitter.p, fitter.chi2, fitter.dof, model
+    return fitter.best_parameter, fitter.best_parameter_cov, fitter.jks_parameter ,fitter.fit_err, fitter.p, fitter.chi2, fitter.dof, model
 
 def correlator_double_exp_fit(t, Ct, cov, p0, weights=None, Nt=0, method="Nelder-Mead", minimizer_params={}, shift=0, verbose=True):
     assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
@@ -85,7 +85,7 @@ def correlator_double_exp_fit(t, Ct, cov, p0, weights=None, Nt=0, method="Nelder
     else:
         fitter = sp.fitting.LM_fit(t, Ct, cov, model, p0, lambda x: x, weights=weights, minimizer_params=minimizer_params)
     fitter.fit(verbose)
-    return fitter.best_parameter, fitter.best_parameter_cov, fitter.jk_parameter ,fitter.fit_err, fitter.p, fitter.chi2, fitter.dof, model
+    return fitter.best_parameter, fitter.best_parameter_cov, fitter.jks_parameter ,fitter.fit_err, fitter.p, fitter.chi2, fitter.dof, model
 
 def const_fit(t, y, cov, p0, method="Nelder-Mead", minimizer_params={}, error=True, verbose=True):
     assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]

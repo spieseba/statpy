@@ -6,6 +6,8 @@ import statpy.dbpy.np_json as json
 import statpy as sp
 import matplotlib.pyplot as plt
 
+STRIP_TAGS = ["mean", "jkvar", "jks"]
+
 class DBpy:
     def __init__(self, file, safe_mode=False):
         self.file = file
@@ -113,7 +115,8 @@ class DBpy:
     def apply_f(self, f, tag, sample_tag, dst_tag, dst_sample_tag, overwrite=False):
         f_dict = {}
         for cfg_idx, cfg_val in self.database[tag][sample_tag].items():  
-            f_dict[cfg_idx] = f(cfg_val)
+            if cfg_idx not in STRIP_TAGS:
+                f_dict[cfg_idx] = f(cfg_val)
         try:
             self.database[dst_tag]
             try: 
@@ -154,15 +157,19 @@ class DBpy:
             print(f"requested data not in database. tag = {tag}, sample_tag = {sample_tag}, cfg_tag = {cfg_tag}")
             return None
         
-    def get_data_dict(self, tag, sample_tag):
+    def get_data_dict(self, tag, sample_tag, strip=True):
         try:
-            return dict(self.database[tag][sample_tag])
+            d = dict(self.database[tag][sample_tag]).copy()
+            if strip  == True:
+                for key in STRIP_TAGS:
+                    d.pop(key, None)
+            return d
         except KeyError:
             print(f"requested data not in database. tag = {tag}, sample_tag = {sample_tag}")
             return None
 
     def get_data_arr(self, tag, sample_tag):
-        try: 
+        try:
             return np.array(list(self.get_data_dict(tag, sample_tag).values()))
         except KeyError:
             print(f"requested data not in database. tag = {tag}, sample_tag = {sample_tag}")
@@ -177,7 +184,7 @@ class DBpy:
     def sample_mean(self, tag, sample_tag, store=True):
         mean = np.mean(self.get_data_arr(tag, sample_tag), axis=0)
         if store:
-            self._add_data(mean, tag, sample_tag + "_mean", "-")
+            self._add_data(mean, tag, sample_tag, "mean")
         return mean
 
     def jackknife_resampling(self, f, tag, sample_tag, eps=1.0, store=True, dst_tag=None, dst_sample_tag=None):
@@ -189,23 +196,22 @@ class DBpy:
             jk_sample[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) ) 
         if store:
             if dst_sample_tag == None:
-                jk_tag = sample_tag + "_jks"
-            else: 
-                jk_tag = dst_sample_tag
-            self.database[dst_tag][jk_tag] = jk_sample
+                dst_sample_tag = sample_tag 
+            self.add_data(jk_sample, dst_tag, dst_sample_tag, "jks")
+            #self.database[dst_tag][jk_tag]["jks"] = jk_sample
         return jk_sample
 
     def jackknife_variance(self, f, tag, sample_tag, eps=1.0, dst_tag=None, dst_sample_tag=None, dst_jks_sample_tag=None, return_var=True, store=True):
         if dst_tag==None: dst_tag = tag
-        if dst_sample_tag==None: dst_sample_tag = sample_tag + "_jkvar"
-        if dst_jks_sample_tag==None: dst_jks_sample_tag = sample_tag + "_jks"
+        if dst_sample_tag==None: dst_sample_tag = sample_tag
+        if dst_jks_sample_tag==None: dst_jks_sample_tag = sample_tag
         self.jackknife_resampling(f, tag, sample_tag, eps, store, dst_tag, dst_jks_sample_tag)
-        f_mean = f( self.database[tag][sample_tag.split("_binned")[0] + "_mean"]["-"] )
-        jk_data = self.get_data_arr(dst_tag, dst_jks_sample_tag)
-        N = len(jk_data)
-        var = np.mean([ (jk_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
+        f_mean = f( self.database[tag][sample_tag.split("_binned")[0]]["mean"] )
+        jks_data = np.array(list(self.get_data(dst_tag, dst_jks_sample_tag, "jks").values()))
+        N = len(jks_data)
+        var = np.mean([ (jks_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
         if store:
-            self.add_data_arr(var, dst_tag, dst_sample_tag)
+            self.add_data(var, dst_tag, dst_sample_tag, "jkvar")
         if return_var:
             return var
         
@@ -226,8 +232,6 @@ class DBpy:
         # clean up
         for binsize in [binsize for binsize in binsizes if binsize not in keep_binsizes]:
             del self.database[tag][sample_tag + f"_binned{binsize}"]
-            del self.database[tag][sample_tag + f"_binned{binsize}_jks"]
-            del self.database[tag][sample_tag + f"_binned{binsize}_jkvar"]
         return stds   
 
 
@@ -322,22 +326,26 @@ class DBpy:
 
     def effective_mass_log(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
         st = sample_tag.split("_binned")[0]
-        self.apply_f(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, st + "_mean", dst_tag, sample_tag + "_mean", overwrite=True)
-        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)    
-        return self.get_data(dst_tag, sample_tag + "_mean", "-"), self.get_data_arr(dst_tag, sample_tag + "_jkvar")**0.5
+        Ct = self.get_data(Ct_tag, st, "mean")
+        m_eff_log = sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift)
+        self.add_data(m_eff_log, dst_tag, sample_tag, "mean")
+        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)
+        return self.get_data(dst_tag, sample_tag, "mean"), self.get_data(dst_tag, sample_tag, "jkvar")**0.5
 
     def effective_mass_acosh(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
         st = sample_tag.split("_binned")[0]
-        self.apply_f(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, st + "_mean", dst_tag, sample_tag + "_mean", overwrite=True)
+        Ct = self.get_data(Ct_tag, st, "mean")
+        m_eff_cosh = sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift)
+        self.add_data(m_eff_cosh, dst_tag, sample_tag, "mean")
         self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)    
-        return self.get_data(dst_tag, sample_tag + "_mean", "-"), self.get_data_arr(dst_tag, sample_tag + "_jkvar")**0.5
+        return self.get_data(dst_tag, sample_tag, "mean"), self.get_data(dst_tag, sample_tag, "jkvar")**0.5
 
     def effective_mass_const_fit(self, t, mt_tag, sample_tag, dst_tag, p0, method, minimizer_params={}, verbose=True, store=True):    
-        mt = self.get_data(mt_tag, sample_tag + "_mean", "-")[t]
-        mt_cov = np.diag(self.get_data_arr(mt_tag, sample_tag + "_jkvar"))[t[0]:t[-1]+1,t[0]:t[-1]+1]
+        mt = self.get_data(mt_tag, sample_tag, "mean")[t]
+        mt_cov = np.diag(self.get_data(mt_tag, sample_tag, "jkvar"))[t[0]:t[-1]+1,t[0]:t[-1]+1]
         m, p, chi2, dof, model = sp.qcd.spectroscopy.const_fit(t, np.array([mt]), mt_cov, p0, method, minimizer_params, error=False, verbose=False)
 
-        mt_jks = self.get_data_dict(mt_tag, sample_tag + "_jks")
+        mt_jks = self.get_data(mt_tag, sample_tag, "jks")
         m_jks = []
         for mt_jk in mt_jks.values():
             m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, np.array([mt_jk[t]]), mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
@@ -394,7 +402,7 @@ class DBpy:
             # data
             Ct = np.roll(self.get_data(Ct_tag, sample_tag.split("_binned")[0] + "_mean", "-"), shift)
             ts = np.arange(len(Ct))
-            Ct_std = np.roll(self.get_data_arr(Ct_tag, sample_tag + f"_jkvar")[0], shift)**0.5
+            Ct_std = np.roll(self.get_data(Ct_tag, sample_tag + f"_jkvar", "-"), shift)**0.5
             ax.errorbar(ts, Ct, Ct_std, ls="", marker=".", capsize=3, color="red", label="data")
             # fit + err
             trange = np.arange(ts[0]-5.0, 50, 0.01)
@@ -450,10 +458,9 @@ class DBpy:
         for cfg in range(mt_jks.shape[1]):
             mt_jks_dict[str(cfg)] = mt_jks[:,cfg]
 
-        self.add_data(mt, dst_tag, dst_sample_tag + "_mean", "-")
-        self.add_data_arr(mt_var, dst_tag, dst_sample_tag + "_jkvar")
-        self.database[dst_tag][dst_sample_tag + "_jks"] = mt_jks_dict
-
+        self.add_data(mt, dst_tag, dst_sample_tag, "mean")
+        self.add_data(mt_var, dst_tag, dst_sample_tag, "jkvar")
+        self.add_data(mt_jks_dict, dst_tag, dst_sample_tag, "jks")
 
         return mt, mt_var
 
