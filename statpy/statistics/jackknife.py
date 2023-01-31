@@ -13,7 +13,7 @@ def samples(f, x, *argv):
             s.append( f(np.mean(wj * xj, axis=0)) )
         return np.array(s)
     mean = np.mean(x, axis=0)
-    return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
+    return np.array([ f(mean + (mean - x[j]) / (N-1)) for k in range(N)])
 
 def variance(f, x, *argv):
     N = len(x)
@@ -23,6 +23,10 @@ def variance(f, x, *argv):
         f_samples = argv[0]
         return np.sum(np.array([(f_samples[j] - f_mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
     return np.mean([ ( f( (N * mean - x[k]) / (N - 1) ) - f_mean )**2 for k in range(N) ], axis=0) * (N-1)
+
+def variance_jks(f_mean, f_samples):
+    N = len(f_samples)
+    return np.sum(np.array([(f_samples[j] - f_mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
 
 def covariance(f, x, *argv):
     N = len(x)
@@ -35,7 +39,7 @@ def covariance(f, x, *argv):
         return np.sum(np.array([outer_sqr(f_samples[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N 
     return np.mean( [outer_sqr( f( (N * mean - x[k]) / (N - 1) ) - f_mean  ) for k in range(N)], axis=0) * (N-1) 
       
-def covariance2(f_mean, f_samples):
+def covariance_jks(f_mean, f_samples):
     N = len(f_samples)
     def outer_sqr(a):
         return np.outer(a,a)
@@ -51,6 +55,6 @@ def variance_general(f, x, data_axis=0):
 def covariance_general(f, x, data_axis=0):
     N = len(x)
     f_x = f(x)
-    def outer_prod(a):
+    def outer_sqr(a):
         return np.outer(a,a)
-    return np.mean([outer_prod( (f(np.delete(x, k, axis=data_axis)) - f_x) ) for k in range(N)], axis=0) * (N - 1) 
+    return np.mean([outer_sqr( (f(np.delete(x, k, axis=data_axis)) - f_x) ) for k in range(N)], axis=0) * (N-1) 

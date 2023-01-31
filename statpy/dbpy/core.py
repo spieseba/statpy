@@ -181,25 +181,24 @@ class DBpy:
 
 ###################################### STATISTICS ######################################
 
-    def sample_mean(self, tag, sample_tag, store=True):
-        mean = np.mean(self.get_data_arr(tag, sample_tag), axis=0)
+    def sample_mean(self, tag, sample_tag, data_axis=0, store=True):
+        mean = np.mean(self.get_data_arr(tag, sample_tag), axis=data_axis)
         if store:
-            self._add_data(mean, tag, sample_tag, "mean")
+            self.add_data(mean, tag, sample_tag, "mean")
         return mean
 
     def jackknife_resampling(self, f, tag, sample_tag, eps=1.0, store=True, dst_tag=None, dst_sample_tag=None):
         if dst_tag==None: dst_tag = tag
         data = self.get_data_dict(tag, sample_tag)
         mean = self.sample_mean(tag, sample_tag.split("_binned")[0])
-        jk_sample = {}
+        jks = {}
         for cfg_tag in data.keys():
-            jk_sample[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) ) 
+            jks[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) ) 
         if store:
             if dst_sample_tag == None:
                 dst_sample_tag = sample_tag 
-            self.add_data(jk_sample, dst_tag, dst_sample_tag, "jks")
-            #self.database[dst_tag][jk_tag]["jks"] = jk_sample
-        return jk_sample
+            self.add_data(jks, dst_tag, dst_sample_tag, "jks")
+        return jks
 
     def jackknife_variance(self, f, tag, sample_tag, eps=1.0, dst_tag=None, dst_sample_tag=None, dst_jks_sample_tag=None, return_var=True, store=True):
         if dst_tag==None: dst_tag = tag
@@ -214,7 +213,17 @@ class DBpy:
             self.add_data(var, dst_tag, dst_sample_tag, "jkvar")
         if return_var:
             return var
-        
+
+    def jackknife_variance_jks(self, mean, jks, dst_tag, dst_sample_tag, dst_cfg_tag="jkvar"):
+        var = sp.statistics.jackknife.variance_jks(mean, np.array(list(jks.values())))
+        self.add_data(var, dst_tag, dst_sample_tag, dst_cfg_tag)
+        return var
+
+    def jackknife_covariance_jks(self, mean, jks, dst_tag, dst_sample_tag, dst_cfg_tag="jkcov"):
+        cov = sp.statistics.jackknife.covariance_jks(mean, np.array(list(jks.values())))
+        self.add_data(cov, dst_tag, dst_sample_tag, dst_cfg_tag)
+        return cov
+
     def bin(self, binsize, tag, sample_tag, cfg_prefix="", store=True):
         data_arr = self.get_data_arr(tag, sample_tag)
         binned_data = {}
@@ -234,6 +243,71 @@ class DBpy:
             del self.database[tag][sample_tag + f"_binned{binsize}"]
         return stds   
 
+    def AMA(self, tag, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_sample_tag, store=True):
+        def bias(exact, sloppy):
+            return exact - sloppy   
+        exact_exact_jks = self.jackknife_resampling(lambda x: x, tag, exact_exact_tag)
+        exact_sloppy_jks = self.jackknife_resampling(lambda x: x, tag, exact_sloppy_tag)
+        sloppy_sloppy_jks = self.jackknife_resampling(lambda x: x, tag, sloppy_sloppy_tag)
+        b = bias(self.get_data(tag, exact_exact_tag, "mean"), self.get_data(tag, exact_sloppy_tag, "mean"))
+        b_jks = {}
+        for cfg in exact_exact_jks:
+            b_jks[cfg] = bias(exact_exact_jks[cfg], exact_sloppy_jks[cfg])
+        b_jkvar = self.jackknife_variance_jks(b, b_jks, tag, dst_sample_tag, dst_cfg_tag="bias_jkvar")
+        m = self.get_data(tag, sloppy_sloppy_tag, "mean") + b
+        m_jkvar = self.jackknife_variance_jks(m, sloppy_sloppy_jks, tag, sloppy_sloppy_tag) + b_jkvar
+        if store: 
+            self.add_data(b, tag, dst_sample_tag, "bias")
+            self.add_data(m, tag, dst_sample_tag, "mean")
+            self.add_data(m_jkvar, tag, dst_sample_tag, "mean_jkvar")
+        return m, m_jkvar, b, b_jkvar
+
+
+        #def bias(data):
+        #    e, s = data
+        #    return np.mean(e, axis=0) - np.mean(s, axis=0)  
+        #exact_exact_data = self.get_data_arr(tag, exact_exact_tag)
+        #exact_sloppy_data = self.get_data_arr(tag, exact_sloppy_tag)
+        #sloppy_sloppy_data = self.get_data_arr(tag, sloppy_sloppy_tag)
+        #b = bias(data=np.array([exact_exact_data, exact_sloppy_data]))
+        #b_jkvar = sp.statistics.jackknife.variance_general(bias, np.array([exact_exact_data, exact_sloppy_data]), data_axis=1)
+        #m = np.mean(sloppy_sloppy_data, axis=0) + b
+        #m_jkvar = sp.statistics.jackknife.variance(lambda x: x, sloppy_sloppy_data)
+        #if store: 
+        #    self.add_data(b, tag, dst_sample_tag, "bias")
+        #    self.add_data(b_jkvar, tag, dst_sample_tag, "bias_jkvar")
+        #    self.add_data(m, tag, dst_sample_tag, "mean")
+        #    self.add_data(m_jkvar, tag, dst_sample_tag, "mean_jkvar")
+        #return m, m_jkvar, b, b_jkvar
+
+###################################### FUNCTIONS #######################################
+
+    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, store=True):
+        def ratio(nom, denom):
+            return nom / denom
+        data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
+        data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
+        
+        r = ratio(self.get_data(tag0, sample_tag0, "mean"), self.get_data(tag1, sample_tag1, "mean"))
+        r_jks = {}
+        for cfg in data0_jks:
+            r_jks[cfg] = ratio(data0_jks[cfg], data1_jks[cfg])
+        r_jkvar = self.jackknife_variance_jks(r, r_jks, dst_tag, dst_sample_tag)
+        if store:
+            self.add_data(r, dst_tag, dst_sample_tag, "mean")
+        return r, r_jkvar
+        
+        #def ratio(data):
+        #    nom, denom = data
+        #    return np.mean(nom, axis=0) / np.mean(denom, axis=0)
+        #data0 = self.get_data_arr(tag0, sample_tag0)
+        #data1 = self.get_data_arr(tag1, sample_tag1)
+        #r = ratio(data=np.array([data0, data1]))
+        #r_jkvar = sp.statistics.jackknife.variance_general(ratio, np.array([data0, data1]), data_axis=1)
+        #if store:
+        #    self.add_data(r, dst_tag, dst_sample_tag, "mean")
+        #    self.add_data(r_jkvar, dst_tag, dst_sample_tag, "jkvar")
+        #return r, r_jkvar, r_std
 
 ################################### SCALE SETTING ###################################
 
@@ -351,7 +425,7 @@ class DBpy:
             m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, np.array([mt_jk[t]]), mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
             m_jks.append(m_jk)
 
-        m_cov = sp.statistics.jackknife.covariance2(m, m_jks)
+        m_cov = sp.statistics.jackknife.covariance_jks(m, m_jks)
         model = sp.qcd.spectroscopy.const_model()
         fit_err = lambda t: (model.parameter_gradient(t,m) @ m_cov @ model.parameter_gradient(t,m))**0.5
 
