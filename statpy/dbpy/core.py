@@ -272,11 +272,15 @@ class DBpy:
 
 ###################################### FUNCTIONS #######################################
 
-    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, store=True):
+    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, jks_tag=None, store=True):
         def ratio(nom, denom):
             return nom / denom
-        data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
-        data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
+        if jks_tag != None:
+            data0_jks = self.get_data(tag0, sample_tag0, jks_tag)
+            data1_jks = self.get_data(tag1, sample_tag1, jks_tag)
+        else:
+            data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
+            data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
         
         r = ratio(self.get_data(tag0, sample_tag0, "mean"), self.get_data(tag1, sample_tag1, "mean"))
         r_jks = {}
