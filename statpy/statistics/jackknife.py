@@ -13,7 +13,7 @@ def samples(f, x, *argv):
             s.append( f(np.mean(wj * xj, axis=0)) )
         return np.array(s)
     mean = np.mean(x, axis=0)
-    return np.array([ f(mean + (mean - x[j]) / (N-1)) for k in range(N)])
+    return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
 
 def variance(f, x, *argv):
     N = len(x)
