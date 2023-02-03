@@ -114,7 +114,8 @@ class fit:
         self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         if verbose:
             for i in range(len(self.best_parameter)):
-                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5} (jackknife)")
+                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
+                print(f"parameter covariance = {self.best_parameter_cov}")
             print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}")
 
 
@@ -195,7 +196,7 @@ class LM_fit:
         self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         if verbose:
             for i in range(len(self.best_parameter)):
-                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5} (jackknife)") #, {self.best_parameter_cov_lm[i][i]**0.5} (error propagation)")
+                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
             print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}")
 
 ####################################################################################################################################################################
@@ -221,7 +222,8 @@ class LM_fit:
                             self.best_parameter_cov_lm)
         if verbose:
             for i in range(len(self.best_parameter)):
-                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5} (jackknife)")
+                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
+                print(f"parameter covariance = {self.best_parameter_cov}")
             print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}")
 
 #####################################################################################
