@@ -190,7 +190,7 @@ class DBpy:
     def jackknife_resampling(self, f, tag, sample_tag, eps=1.0, store=True, dst_tag=None, dst_sample_tag=None):
         if dst_tag==None: dst_tag = tag
         data = self.get_data_dict(tag, sample_tag)
-        mean = self.sample_mean(tag, sample_tag.split("_binned")[0])
+        mean = self.sample_mean(tag, sample_tag)
         jks = {}
         for cfg_tag in data.keys():
             jks[cfg_tag] = f( mean + eps*(mean - data[cfg_tag]) / (len(data) - 1) ) 
@@ -205,7 +205,7 @@ class DBpy:
         if dst_sample_tag==None: dst_sample_tag = sample_tag
         if dst_jks_sample_tag==None: dst_jks_sample_tag = sample_tag
         self.jackknife_resampling(f, tag, sample_tag, eps, store, dst_tag, dst_jks_sample_tag)
-        f_mean = f( self.database[tag][sample_tag.split("_binned")[0]]["mean"] )
+        f_mean = f( self.database[tag][sample_tag]["mean"] )
         jks_data = np.array(list(self.get_data(dst_tag, dst_jks_sample_tag, "jks").values()))
         N = len(jks_data)
         var = np.mean([ (jks_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
