@@ -77,15 +77,15 @@ def correlator_double_exp_fit(t, Ct, cov, p0, weights=None, Nt=0, method="Nelder
     cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1).real
     assert Nt != 0
     model = double_exp_model(Nt)
-    if verbose:
-        print("*** correlator double exponential fit ***")
-        print("fit window:", t)
     if method in ["Nelder-Mead", "Migrad"]:
         fitter = sp.fitting.fit(t, Ct, cov, model, p0, lambda x: x, weights=weights, method=method, minimizer_params=minimizer_params)
+        best_parameter, chi2 = fitter.estimate_parameters(fitter.chi_squared, Ct, fitter.p0)
     else:
         fitter = sp.fitting.LM_fit(t, Ct, cov, model, p0, lambda x: x, weights=weights, minimizer_params=minimizer_params)
-    fitter.fit(verbose)
-    return fitter.best_parameter, fitter.best_parameter_cov, fitter.jks_parameter ,fitter.fit_err, fitter.p, fitter.chi2, fitter.dof, model
+        best_parameter, chi2, _ = fitter.estimate_parameters(fitter.t, Ct, fitter.W, fitter.model, fitter.p0, verbose)
+    dof = len(t) - len(best_parameter)
+    pvalue = sp.fitting.get_pvalue(chi2, dof)
+    return best_parameter, chi2, pvalue, dof 
 
 def const_fit(t, y, cov, p0, method="Nelder-Mead", minimizer_params={}, error=True, verbose=True):
     assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]

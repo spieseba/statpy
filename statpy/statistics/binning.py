@@ -3,7 +3,7 @@ import numpy as np
 def bin(data, b, *argv):
     if len(argv) != 0:
         w = argv[0]
-    Nb = len(data) // b # cuts off data which do not build a complete bin
+    Nb = len(data) // b # cuts off data which do not constitute a complete bin
     bata = []
     for i in range(Nb):
         if len(argv) != 0:

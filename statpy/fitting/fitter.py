@@ -6,7 +6,7 @@ import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
 
-def get_p_value(chi2, dof):
+def get_pvalue(chi2, dof):
     return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
 
 def fit_std_err(t, p, dmodel_dp, cov_p):
@@ -88,7 +88,7 @@ class fit:
         else:
             self.best_parameter_cov = np.zeros((len(self.best_parameter), len(self.best_parameter)))
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = get_p_value(self.chi2, self.dof)
+        self.p = get_pvalue(self.chi2, self.dof)
         self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         if verbose:    
             for i in range(len(self.best_parameter)):
@@ -110,7 +110,7 @@ class fit:
         self.best_parameter, self.chi2 = self.estimate_parameters(self.chi_squared, self.y_est, self.p0)
         self.best_parameter_cov = self.multi_mc_jackknife(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbose)
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = get_p_value(self.chi2, self.dof)
+        self.p = get_pvalue(self.chi2, self.dof)
         self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         if verbose:
             for i in range(len(self.best_parameter)):
@@ -190,7 +190,7 @@ class LM_fit:
             self.best_parameter_cov = np.zeros((len(self.best_parameter), len(self.best_parameter)))
         self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = get_p_value(self.chi2, self.dof)
+        self.p = get_pvalue(self.chi2, self.dof)
         self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), 
                             self.best_parameter_cov_lm)
         self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
@@ -216,7 +216,7 @@ class LM_fit:
         self.best_parameter_cov = self.multi_mc_jackknife(verbose)
         self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
         self.dof = len(self.t) - len(self.best_parameter)
-        self.p = get_p_value(self.chi2, self.dof)
+        self.p = get_pvalue(self.chi2, self.dof)
         self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
         self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), 
                             self.best_parameter_cov_lm)
