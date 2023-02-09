@@ -1,2 +1,2 @@
-from statpy.qcd.scale_setting import *
-from statpy.qcd.spectroscopy import *
+import statpy.qcd.scale_setting
+import statpy.qcd.spectroscopy 

@@ -1,5 +1,10 @@
 import numpy as np
 
+# standard error
+def ste(data, tau_int=0.5):
+    return np.sqrt(2.0*tau_int / len(data) ) * np.std(data, ddof=1, axis=0) 
+
+# binning
 def bin(data, b, *argv):
     if len(argv) != 0:
         w = argv[0]

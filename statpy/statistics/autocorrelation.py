@@ -1,7 +1,7 @@
 import numpy as np
 
 # autocovariance
-def autocovariance(sample, tmax):
+def acov(sample, tmax):
     n = len(sample)
     y_bar = np.mean(sample, axis=0)
     Cy = np.zeros(tmax)
@@ -14,33 +14,10 @@ def autocovariance(sample, tmax):
     return Cy
 
 # autocorrelation function
-def gamma(sample, tmax):
-    cov = autocovariance(sample, tmax)
+def acfunc(sample, tmax):
+    cov = acov(sample, tmax)
     return cov/cov[0]
 
 # integrated autocorrelation time 
-def tau_int(gamma, tmax):
-    assert isinstance(gamma,np.ndarray)
-    if gamma.ndim == 1: 
-        gamma_arr = np.array([gamma])
-    else:
-        gamma_arr = gamma
-    K = len(gamma_arr)
-    tau_int = np.array([0.5 for i in range(K)])
-    for k in range(K):
-        for t in range(1,tmax):
-            tau_int[k] += gamma_arr[k][t]
-
-    if K==1:
-        return tau_int[0]
-    else:
-        return tau_int
-
-
-def stdErr(sample, tau_int=0.0):
-    return np.sqrt(2.0*tau_int / len(sample) ) * np.std(sample, ddof=1) 
-
-    
-   
-    
-
+def actime(gamma, tmax):
+    return 0.5 + np.sum(gamma[1:tmax])

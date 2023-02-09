@@ -1,2 +1,2 @@
-from statpy.fitting.fitter import *
-from statpy.fitting.levenberg_marquardt import *
+from statpy.fitting.fitting import *
+import statpy.fitting.levenberg_marquardt 

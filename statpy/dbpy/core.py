@@ -264,7 +264,7 @@ class DBpy:
         m_jks = {}
         for cfg in sloppy_sloppy_jks:
             m_jks[cfg] = sloppy_sloppy_jks[cfg] + b_jks[cfg]
-        m_jkvar = self.jackknife_variance_jks(m, m_jks, dst_tag, dst_sample_tag, dst_cfg_prefix="mean_")
+        m_jkvar = self.jackknife_variance_jks(m, m_jks, dst_tag, dst_sample_tag)
         if store: 
             self.add_data(b, dst_tag, dst_sample_tag, "bias")
             self.add_data(m, dst_tag, dst_sample_tag, "mean")

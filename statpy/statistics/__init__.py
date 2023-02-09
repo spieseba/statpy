@@ -1,4 +1,3 @@
 from statpy.statistics.autocorrelation import *
-from statpy.statistics.binning import *
-from statpy.statistics.bootstrap import *
-from statpy.statistics.jackknife import *
+from statpy.statistics.statistics import *
+import statpy.statistics.jackknife
