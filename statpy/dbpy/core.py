@@ -333,7 +333,7 @@ class DBpy:
 
 ###################################### FITTING ######################################
 
-    def multi_mc_fit(self, t, tags, sample_tags, C, model, p0, estimator, weights=None, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
+    def multi_mc_fit(self, t, tags, sample_tags, C, model, p0, estimator, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
 
         mos = []
         for tag, sample_tag in zip(tags, sample_tags):
@@ -348,9 +348,9 @@ class DBpy:
         model_func = list(model.values())[0]        
         assert method in ["Levenberg-Marquardt", "Migrad", "Nelder-Mead"]
         if method in ["Migrad", "Nelder-Mead"]:
-            fitter = sp.fitting.fit(t, y, C, model_func, p0, estimator, weights, method, minimizer_params)
+            fitter = sp.fitting.fit(t, y, C, model_func, p0, estimator, method, minimizer_params)
         else:
-            fitter = sp.fitting.LM_fit(t, y, C, model_func, p0, estimator, weights, minimizer_params)
+            fitter = sp.fitting.LM_fit(t, y, C, model_func, p0, estimator, minimizer_params)
 
         fitter.multi_mc_fit(verbose)
 
@@ -383,20 +383,72 @@ class DBpy:
             print(f"Binning study of {Ct_tag} for t={t} (nbin={nbins}):\n", [np.roll(stds[n], shift)[t] for n in nbins])
 
     def effective_mass_log(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
-        st = sample_tag.split("_binned")[0]
-        Ct = self.get_data(Ct_tag, st, "mean")
+        Ct = self.get_data(Ct_tag, sample_tag, "mean")
         m_eff_log = sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift)
         self.add_data(m_eff_log, dst_tag, sample_tag, "mean")
         self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)
         return self.get_data(dst_tag, sample_tag, "mean"), self.get_data(dst_tag, sample_tag, "jkvar")**0.5
 
     def effective_mass_acosh(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
-        st = sample_tag.split("_binned")[0]
-        Ct = self.get_data(Ct_tag, st, "mean")
+        Ct = self.get_data(Ct_tag, sample_tag, "mean")
         m_eff_cosh = sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift)
         self.add_data(m_eff_cosh, dst_tag, sample_tag, "mean")
         self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)    
         return self.get_data(dst_tag, sample_tag, "mean"), self.get_data(dst_tag, sample_tag, "jkvar")**0.5
+
+    def correlator_exp_fit(self, t, Ct_tag, sample_tag, cov, p0, bc="pbc", min_method="Nelder-Mead", min_params={}, shift=0, verbose=True, dst_tag="CORR_FIT", store=True):        
+       
+        Ct_mean = self.get_data(Ct_tag, sample_tag, "mean")
+        Ct_jks = self.get_data(Ct_tag, sample_tag, "jks")
+        Nt = len(Ct_mean)
+        best_parameter, chi2, pval, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_mean[t], cov[t][:,t], p0, bc, Nt, min_method, min_params, shift, verbose)
+        best_parameter_jks = {}
+        for cfg in Ct_jks:
+            best_parameter_jks[cfg], _, _, _, _ = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_jks[cfg][t], cov[t][:,t], p0, Nt, min_method, min_params, shift, verbose=False)
+        best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(best_parameter_jks.values())))
+        fit_err = lambda x: sp.fitting.fit_std_err(x, parameter, model.parameter_gradient, parameter_cov)
+        if store:
+            model_str = {"pbc": "p[0] * exp(-p[1]t)", "obc": "p[0] * [exp(-p[1]t) + exp(-p[1](T-t))]"}
+            try:
+                self.database[dst_tag]
+            except KeyError:
+                self.database[dst_tag] = {}
+            self.database[dst_tag][dst_sample_tag] = {}
+            self.database[dst_tag][dst_sample_tag]["t"] = t
+            self.database[dst_tag][dst_sample_tag]["model"] = model_str[bc]
+            self.database[dst_tag][dst_sample_tag]["model_func"] = model
+            self.database[dst_tag][dst_sample_tag]["minimizer"] = min_method
+            self.database[dst_tag][dst_sample_tag]["minimizer_params"] = min_params
+            self.database[dst_tag][dst_sample_tag]["p0"] = p0
+            self.database[dst_tag][dst_sample_tag]["best_parameter"] = best_parameter
+            self.database[dst_tag][dst_sample_tag]["best_parameter_cov"] = best_parameter_cov
+            self.database[dst_tag][dst_sample_tag]["best_parameter_jks"] = best_parameter_jks
+            self.database[dst_tag][dst_sample_tag]["pval"] = pval
+            self.database[dst_tag][dst_sample_tag]["chi2"] = chi2
+            self.database[dst_tag][dst_sample_tag]["dof"] = dof
+            self.database[dst_tag][dst_sample_tag]["fit_err"] = fit_err 
+    return best_parameter, best_parameter_cov, best_parameter_jks
+
+    def effective_mass_curve_fit(self, t0min, t0max, nt, Ct_tag, sample_tag, cov, p0, bc="pbc", method="Nelder-Mead", min_params={}, shift=0, verbose=True, dst_tag="M_EFF_CURVE_FIT", dst_tag_Ct="Ct_FIT", store=True):
+        mt = []; mt_var = []; best_parameter_jks_arr = []
+        for t0 in range(t0min, t0max):
+            t = np.arange(t0, t0+nt)
+            best_parameter, best_parameter_cov, best_parameter_jks = self.correlator_exp_fit(t, Ct_tag, sample_tag, cov, p0, bc, min_method, min_params, shift, verbose=verbose, dst_tag=dst_tag_Ct, store)
+            mt.append(best_parameter[1])
+            mt_var.append(best_parameter_cov[1][1])
+            best_parameter_jks_arr.append(best_parameter_jks)    
+    
+        mt = np.array(mt); mt_var = np.array(mt_var)
+        mt_jks = {}
+        for cfg in best_parameter_jks_arr[0]:
+            best_parameter_jks_arr    
+        
+        self.add_data(mt, dst_tag, dst_sample_tag, "mean")
+        self.add_data(mt_var, dst_tag, dst_sample_tag, "jkvar")
+        self.add_data(mt_jks_dict, dst_tag, dst_sample_tag, "jks")
+
+        return mt, mt_var
+
 
     def effective_mass_const_fit(self, t, mt_tag, sample_tag, dst_tag, p0, method, minimizer_params={}, verbose=True, store=True):    
         mt = self.get_data(mt_tag, sample_tag, "mean")[t]
@@ -441,86 +493,6 @@ class DBpy:
             self.database[dst_tag][sample_tag]["fit_err"] = fit_err
 
         return m[0], m_cov[0][0]**.5
-
-
-    def correlator_exp_fit(self, t, Ct_tag, sample_tag, dst_tag, dst_sample_tag, cov, p0, symmetric=False, method="Nelder-Mead", minimizer_params={}, shift=0, store=True, make_plot=False, verbose=False):        
-
-        Ct_sample = np.roll(self.get_data_arr(Ct_tag, sample_tag), shift); Nt = Ct_sample.shape[1]
-        Ct_sample = Ct_sample[:,t]
-        cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1)[t[0]:t[-1]+1,t[0]:t[-1]+1].real
-        best_parameter, best_parameter_cov, jks_parameter, fit_err, p, chi2, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_sample, cov, p0, weights=None, symmetric=symmetric, Nt=Nt, method=method, minimizer_params=minimizer_params, verbose=verbose)
-
-        if symmetric:
-            model_str = "p[0] * [exp(-p[1]t) + exp(-p[1](T-t))]"
-        else:
-            model_str = "p[0] * exp(-p[1]t)"
-
-        if make_plot:
-            fig, ax = plt.subplots(figsize=(10,5))
-            # data
-            Ct = np.roll(self.get_data(Ct_tag, sample_tag.split("_binned")[0] + "_mean", "-"), shift)
-            ts = np.arange(len(Ct))
-            Ct_std = np.roll(self.get_data(Ct_tag, sample_tag + f"_jkvar", "-"), shift)**0.5
-            ax.errorbar(ts, Ct, Ct_std, ls="", marker=".", capsize=3, color="red", label="data")
-            # fit + err
-            trange = np.arange(ts[0]-5.0, 50, 0.01)
-            fy = model(trange, best_parameter)
-            fyerr = [fit_err(t) for t in trange]
-            ax.fill_between(trange,fy-fyerr,fy+fyerr,alpha=0.1,color="blue")
-            fit_label = f"p[0] = {best_parameter[0]:.3f} +- {best_parameter_cov[0][0]**0.5:.3f}, p[1] = {best_parameter[1]:.3f} +- {best_parameter_cov[1][1]**0.5:.3f}"
-            ax.plot(trange,fy,c="blue", label=fit_label)
-            ax.axvspan(t[0], t[-1], facecolor='grey', alpha=0.4, label="fit window")
-            # adjust plot
-            ax.set_xlim(ts[0]-2, ts[-1]+2)
-            ax.set_ylim(-0.05, Ct[0]*1.1)
-            ax.set_xlabel(r"$t$")
-            ax.set_ylabel(r"$C(t)$")
-            ax.grid()
-            ax.legend()
-            ax.set_title(f"model = {model_str}, minimization method: {method}, pval = {p:.3f}")
-            plt.tight_layout()
-            
-        if store:
-            try:
-                self.database[dst_tag]
-            except KeyError:
-                self.database[dst_tag] = {}
-            self.database[dst_tag][dst_sample_tag] = {}
-            self.database[dst_tag][dst_sample_tag]["fit_window"] = t
-            self.database[dst_tag][dst_sample_tag]["cov"] = cov
-            self.database[dst_tag][dst_sample_tag]["model"] = model_str
-            self.database[dst_tag][dst_sample_tag]["model_func"] = model
-            self.database[dst_tag][dst_sample_tag]["minimizer"] = method
-            self.database[dst_tag][dst_sample_tag]["minimizer_params"] = minimizer_params
-            self.database[dst_tag][dst_sample_tag]["p0"] = p0
-            self.database[dst_tag][dst_sample_tag]["best_parameter"] = best_parameter
-            self.database[dst_tag][dst_sample_tag]["best_parameter_cov"] = best_parameter_cov
-            self.database[dst_tag][dst_sample_tag]["jks_parameter"] = jks_parameter
-            self.database[dst_tag][dst_sample_tag]["pval"] = p
-            self.database[dst_tag][dst_sample_tag]["chi2"] = chi2
-            self.database[dst_tag][dst_sample_tag]["dof"] = dof
-            self.database[dst_tag][dst_sample_tag]["fit_err"] = fit_err
-
-    def effective_mass_exp_fit(self, tmax, nt, Ct_tag, sample_tag, dst_tag, dst_sample_tag, cov, p0, symmetric=False, method="Nelder-Mead", minimizer_params={}, 
-                            shift=0, make_plots=False, verbose=False, store=True):
-        mt = []; mt_var = []; mt_jks = []
-        for t0 in range(tmax):
-            t = np.arange(t0, t0+nt)
-            self.correlator_exp_fit(t, Ct_tag, sample_tag, dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", cov, p0, symmetric, method, minimizer_params, shift, make_plot=make_plots, verbose=verbose)
-            mt.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "best_parameter")[1])
-            mt_var.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "best_parameter_cov")[1][1])
-            mt_jks.append(self.get_data(dst_tag, dst_sample_tag + f"_Ct_FIT_{t0}", "jks_parameter")[:,1])
-        mt = np.array(mt); mt_var = np.array(mt_var); mt_jks = np.array(mt_jks)
-
-        mt_jks_dict = {}
-        for cfg in range(mt_jks.shape[1]):
-            mt_jks_dict[str(cfg)] = mt_jks[:,cfg]
-
-        self.add_data(mt, dst_tag, dst_sample_tag, "mean")
-        self.add_data(mt_var, dst_tag, dst_sample_tag, "jkvar")
-        self.add_data(mt_jks_dict, dst_tag, dst_sample_tag, "jks")
-
-        return mt, mt_var
 
 ################################################################################################################################################
 ################################################################################################################################################
