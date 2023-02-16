@@ -62,10 +62,7 @@ def correlator_exp_fit(t, Ct, cov, p0, bc="pbc", Nt=0, min_method="Nelder-Mead",
         model = symmetric_exp_model(Nt)
     else:
         model = exp_model()
-    if verbose:
-        print("*** correlator fit ***")
-        print("fit window:", t)
-    if method in ["Nelder-Mead", "Migrad"]:
+    if min_method in ["Nelder-Mead", "Migrad"]:
         fitter = sp.fitting.fit(t, Ct, cov, model, p0, lambda x: x, method=min_method, minimizer_params=minimizer_params)
         best_parameter, chi2 = fitter.estimate_parameters(fitter.chi_squared, Ct, fitter.p0)
     else:
