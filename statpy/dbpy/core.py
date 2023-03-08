@@ -403,7 +403,7 @@ class DBpy:
         best_parameter, chi2, pval, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_mean[t], cov[t][:,t], p0, bc, Nt, min_method, min_params, shift, verbose=False)
         best_parameter_jks = {}
         for cfg in Ct_jks:
-            best_parameter_jks[cfg], _, _, _, _ = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_jks[cfg][t], cov[t][:,t], p0, bc, Nt, min_method, min_params, shift, verbose=False)
+            best_parameter_jks[cfg], _, _, _, _ = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_jks[cfg][t], cov[t][:,t], best_parameter, bc, Nt, min_method, min_params, shift, verbose=False)
         best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(best_parameter_jks.values())))
         fit_err = lambda x: sp.fitting.fit_std_err(x, parameter, model.parameter_gradient, parameter_cov)
         if verbose:
@@ -457,13 +457,13 @@ class DBpy:
 
     def effective_mass_const_fit(self, t, mt_tag, sample_tag, dst_tag, p0, method, minimizer_params={}, verbose=True, store=True):    
         mt = self.get_data(mt_tag, sample_tag, "mean")[t]
-        mt_cov = np.diag(self.get_data(mt_tag, sample_tag, "jkvar"))[t[0]:t[-1]+1,t[0]:t[-1]+1]
-        m, p, chi2, dof, model = sp.qcd.spectroscopy.const_fit(t, np.array([mt]), mt_cov, p0, method, minimizer_params, error=False, verbose=False)
+        mt_cov = np.diag(self.get_data(mt_tag, sample_tag, "jkvar"))[t][:,t]
+        m, p, chi2, dof, model = sp.qcd.spectroscopy.const_fit(t, mt, mt_cov, p0, method, minimizer_params, error=False, verbose=False)
 
         mt_jks = self.get_data(mt_tag, sample_tag, "jks")
         m_jks = []
         for mt_jk in mt_jks.values():
-            m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, np.array([mt_jk[t]]), mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
+            m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, mt_jk[t], mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
             m_jks.append(m_jk)
 
         m_cov = sp.statistics.jackknife.covariance_jks(m, m_jks)

@@ -76,7 +76,7 @@ class fit:
         return self.covariance 
 
     def fit(self, verbose=True, error=True):
-        self.y_est = self.estimator(np.mean(self.y, axis=0))
+        self.y_est = self.estimator(self.y)
         self.best_parameter, self.chi2 = self.estimate_parameters(self.chi_squared, self.y_est, self.p0)
         if error:
             self.best_parameter_cov = self.jackknife(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbose)
@@ -110,7 +110,7 @@ class fit:
         if verbose:
             for i in range(len(self.best_parameter)):
                 print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
-                print(f"parameter covariance = {self.best_parameter_cov}")
+            print(f"parameter covariance = {self.best_parameter_cov}")
             print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}")
 
 
@@ -171,7 +171,7 @@ class LM_fit:
         return self.covariance 
 
     def fit(self, verbose=True, error=True):
-        self.y_est = self.estimator(np.mean(self.y, axis=0))
+        self.y_est = self.estimator(self.y, axis=0)
         self.best_parameter, self.chi2, self.J = self.estimate_parameters(self.t, self.y_est, self.W, self.model, self.p0, verbose)
         if error:
             self.best_parameter_cov = self.jackknife(self.best_parameter, verbose)
@@ -213,7 +213,7 @@ class LM_fit:
         if verbose:
             for i in range(len(self.best_parameter)):
                 print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
-                print(f"parameter covariance = {self.best_parameter_cov}")
+            print(f"parameter covariance = {self.best_parameter_cov}")
             print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}")
 
 #####################################################################################
