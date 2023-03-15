@@ -404,7 +404,7 @@ class DBpy:
         for cfg in Ct_jks:
             best_parameter_jks[cfg], _, _, _, _ = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_jks[cfg][t], cov[t][:,t], best_parameter, bc, Nt, min_method, min_params, shift, verbose=False)
         best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(best_parameter_jks.values())))
-        fit_err = lambda x: sp.fitting.fit_std_err(x, parameter, model.parameter_gradient, parameter_cov)
+        fit_err = lambda x: sp.fitting.fit_std_err(x, best_parameter, model.parameter_gradient, best_parameter_cov)
         if verbose:
             print("fit window:", t)
             for i in range(len(best_parameter)):
