@@ -1,4 +1,4 @@
-iminuit
-matplotlib
 numpy
 scipy
+matplotlib
+iminuit
