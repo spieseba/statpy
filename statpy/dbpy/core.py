@@ -4,7 +4,6 @@ import os, sys
 import numpy as np
 import statpy.dbpy.np_json as json
 import statpy as sp
-import matplotlib.pyplot as plt
 
 STRIP_TAGS = ["mean", "jkvar", "jks"]
 
