@@ -1,5 +1,5 @@
 import numpy as np
-from ..statistics.jackknife import variance
+from ..statistics.jackknife import variance, samples, variance_jks
 import matplotlib.pyplot as plt
 
 def derivative(farr, method="central", h=0.01):
@@ -24,6 +24,9 @@ class scale:
         self.E_mean = np.mean(self.E, axis=0)
         self.ct0 = ct0        
         self.cw0 = cw0
+
+        # taken from arXiv:1401.3270
+        self.sqrt_t0_fm = 0.1638; self.sqrt_t0_fm_err = 0.0010
 
     def comp_t2E(self, E_mean):
         return self.tau**2 * E_mean 
@@ -69,6 +72,14 @@ class scale:
             print(f"lattice spacing: {aGeV:.6f} +- {aGeV_std:.6f} 1/GeV")
             print(f"lattice spacing: {afm:.6f} +- {afm_std:.6f} fm")  
         return aGeV_inv, aGeV_inv_std
+    
+    def comp_aGeV_inv_t0(self, sqrt_tau0):
+        return sqrt_tau0 * 0.1973 / self.sqrt_t0_fm
+
+    def comp_aGeV_inv_std_t0(self, aGeV_inv, sqrt_tau0, sqrt_tau0_std):
+        afm_std = np.sqrt( self.sqrt_t0_fm_err**2 / sqrt_tau0**2 + sqrt_tau0_std**2 * self.sqrt_t0_fm**2 / sqrt_tau0**4 )
+        aGeV_std = afm_std / 0.1973; aGeV_inv_std = abs(aGeV_std * aGeV_inv**2)
+        return aGeV_inv_std
 
     def get_cutoff_w0(self, wau0, wau0_std, verbose=False):
         w0_fm = 0.1670; w0_fm_err = 0.0010 # taken from arXiv:1401.3270
@@ -89,13 +100,31 @@ class scale:
     def comp_w0_phys(self, E_mean):
         return self.comp_wau0(self.comp_tdt2E(E_mean)) * 0.1973 / 0.1670 # taken from arXiv:1401.3270
         
-    def lattice_spacing(self, scale):
+    def lattice_spacing(self, scale, verbose=True):
         self.scale = scale
         if self.scale == "t0":
-            self.t2E = self.comp_t2E(self.E_mean); self.t2E_std = np.sqrt( variance(lambda x: self.comp_t2E(x), self.E) )    
-            self.sqrt_tau0 = self.comp_sqrt_tau0(self.t2E); self.sqrt_tau0_std = np.sqrt( variance(lambda x: self.comp_sqrt_tau0(self.comp_t2E(x)), self.E) )
-            self.aGeV_inv_t0, self.aGeV_inv_std_t0 = self.get_cutoff_t0(self.sqrt_tau0, self.sqrt_tau0_std, verbose=True)
+            self.t2E = self.comp_t2E(self.E_mean)
+            self.t2E_jks = samples(self.comp_t2E, self.E)
+            self.t2E_std = np.sqrt(variance_jks(self.t2E, self.t2E_jks))        
+        
+            self.sqrt_tau0 = self.comp_sqrt_tau0(self.t2E)
+            self.sqrt_tau0_jks = np.array([self.comp_sqrt_tau0(t2E) for t2E in self.t2E_jks])
+            self.sqrt_tau0_std = np.sqrt(variance_jks(self.sqrt_tau0, self.sqrt_tau0_jks))
+
+            self.aGeV_inv_t0 = self.comp_aGeV_inv_t0(self.sqrt_tau0)
+            self.aGeV_inv_std_t0 = self.comp_aGeV_inv_std_t0(self.aGeV_inv_t0, self.sqrt_tau0, self.sqrt_tau0_std)
+    
+            if verbose:
+                print(f"scale: sqrt(tau0) = {self.sqrt_tau0:.6f} +- {self.sqrt_tau0_std:.6f}")
+                print(f"cutoff: {self.aGeV_inv_t0:.6f} +- {self.aGeV_inv_std_t0:.6f} GeV")
+                #print(f"lattice spacing: {aGeV:.6f} +- {aGeV_std:.6f} 1/GeV")
+                #print(f"lattice spacing: {afm:.6f} +- {afm_std:.6f} fm")  
             return self.sqrt_tau0, self.sqrt_tau0_std, self.t2E, self.t2E_std, self.aGeV_inv_t0, self.aGeV_inv_std_t0
+
+            #self.t2E = self.comp_t2E(self.E_mean); self.t2E_std = np.sqrt( variance(lambda x: self.comp_t2E(x), self.E) )    
+            #self.sqrt_tau0 = self.comp_sqrt_tau0(self.t2E); self.sqrt_tau0_std = np.sqrt( variance(lambda x: self.comp_sqrt_tau0(self.comp_t2E(x)), self.E) )
+            #self.aGeV_inv_t0, self.aGeV_inv_std_t0 = self.get_cutoff_t0(self.sqrt_tau0, self.sqrt_tau0_std, verbose=True)
+            #return self.sqrt_tau0, self.sqrt_tau0_std, self.t2E, self.t2E_std, self.aGeV_inv_t0, self.aGeV_inv_std_t0
 
         if self.scale == "w0":
             self.tdt2E = self.comp_tdt2E(self.E_mean); self.tdt2E_std = np.sqrt( variance(lambda x: self.comp_tdt2E(x), self.E) ) 

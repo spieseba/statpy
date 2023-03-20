@@ -374,6 +374,7 @@ class DBpy:
 ###################################### SPECTROSCOPY ######################################
 
     def Ct_binning_study(self, Ct_tag, sample_tag, binsizes, keep_binsizes, t=None, shift=0):
+        print("Original sample size: ", len(self.get_data_arr(Ct_tag, sample_tag)))
         stds = self.binning_study(Ct_tag, sample_tag, binsizes, keep_binsizes)
         nbins = list(stds.keys())
         if t == None:
