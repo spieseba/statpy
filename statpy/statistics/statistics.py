@@ -67,30 +67,43 @@ def infinite_binsize_extrapolation(bs, fit_bs, var_dict, N, model, p0, fit_metho
     var_var = np.array([std_of_var(var_dict[b], N//b) for b in bs])**2.
     var_ratio = var/var[0]
     var_ratio_var = np.array([ratio_err_prop(var[b-bs[0]], var_var[b-bs[0]], var[0], var_var[0]) for b in bs])
-    best_parameter, best_parameter_cov, model_func, fit_err = fit(bs[fit_bs], var_ratio[fit_bs], np.diag(var_ratio_var[fit_bs]), model, p0)
-    assert model in ["singlemode", "threeparam"]
-    if model == "singlemode":
-        ratio_inf = 2. * best_parameter[0]; ratio_inf_var = np.array([2.0]) @ best_parameter_cov @ np.array([2.0])
-        model_label = r"$2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]$"
-    if model == "threeparam":
-        ratio_inf = 2. * best_parameter[0]; ratio_inf_var = np.array([2.0, 0, 0]) @ best_parameter_cov @ np.array([2.0, 0, 0])
-        model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)$"
-    if make_plot:
-        fig, ax = plt.subplots(figsize=(16,5))
-        color = "C0"
-        ax.set_ylabel(r"$\sigma^2[S]\,/\,\sigma^2[1]$")
-        ax.set_xlabel(r"binsize S")
-        ax.errorbar(bs, var_ratio, var_ratio_var**.5, linestyle="", marker="+", capsize=5, color=color)
-        color = "C1"
-        trange = np.arange(bs[fit_bs[0]], bs[fit_bs[-1]], 0.01)
-        fy = np.array([model_func(t, best_parameter) for t in trange]); fyerr = np.array([fit_err(t) for t in trange])
-        ax.plot(trange, fy, color=color)
-        ax.fill_between(trange, fy-fyerr, fy+fyerr, alpha=0.5, color=color)
-        color = "C2"
-        ax.plot(trange, [ratio_inf for t in trange], color=color, label=r"$2\tau = $" + f"{ratio_inf:.2f} +- {ratio_inf_var**.5:.2f}, fit model: " + model_label)
-        ax.fill_between(trange, ratio_inf-ratio_inf_var**.5, ratio_inf+ratio_inf_var**.5, alpha=0.5, color=color)
-        ax.grid()
-        ax.legend(loc="upper left")
-        plt.tight_layout()
-        plt.show()
+    try:
+        best_parameter, best_parameter_cov, model_func, fit_err = fit(bs[fit_bs], var_ratio[fit_bs], np.diag(var_ratio_var[fit_bs]), model, p0)
+        assert model in ["singlemode", "threeparam"]
+        if model == "singlemode":
+            ratio_inf = 2. * best_parameter[0]; ratio_inf_var = np.array([2.0]) @ best_parameter_cov @ np.array([2.0])
+            model_label = r"$2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]$"
+        if model == "threeparam":
+            ratio_inf = 2. * best_parameter[0]; ratio_inf_var = np.array([2.0, 0, 0]) @ best_parameter_cov @ np.array([2.0, 0, 0])
+            model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)$"
+        if make_plot:
+            fig, ax = plt.subplots(figsize=(16,5))
+            color = "C0"
+            ax.set_ylabel(r"$\sigma^2[S]\,/\,\sigma^2[1]$")
+            ax.set_xlabel(r"binsize S")
+            ax.errorbar(bs, var_ratio, var_ratio_var**.5, linestyle="", marker="+", capsize=5, color=color, label="data")
+            color = "C1"
+            trange = np.arange(bs[fit_bs[0]], bs[fit_bs[-1]], 0.01)
+            fy = np.array([model_func(t, best_parameter) for t in trange]); fyerr = np.array([fit_err(t) for t in trange])
+            ax.plot(trange, fy, color=color)
+            ax.fill_between(trange, fy-fyerr, fy+fyerr, alpha=0.5, color=color)
+            color = "C2"
+            ax.plot(trange, [ratio_inf for t in trange], color=color, label=r"$2\tau = $" + f"{ratio_inf:.2f} +- {ratio_inf_var**.5:.2f}, fit model: " + model_label)
+            ax.fill_between(trange, ratio_inf-ratio_inf_var**.5, ratio_inf+ratio_inf_var**.5, alpha=0.5, color=color)
+            ax.grid()
+            ax.legend(loc="upper left")
+            plt.tight_layout()
+            plt.show()
+    except AssertionError:
+        ratio_inf = []; ratio_inf_var = []
+        if make_plot:
+            fig, ax = plt.subplots(figsize=(16,5))
+            color = "C0"
+            ax.set_ylabel(r"$\sigma^2[S]\,/\,\sigma^2[1]$")
+            ax.set_xlabel(r"binsize S")
+            ax.errorbar(bs, var_ratio, var_ratio_var**.5, linestyle="", marker="+", capsize=5, color=color, label="data")
+            ax.grid()
+            ax.legend(loc="upper left")
+            plt.tight_layout()
+            plt.show()
     return ratio_inf, ratio_inf_var

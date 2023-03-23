@@ -236,15 +236,18 @@ class DBpy:
             self.database[tag][f"{sample_tag}_binned{binsize}"] = binned_data
         return binned_data
 
-    def binning_study(self, tag, sample_tag, binsizes=[1,2,4,8], keep_binsizes=[]):
-        stds = {}
+    def binning_study(self, tag, sample_tag, binsizes=[1,2,4,8], keep_binsizes=[], var=False):
+        print("Original sample size: ", len(self.get_data_arr(tag, sample_tag)))
+        if var: power = 1.0
+        else: power = 0.5
+        vals = {}
         for binsize in binsizes:
             self.bin(binsize, tag, sample_tag)
-            stds[binsize] = np.array([y**0.5 for y in self.jackknife_variance(lambda x: x, tag, sample_tag + f"_binned{binsize}")])
+            vals[binsize] = np.array([y**power for y in self.jackknife_variance(lambda x: x, tag, sample_tag + f"_binned{binsize}")])
         # clean up
         for binsize in [binsize for binsize in binsizes if binsize not in keep_binsizes]:
             del self.database[tag][sample_tag + f"_binned{binsize}"]
-        return stds   
+        return vals   
 
     def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
         if dst_tag == None: dst_tag = exact_exact_tag
@@ -373,14 +376,15 @@ class DBpy:
 
 ###################################### SPECTROSCOPY ######################################
 
-    def Ct_binning_study(self, Ct_tag, sample_tag, binsizes, keep_binsizes, t=None, shift=0):
-        print("Original sample size: ", len(self.get_data_arr(Ct_tag, sample_tag)))
-        stds = self.binning_study(Ct_tag, sample_tag, binsizes, keep_binsizes)
-        nbins = list(stds.keys())
+    def Ct_binning_study(self, Ct_tag, sample_tag, binsizes, keep_binsizes, t=None, shift=0, var=False, return_vals=False):
+        vals = self.binning_study(Ct_tag, sample_tag, binsizes, keep_binsizes, var)
+        bs = list(vals.keys())
         if t == None:
-            print(f"Binning study of {Ct_tag} (nbin={nbins}):\n", [np.roll(stds[n], shift) for n in nbins])
+            print(f"Binning study of {Ct_tag} (binsizes={bs}):\n", [np.roll(vals[b], shift) for b in bs])
         else:
-            print(f"Binning study of {Ct_tag} for t={t} (nbin={nbins}):\n", [np.roll(stds[n], shift)[t] for n in nbins])
+            print(f"Binning study of {Ct_tag} for t={t} (binsizes={bs}):\n", [np.roll(vals[b], shift)[t] for b in bs])
+        if return_vals:
+            return vals
 
     def effective_mass_log(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
         Ct = self.get_data(Ct_tag, sample_tag, "mean")
