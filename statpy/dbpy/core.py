@@ -311,23 +311,25 @@ class DBpy:
         print("effective number of measurements: ", len(Edens_binned))
         scale = sp.qcd.scale_setting.scale(tau, Edens_binned)
         if "t0" in scales:
-            sqrt_tau0, sqrt_tau0_std, t2E, t2E_std, aGeV_inv_t0, aGeV_inv_std_t0 = scale.lattice_spacing("t0")
+            sqrt_tau0, sqrt_tau0_std, t2E, t2E_std, aGeV_inv_t0, aGeV_inv_t0_std, aGeV_inv_t0_jks = scale.lattice_spacing("t0")
             if store:
                 self.add_data(sqrt_tau0, "flow_scale_t0" + dst_suffix, sample_tag, "sqrt_tau0")
                 self.add_data(sqrt_tau0_std, "flow_scale_t0" + dst_suffix, sample_tag, "sqrt_tau0_std")
                 self.add_data(t2E, "flow_scale_t0" + dst_suffix, sample_tag, "t2E")
                 self.add_data(t2E_std, "flow_scale_t0" + dst_suffix, sample_tag, "t2E_std")
                 self.add_data(aGeV_inv_t0, "flow_scale_t0" + dst_suffix, sample_tag, "aGeV_inv")
-                self.add_data(aGeV_inv_std_t0, "flow_scale_t0" + dst_suffix, sample_tag, "aGeV_inv_std")
+                self.add_data(aGeV_inv_t0_std, "flow_scale_t0" + dst_suffix, sample_tag, "aGeV_inv_std")
+                self.add_data(aGeV_inv_t0_jks, "flow_scale_t0" + dst_suffix, sample_tag, "aGeV_inv_jks")
         if "w0" in scales:
-            wau0, wau0_std, tdt2E, tdt2E_std, aGeV_inv_w0, aGeV_inv_std_w0 = scale.lattice_spacing("w0")
+            wau0, wau0_std, tdt2E, tdt2E_std, aGeV_inv_w0, aGeV_inv_w0_std, aGeV_inv_w0_jks = scale.lattice_spacing("w0")
             if store:
                 self.add_data(wau0, "flow_scale_w0" + dst_suffix, sample_tag, "wau0")
                 self.add_data(wau0_std, "flow_scale_w0" + dst_suffix, sample_tag, "wau0_std")
                 self.add_data(tdt2E, "flow_scale_w0" + dst_suffix, sample_tag, "tdt2E")
                 self.add_data(tdt2E_std, "flow_scale_w0" + dst_suffix, sample_tag, "tdt2E_std")
                 self.add_data(aGeV_inv_w0, "flow_scale_w0" + dst_suffix, sample_tag, "aGeV_inv")
-                self.add_data(aGeV_inv_std_w0, "flow_scale_w0" + dst_suffix, sample_tag, "aGeV_inv_std")
+                self.add_data(aGeV_inv_w0_std, "flow_scale_w0" + dst_suffix, sample_tag, "aGeV_inv_std")
+                self.add_data(aGeV_inv_w0_jks, "flow_scale_w0" + dst_suffix, sample_tag, "aGeV_inv_jks")
 
     
 

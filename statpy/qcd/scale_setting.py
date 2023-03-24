@@ -61,7 +61,7 @@ class scale:
     def comp_aGeV_inv_t0(self, sqrt_tau0):
         return sqrt_tau0 * 0.1973 / self.sqrt_t0_fm
     
-    def comp_aGeV_inv_std_t0(self, aGeV_inv, sqrt_tau0, sqrt_tau0_std): 
+    def comp_aGeV_inv_t0_std(self, aGeV_inv, sqrt_tau0, sqrt_tau0_std): 
         # afm = sqrt_t0 / sqrt_tau0
         afm_std = np.sqrt( ratio_error_prop(self.sqrt_t0_fm, self.sqrt_t0_fm_std, sqrt_tau0, sqrt_tau0_std)  )
         aGeV_std = afm_std / 0.1973; aGeV_inv_std = abs(aGeV_std * aGeV_inv**2)
@@ -69,7 +69,7 @@ class scale:
     
     def get_cutoff_t0(self, sqrt_tau0, sqrt_tau0_std, verbose=False):
         aGeV_inv = self.comp_aGeV_inv_t0(sqrt_tau0)
-        aGeV_inv_std = self.comp_aGeV_inv_std_t0(aGeV_inv, sqrt_tau0, sqrt_tau0_std)
+        aGeV_inv_std = self.comp_aGeV_inv_t0_std(aGeV_inv, sqrt_tau0, sqrt_tau0_std)
         afm = self.sqrt_t0_fm / sqrt_tau0 
         afm_std = np.sqrt( ratio_error_prop(self.sqrt_t0_fm, self.sqrt_t0_fm_std, sqrt_tau0, sqrt_tau0_std)  )
         if verbose:
@@ -98,7 +98,7 @@ class scale:
     def comp_aGeV_inv_w0(self, wau0):
         return wau0 * 0.1973 / self.w0_fm
 
-    def comp_aGeV_inv_std_w0(self, aGeV_inv, wau0, wau0_std):
+    def comp_aGeV_inv_w0_std(self, aGeV_inv, wau0, wau0_std):
         # afm = w0/wau0
         afm_std = np.sqrt( ratio_error_prop(self.w0_fm, self.w0_fm_std, wau0, self.wau0_std)  )
         aGeV_std = afm_std / 0.1973; aGeV_inv_std = abs(aGeV_std * aGeV_inv**2) 
@@ -106,7 +106,7 @@ class scale:
 
     def get_cutoff_w0(self, wau0, wau0_std, verbose=False):
         aGeV_inv = self.comp_aGeV_inv_w0(wau0)
-        aGeV_inv_std = self.comp_aGeV_inv_std_w0(aGeV_inv, wau0, wau0_std)
+        aGeV_inv_std = self.comp_aGeV_inv_w0_std(aGeV_inv, wau0, wau0_std)
         afm = self.w0_fm / wau0
         afm_std = np.sqrt( ratio_error_prop(self.w0_fm, self.w0_fm_std, wau0, self.wau0_std)  )
         if verbose:
@@ -132,7 +132,8 @@ class scale:
             self.sqrt_tau0_jks = np.array([self.comp_sqrt_tau0(t2E) for t2E in self.t2E_jks])
             self.sqrt_tau0_std = np.sqrt(variance_jks(self.sqrt_tau0, self.sqrt_tau0_jks))
             
-            self.aGeV_inv_t0, self.aGeV_inv_std_t0 = self.get_cutoff_t0(self.sqrt_tau0, self.sqrt_tau0_std, verbose=True)
+            self.aGeV_inv_t0, self.aGeV_inv_t0_std = self.get_cutoff_t0(self.sqrt_tau0, self.sqrt_tau0_std, verbose=True)
+            self.aGeV_inv_t0_jks = np.array([self.comp_aGeV_inv_t0(sqrt_tau0) for sqrt_tau0 in self.sqrt_tau0_jks])
 
             #self.sqrt_t0_fake_jks = self.sample_gaussian_sqrt_t0_fm(len(self.sqrt_tau0_jks), seed=0)
             #def tmp(sqrt_tau0, sqrt_t0):
@@ -142,7 +143,7 @@ class scale:
             #self.aGeV_inv_t0_fake_std = np.sqrt(variance_jks(self.aGeV_inv_t0_fake, self.aGeV_inv_t0_fake_jks))
             #print(f"cutoff fake: {self.aGeV_inv_t0_fake:.6f} +- {self.aGeV_inv_t0_fake_std:.6f}")
 
-            return self.sqrt_tau0, self.sqrt_tau0_std, self.t2E, self.t2E_std, self.aGeV_inv_t0, self.aGeV_inv_std_t0
+            return self.sqrt_tau0, self.sqrt_tau0_std, self.t2E, self.t2E_std, self.aGeV_inv_t0, self.aGeV_inv_t0_std, self.aGeV_inv_t0_jks
 
 
         if self.scale == "w0":
@@ -154,6 +155,8 @@ class scale:
             self.wau0_jks = np.array([self.comp_wau0(tdt2E) for tdt2E in self.tdt2E_jks])
             self.wau0_std = np.sqrt(variance_jks(self.wau0, self.wau0_jks))
             
-            self.aGeV_inv_w0, self.aGeV_inv_std_w0 = self.get_cutoff_w0(self.wau0, self.wau0_std, verbose=True)
-            return self.wau0, self.wau0_std, self.tdt2E, self.tdt2E_std, self.aGeV_inv_w0, self.aGeV_inv_std_w0
+            self.aGeV_inv_w0, self.aGeV_inv_w0_std = self.get_cutoff_w0(self.wau0, self.wau0_std, verbose=True)
+            self.aGeV_inv_w0_jks = np.array([self.comp_aGeV_inv_w0(wau0) for wau0 in self.wau0_jks])
+
+            return self.wau0, self.wau0_std, self.tdt2E, self.tdt2E_std, self.aGeV_inv_w0, self.aGeV_inv_w0_std, self.aGeV_inv_w0_jks
 
