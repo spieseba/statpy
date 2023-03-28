@@ -76,8 +76,10 @@ class DBpy:
             # compute/store jks
             self.jackknife_resampling(dst_tag, dst_sample_tag, dst_data_tag)
 
+# create db from measurement files for each ensemble_tag, maybe rename sample_tag to ensemble_tag
+# db should have same structure
 # create unique mapping of indices: create_src_db
-# vectors all must have same sice, fill up with nones
+# vectors all must have same size, fill up with nones
 
 
 #####################
