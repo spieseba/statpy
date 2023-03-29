@@ -14,8 +14,10 @@ class DBpy:
             self.database = {}
         self.safe_mode = safe_mode
     
-    def save(self):
-        with open(self.file, "w") as f:
+    def save(self, dst=None):
+        if dst == None:
+            dst = self.file
+        with open(dst, "w") as f:
             json.dump(self.database, f)
     
     def _query_yes_no(self, question, default="yes"):
@@ -24,7 +26,7 @@ class DBpy:
         else: 
             return True
     
-    def __str__(self, verbosity=0):
+    def __str__(self, verbosity):
         s = 'DATABASE CONSISTS OF\n\n\n'
         for tag, tag_dict in self.database.items():
             s += f'{tag:20s}\n'
@@ -32,17 +34,18 @@ class DBpy:
                 for sample_tag, sample_dict in tag_dict.items():
                     s += f'└── {sample_tag:20s}\n'
                     if verbosity >= 2:
-                        for cfg_tag, val in sample_dict.items():
-                            s += f'\t└── {cfg_tag}\n'
-                            if verbosity >= 3:
-                                s += '\t\t' + f'{val.__str__()}'.replace('\n', '\n\t\t')
-                            s += '\n'
+                        if tag != "cfgs":
+                            for cfg_tag in sample_dict:
+                                s += f'\t└── {cfg_tag}\n'
+                            #if verbosity >= 3:
+                            #    s += '\t\t' + f'{val.__str__()}'.replace('\n', '\n\t\t')
+                            #s += '\n'
         return s
     
-    def print(self, verbosity):
+    def print(self, verbosity=1):
         print(self.__str__(verbosity=verbosity))  
 
-    def merge_db(self, src):
+    def merge(self, src):
         with open(src) as f:
             src_db = json.load(f)
         src_cfgs = src_db.pop("cfgs")
@@ -61,9 +64,11 @@ class DBpy:
 
     def fill_db_with_nan(self):
         for tag in self.database:
+            if tag == "cfgs":
+                break
             for sample_tag in self.database[tag]:
                 for cfg in self.database["cfgs"][sample_tag]:
-                    if cfg not in self.database[tag][sample_tag]["sample"]:
+                    if str(cfg) not in self.database[tag][sample_tag]["sample"]:
                         self.database[tag][sample_tag]["sample"][cfg] = np.nan
 
    #         # compute/store mean and replace nones with mean
