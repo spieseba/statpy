@@ -5,8 +5,6 @@ import numpy as np
 import statpy.dbpy.np_json as json
 import statpy as sp
 
-STRIP_TAGS = ["mean", "jkvar", "jks"]
-
 class DBpy:
     def __init__(self, file, safe_mode=False):
         self.file = file
@@ -45,44 +43,38 @@ class DBpy:
     def print(self, verbosity):
         print(self.__str__(verbosity=verbosity))  
 
-##### ATTENTION #####
-    def _add_src_to_db(self, src_data, dst_tag, dst_sample_tag, dst_data_tag):
-        try:
-            self.database[dst_tag]
-            try: 
-                self.database[dst_tag][dst_sample_tag]
-                try: 
-                    self.database[dst_tag][dst_sample_tag][dst_data_tag]
-                    if self._query_yes_no(f"{dst_data_tag} is already in database for {dst_sample_tag} in {dst_tag}. Overwrite?"):
-                        self.database[dst_tag][dst_sample_tag][dst_data_tag] = src_data
-                except KeyError:
-                    self.database[dst_tag][dst_sample_tag][dst_data_tag] = src_data
-            except KeyError:
-                self.database[dst_tag][dst_sample_tag] = {dst_data_tag: src_data}
-        except KeyError:
-            self.database[dst_tag] = {dst_sample_tag: {dst_data_tag: src_data}}
-
-    def add_src_to_db(self, src, src_tags, dst_tags, dst_sample_tag, dst_data_tag="sample"): 
+    def merge_db(self, src):
         with open(src) as f:
             src_db = json.load(f)
-        for src_tag, dst_tag in zip(src_tag, dst_tag):
-            self._add_src_to_db(src_db[src_tag], dst_tag, dst_sample_tag, dst_data_tag)
-            # compute/store mean and replace nones with mean
-            mean = self.sample_mean(dst_tag, dst_sample_tag, dst_data_tag, nanmean=True) 
-            data_dict = self.get_data(dst_tag, dst_sample_tag, dst_data_tag) # replace nones with mean
-            for cfg in data_dict:
-                if np.isnan(data_dict[cfg]): data_dict[cfg] = mean
-            self._add_data(data_dict, dst_tag, dst_sample_tag, dst_data_tag)
-            # compute/store jks
-            self.jackknife_resampling(dst_tag, dst_sample_tag, dst_data_tag)
+        src_cfgs = src_db.pop("cfgs")
+        # add src_data to db
+        for tag in src_db:
+            for sample_tag in src_db[tag]:
+                for data_tag in src_db[tag][sample_tag]:
+                    self._add_data(src_db[tag][sample_tag][data_tag], tag, sample_tag, data_tag)
+        # ensure that all samples of same ensemble have same size and fill up missing cfgs with nans
+        for sample_tag in src_cfgs:
+            try:
+                self.database["cfgs"][sample_tag] = list(set(self.database["cfgs"][sample_tag] + src_cfgs[sample_tag]))
+            except KeyError:
+                self.database["cfgs"][sample_tag] = src_cfgs[sample_tag]
+        self.fill_db_with_nan()
 
-# create db from measurement files for each ensemble_tag, maybe rename sample_tag to ensemble_tag
-# db should have same structure
-# create unique mapping of indices: create_src_db
-# vectors all must have same size, fill up with nones
+    def fill_db_with_nan(self):
+        for tag in self.database:
+            for sample_tag in self.database[tag]:
+                for cfg in self.database["cfgs"][sample_tag]:
+                    if cfg not in self.database[tag][sample_tag]["sample"]:
+                        self.database[tag][sample_tag]["sample"][cfg] = np.nan
 
-
-#####################
+   #         # compute/store mean and replace nones with mean
+   #         mean = self.sample_mean(dst_tag, dst_sample_tag, dst_data_tag, nanmean=True) 
+   #         data_dict = self.get_data(dst_tag, dst_sample_tag, dst_data_tag) # replace nones with mean
+   #         for cfg in data_dict:
+   #             if np.isnan(data_dict[cfg]): data_dict[cfg] = mean
+   #         self._add_data(data_dict, dst_tag, dst_sample_tag, dst_data_tag)
+   #         # compute/store jks
+   #         self.jackknife_resampling(dst_tag, dst_sample_tag, dst_data_tag)
 
     def _add_data(self, data, dst_tag, dst_sample_tag, dst_data_tag):
         if dst_tag in self.database:
