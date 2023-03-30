@@ -5,21 +5,21 @@ import numpy as np
 from statpy.dbpy import np_json as json
 
 class DBpy:
-    def __init__(self, file, safe_mode=False):
-        self.file = file
+    def __init__(self, src, safe_mode=False):
         self.safe_mode = safe_mode
-        if os.path.isfile(self.file):
-            with open(self.file) as f:
+        assert type(src) == list 
+        if os.path.isfile(src[0]):
+            with open(src[0]) as f:
                 self.database = json.load(f)
         else:
             self.database = {}
         self.update_tags()
         self.compute_means() 
         self.compute_jks()
+        for s in src[1:]:
+            self.merge(s)
     
-    def save(self, dst=None):
-        if dst == None:
-            dst = self.file
+    def save(self, dst):
         with open(dst, "w") as f:
             json.dump(self.database, f)
     
@@ -88,6 +88,7 @@ class DBpy:
             return self._get_data(tag, sample_tag, data_tag)
 
     def merge(self, src):
+        assert os.path.isfile(src)
         with open(src) as f:
             src_db = json.load(f)
         src_cfgs = src_db.pop("cfgs")
@@ -140,7 +141,16 @@ class DBpy:
             for sample_tag in self.database[tag]:
                 for cfg in self.database[tag][sample_tag]["sample"]:
                     if np.isnan(self.database[tag][sample_tag]["sample"][cfg]).any(): self.database[tag][sample_tag]["sample"][cfg] = self.get_data(tag, sample_tag, "mean")
-    
+
+    def remove_cfgs(self, cfgs, sample_tag):
+        self.database["cfgs"][sample_tag] = [cfg for cfg in self.database["cfgs"][sample_tag] if cfg not in cfgs]
+        for tag in self.database_tags:
+            if sample_tag in self.database[tag]:
+                for data_tag in self.database[tag][sample_tag]:
+                    if type(self.database[tag][sample_tag][data_tag]) == dict:
+                        for cfg in cfgs:
+                            self.database[tag][sample_tag][data_tag].pop(str(cfg), None)
+        
 ###################################### FUNCTIONS #######################################
 
     def apply_f(self, f, tag, sample_tag, data_tag, dst_tag):
