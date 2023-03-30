@@ -7,12 +7,15 @@ from statpy.dbpy import np_json as json
 class DBpy:
     def __init__(self, file, safe_mode=False):
         self.file = file
+        self.safe_mode = safe_mode
         if os.path.isfile(self.file):
             with open(self.file) as f:
                 self.database = json.load(f)
         else:
             self.database = {}
-        self.safe_mode = safe_mode
+        self.update_tags()
+        self.compute_means() 
+        self.compute_jks()
     
     def save(self, dst=None):
         if dst == None:
@@ -45,41 +48,6 @@ class DBpy:
     def print(self, verbosity=1):
         print(self.__str__(verbosity=verbosity))  
 
-    def merge(self, src):
-        with open(src) as f:
-            src_db = json.load(f)
-        src_cfgs = src_db.pop("cfgs")
-        # add src_data to db
-        for tag in src_db:
-            for sample_tag in src_db[tag]:
-                for data_tag in src_db[tag][sample_tag]:
-                    self._add_data(src_db[tag][sample_tag][data_tag], tag, sample_tag, data_tag)
-        # ensure that all samples of same ensemble have same size and fill up missing cfgs with nans
-        for sample_tag in src_cfgs:
-            try:
-                self.database["cfgs"][sample_tag] = list(set(self.database["cfgs"][sample_tag] + src_cfgs[sample_tag]))
-            except KeyError:
-                self.database["cfgs"][sample_tag] = src_cfgs[sample_tag]
-        self.fill_db_with_nan()
-
-    def fill_db_with_nan(self):
-        for tag in self.database:
-            if tag == "cfgs":
-                break
-            for sample_tag in self.database[tag]:
-                for cfg in self.database["cfgs"][sample_tag]:
-                    if str(cfg) not in self.database[tag][sample_tag]["sample"]:
-                        self.database[tag][sample_tag]["sample"][cfg] = np.nan
-
-   #         # compute/store mean and replace nones with mean
-   #         mean = self.sample_mean(dst_tag, dst_sample_tag, dst_data_tag, nanmean=True) 
-   #         data_dict = self.get_data(dst_tag, dst_sample_tag, dst_data_tag) # replace nones with mean
-   #         for cfg in data_dict:
-   #             if np.isnan(data_dict[cfg]): data_dict[cfg] = mean
-   #         self._add_data(data_dict, dst_tag, dst_sample_tag, dst_data_tag)
-   #         # compute/store jks
-   #         self.jackknife_resampling(dst_tag, dst_sample_tag, dst_data_tag)
-
     def _add_data(self, data, dst_tag, dst_sample_tag, dst_data_tag):
         if dst_tag in self.database:
             if dst_sample_tag in self.database[dst_tag]:
@@ -97,26 +65,6 @@ class DBpy:
         except KeyError:
             self._add_data(data, dst_tag, dst_sample_tag, dst_data_tag)
     
-    def apply_f(self, f, src_tag, src_sample_tag, src_data_tag, dst_tag):
-        f_dict = {}
-        for key, val in self.database[src_tag][src_sample_tag][src_data_tag].items():  
-            if key not in STRIP_TAGS:
-                f_dict[key] = f(val)
-        try:
-            self.database[dst_tag]
-            try: 
-                self.database[dst_tag][src_sample_tag]
-                try: 
-                    self.database[dst_tag][src_sample_tag][src_data_tag]
-                    if self._query_yes_no(f"{dst_data_tag} is already in database for {dst_sample_tag} in {dst_tag}. Overwrite?"):
-                        self.database[dst_tag][src_sample_tag][src_data_tag] = f_dict
-                except KeyError:
-                    self.database[dst_tag][src_sample_tag][src_data_tag] = f_dict
-            except KeyError:
-                self.database[dst_tag][src_sample_tag] = {src_data_tag: f_dict} 
-        except KeyError:
-            self.database[dst_tag] = {src_sample_tag: {src_data_tag: f_dict}}
-
     def _delete(self, tag, db):
         if tag in db:
             del db[tag]
@@ -137,46 +85,123 @@ class DBpy:
         if array:
             return np.array(list(self._get_data(tag, sample_tag, data_tag).values()))
         else:
-            return self._get_data(self, tag, sample_tag, data_tag)
+            return self._get_data(tag, sample_tag, data_tag)
 
-#    def _add_data_arr(self, data, tag, sample_tag, idxs, cfg_prefix, overwrite=True):
-#        try:
-#            self.database[tag]
-#        except KeyError:
-#            self.database[tag] = {}
-#        if overwrite:
-#            self.database[tag][sample_tag] = {}
-#        for idx in range(len(data)):
-#            self._add_data(data[idx], tag, sample_tag, cfg_prefix + str(idxs[idx]))
-#
-#    def add_data_arr(self, data, tag, sample_tag, idxs=None, cfg_prefix=""):
-#        if idxs == None:
-#            idxs = range(len(data))
-#        try:
-#            self.database[tag][sample_tag]
-#            if self._query_yes_no(f"{sample_tag} is already in database for {tag}. Overwrite?"):
-#                self._add_data_arr(data, tag, sample_tag, idxs, cfg_prefix)
-#        except KeyError:
-#            self._add_data_arr(data, tag, sample_tag, idxs, cfg_prefix)
+    def merge(self, src):
+        with open(src) as f:
+            src_db = json.load(f)
+        src_cfgs = src_db.pop("cfgs")
+        # add src_data to db
+        for tag in src_db:
+            for sample_tag in src_db[tag]:
+                for data_tag in src_db[tag][sample_tag]:
+                    self._add_data(src_db[tag][sample_tag][data_tag], tag, sample_tag, data_tag)
+        # ensure that all samples of same ensemble have same size and fill up missing cfgs with nans
+        for sample_tag in src_cfgs:
+            try:
+                self.database["cfgs"][sample_tag] = list(set(self.database["cfgs"][sample_tag] + src_cfgs[sample_tag]))
+            except KeyError:
+                self.database["cfgs"][sample_tag] = src_cfgs[sample_tag]
+        self.update_tags()
+        self.compute_means()
+        self.compute_jks()
+        self.fill_db_with_nan()
+        self.replace_nan_with_mean()
 
+    def compute_means(self, tags=None):
+        if tags == None:
+            tags = self.database_tags
+        for tag in tags:
+            for sample_tag in self.database[tag]:
+                if "mean" not in self.database[tag][sample_tag]:
+                    self.sample_mean(tag, sample_tag)
+
+    def compute_jks(self, tags=None):
+        if tags == None:
+            tags = self.database_tags
+        for tag in tags:    
+            for sample_tag in self.database[tag]:
+                if "jks" not in self.database[tag][sample_tag]:
+                    self.jackknife_resampling(tag, sample_tag)
+
+    def update_tags(self):
+        self.database_tags = list(self.database.keys())
+        self.database_tags.remove("cfgs")
+ 
+    def fill_db_with_nan(self):
+        for tag in self.database_tags:
+            for sample_tag in self.database[tag]:
+                for cfg in self.database["cfgs"][sample_tag]:
+                    if str(cfg) not in self.database[tag][sample_tag]["sample"]:
+                        self.database[tag][sample_tag]["sample"][str(cfg)] = np.nan
+
+    def replace_nan_with_mean(self):
+        for tag in self.database_tags:
+            for sample_tag in self.database[tag]:
+                for cfg in self.database[tag][sample_tag]["sample"]:
+                    if np.isnan(self.database[tag][sample_tag]["sample"][cfg]).any(): self.database[tag][sample_tag]["sample"][cfg] = self.get_data(tag, sample_tag, "mean")
+    
+###################################### FUNCTIONS #######################################
+
+    def apply_f(self, f, tag, sample_tag, data_tag, dst_tag):
+        obj = self.database[tag][sample_tag][data_tag]
+        if type(obj) == dict:
+            f_obj = {}
+            for key, val in obj.items():  
+                f_obj[key] = f(val)
+        else:
+            f_obj = f(obj)
+        self.add_data(f_obj, dst_tag, sample_tag, data_tag)
+
+    def apply_f2(self, f, tag0, tag1, sample_tag, data_tag, dst_tag):
+        obj0 = self.get_data(tag0, sample_tag, data_tag); obj1 = self.get_data(tag1, sample_tag, data_tag)
+        assert type(obj0) == type(obj1)
+        if type(obj0) == dict:
+            f_obj = {}
+            for (key0, val0), (key1, val1) in zip(obj0.items(), obj1.items()):
+                f_obj[key] = f(val0, val1)
+        else:
+            f_obj = f(obj0, obj1)
+        self.add_data(f_obj, dst_tag, sample_tag, data_tag)
+
+#    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, jks_tag0=None, jks_tag1=None, store=True):
+#        def ratio(nom, denom):
+#            return nom / denom
+#        if jks_tag0 != None:
+#            data0_jks = self.get_data(tag0, sample_tag0, jks_tag0)
+#        else:
+#            data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
+#        if jks_tag1 != None:
+#            data1_jks = self.get_data(tag1, sample_tag1, jks_tag1) 
+#        else:
+#            data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
+#        
+#        r = ratio(self.get_data(tag0, sample_tag0, "mean"), self.get_data(tag1, sample_tag1, "mean"))
+#        r_jks = {}
+#        for cfg in data0_jks:
+#            r_jks[cfg] = ratio(data0_jks[cfg], data1_jks[cfg])
+#        r_jkvar = self.jackknife_variance_jks(r, r_jks, dst_tag, dst_sample_tag)
+#        if store:
+#            self.add_data(r, dst_tag, dst_sample_tag, "mean")
+#        return r, r_jkvar
 
 ###################################### STATISTICS ######################################
 
     def sample_mean(self, tag, sample_tag, data_tag="sample", data_axis=0, nanmean=False):
-        if nan_mean:
-            mean = np.nanmean(self.get_data(tag, sample_tag, data_tag, arr=True), axis=data_axis)
+        if nanmean:
+            mean = np.nanmean(self.get_data(tag, sample_tag, data_tag, array=True), axis=data_axis)
         else:
-            mean = np.mean(self.get_data(tag, sample_tag, data_tag, arr=True), axis=data_axis)
+            mean = np.mean(self.get_data(tag, sample_tag, data_tag, array=True), axis=data_axis)
         self.add_data(mean, tag, sample_tag, "mean")
         return mean
 
-    def jackknife_resampling(self, f, tag, sample_tag, data_tag="sample", jks_tag="jks"):
+    def jackknife_resampling(self, tag, sample_tag, data_tag="sample", jks_tag="jks"):
         data = self.get_data(tag, sample_tag, data_tag)
         mean = self.sample_mean(tag, sample_tag, data_tag)
         jks = {}
         for cfg in data:
-            jks[cfg] = f( mean + (mean - data[cfg]) / (len(data) - 1) ) 
-        self.add_data(jks, dst_tag, dst_sample_tag, jks_tag)
+            jks[cfg] = mean + (mean - data[cfg]) / (len(data) - 1) 
+        self.add_data(jks, tag, sample_tag, jks_tag)
         return jks
 
     def jackknife_variance(self, tag, sample_tag, mean_tag="mean", jks_tag="jks", dst_data_tag="jkvar"):
@@ -252,28 +277,6 @@ class DBpy:
 #            self.add_data(m, dst_tag, dst_sample_tag, "mean")
 #        return m, m_jkvar, b, b_jkvar
 
-###################################### FUNCTIONS #######################################
-
-#    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, jks_tag0=None, jks_tag1=None, store=True):
-#        def ratio(nom, denom):
-#            return nom / denom
-#        if jks_tag0 != None:
-#            data0_jks = self.get_data(tag0, sample_tag0, jks_tag0)
-#        else:
-#            data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
-#        if jks_tag1 != None:
-#            data1_jks = self.get_data(tag1, sample_tag1, jks_tag1) 
-#        else:
-#            data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
-#        
-#        r = ratio(self.get_data(tag0, sample_tag0, "mean"), self.get_data(tag1, sample_tag1, "mean"))
-#        r_jks = {}
-#        for cfg in data0_jks:
-#            r_jks[cfg] = ratio(data0_jks[cfg], data1_jks[cfg])
-#        r_jkvar = self.jackknife_variance_jks(r, r_jks, dst_tag, dst_sample_tag)
-#        if store:
-#            self.add_data(r, dst_tag, dst_sample_tag, "mean")
-#        return r, r_jkvar
 
 ################################### SCALE SETTING ###################################
 
