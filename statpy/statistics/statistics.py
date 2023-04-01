@@ -95,6 +95,7 @@ def infinite_binsize_extrapolation(bs, fit_bs, var_dict, N, model, p0, fit_metho
             plt.tight_layout()
             plt.show()
     except AssertionError:
+        print("Fitter did not converge")
         ratio_inf = []; ratio_inf_var = []
         if make_plot:
             fig, ax = plt.subplots(figsize=(16,5))

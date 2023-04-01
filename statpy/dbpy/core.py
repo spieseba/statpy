@@ -3,6 +3,7 @@
 import os, sys, copy
 import numpy as np
 from statpy.dbpy import np_json as json
+import statpy as sp
 
 class DBpy:
     def __init__(self, src, safe_mode=False):
@@ -65,16 +66,6 @@ class DBpy:
         except KeyError:
             self._add_data(data, dst_tag, dst_sample_tag, dst_data_tag)
     
-    def _delete(self, tag, db):
-        if tag in db:
-            del db[tag]
-        for sub_db in db.values():
-            if isinstance(sub_db, dict):
-                self._delete(tag, sub_db)
-    
-    def delete(self, tag):
-        self._delete(tag, self.database)
-
     def _get_data(self, tag, sample_tag, data_tag):
         try:
             return copy.deepcopy(self.database[tag][sample_tag][data_tag])
@@ -207,26 +198,55 @@ class DBpy:
 
     def jackknife_resampling(self, tag, sample_tag, data_tag="sample", jks_tag="jks"):
         data = self.get_data(tag, sample_tag, data_tag)
-        mean = self.sample_mean(tag, sample_tag, data_tag)
+        mean = self.get_data(tag, sample_tag, "mean")
         jks = {}
         for cfg in data:
             jks[cfg] = mean + (mean - data[cfg]) / (len(data) - 1) 
         self.add_data(jks, tag, sample_tag, jks_tag)
         return jks
 
-    def jackknife_variance(self, tag, sample_tag, mean_tag="mean", jks_tag="jks", dst_data_tag="jkvar"):
-        mean = self.get_data(tag, sample_tag, mean_tag)
+    def jackknife_variance(self, tag, sample_tag, jks_tag="jks", dst_data_tag="jkvar"):
+        mean = self.get_data(tag, sample_tag, "mean")
         jks = self.get_data(tag, sample_tag, jks_tag, array=True)
         var = sp.statistics.jackknife.variance_jks(mean, jks)
         self.add_data(var, tag, sample_tag, dst_data_tag)
         return var
 
-    def jackknife_covariance(self, tag, sample_tag, mean_tag="mean", jks_tag="jks", dst_data_tag="jkcov"):
-        mean = self.get_data(tag, sample_tag, mean_tag)
+    def jackknife_covariance(self, tag, sample_tag, jks_tag="jks", dst_data_tag="jkcov"):
+        mean = self.get_data(tag, sample_tag, "mean")
         jks = self.get_data(tag, sample_tag, jks_tag, array=True)
         cov = sp.statistics.jackknife.covariance_jks(mean, jks)
         self.add_data(cov, tag, sample_tag, dst_data_tag)
         return cov
+
+    def bin(self, binsize, tag, sample_tag):
+        data = self.get_data(tag, sample_tag, "sample", array=True) 
+        bata = {}
+        for block, block_mean in enumerate(sp.statistics.bin(data, binsize)):
+            bata[str(block)] = block_mean
+        self.add_data(bata, tag, sample_tag, f"sample_b{binsize}")
+        return bata
+
+    def binning_study(self, binsizes, tag, sample_tag, rm_binsizes=[]):
+        print("Original sample size: ", len(self.database["cfgs"][sample_tag]))
+        var = {}
+        for b in binsizes:
+            if b == 1: 
+                postfix = ""
+            else: 
+                postfix = f"_b{b}"
+                self.bin(b, tag, sample_tag)
+            self.jackknife_resampling(tag, sample_tag, data_tag="sample"+postfix, jks_tag="jks"+postfix)
+            var[b] = self.jackknife_variance(tag, sample_tag, jks_tag="jks"+postfix, dst_data_tag="jkvar"+postfix)
+        for b in rm_binsizes:
+            if b == 1: 
+                postfix = ""
+            else: 
+                postfix = f"_b{b}"
+                del self.database[tag][sample_tag]["sample"+postfix]
+            del self.database[tag][sample_tag]["jks"+postfix]
+            del self.database[tag][sample_tag]["jkvar"+postfix]
+        return var
 
 #    def jackknife_variance(self, f, tag, sample_tag, eps=1.0, dst_tag=None, dst_sample_tag=None, dst_jks_sample_tag=None, return_var=True, store=True):
 #        if dst_tag==None: dst_tag = tag
@@ -241,28 +261,6 @@ class DBpy:
 #            self.add_data(var, dst_tag, dst_sample_tag, "jkvar")
 #        if return_var:
 #            return var
-
-#    def bin(self, binsize, tag, sample_tag, cfg_prefix="", store=True):
-#        data_arr = self.get_data_arr(tag, sample_tag)
-#        binned_data = {}
-#        for binned_cfg, binned_value in enumerate(sp.statistics.bin(data_arr, binsize)):
-#            binned_data[cfg_prefix + str(binned_cfg)] = binned_value
-#        if store:
-#            self.database[tag][f"{sample_tag}_binned{binsize}"] = binned_data
-#        return binned_data
-#
-#    def binning_study(self, tag, sample_tag, binsizes=[1,2,4,8], keep_binsizes=[], var=False):
-#        print("Original sample size: ", len(self.get_data_arr(tag, sample_tag)))
-#        if var: power = 1.0
-#        else: power = 0.5
-#        vals = {}
-#        for binsize in binsizes:
-#            self.bin(binsize, tag, sample_tag)
-#            vals[binsize] = np.array([y**power for y in self.jackknife_variance(lambda x: x, tag, sample_tag + f"_binned{binsize}")])
-#        # clean up
-#        for binsize in [binsize for binsize in binsizes if binsize not in keep_binsizes]:
-#            del self.database[tag][sample_tag + f"_binned{binsize}"]
-#        return vals   
 #
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
 #        if dst_tag == None: dst_tag = exact_exact_tag
@@ -289,12 +287,6 @@ class DBpy:
 
 
 ################################### SCALE SETTING ###################################
-
-#    def energy_density(self, Et_tag, sample_tag, tlo, thi, return_Edens=True):
-#        Edens = np.mean(self.get_data_arr(Et_tag, sample_tag)[:,:,tlo:thi], axis=2).real
-#        self.add_data_arr(Edens, "Edens" + Et_tag.split("Et")[1], sample_tag)
-#        if return_Edens:
-#            return Edens
 #
 #    def set_scale(self, Edens_tag, sample_tag, binsize, tau, nskip=0, scales=["t0", "w0"], dst_suffix="", store=True):
 #        Edens_binned = sp.statistics.bin(self.get_data_arr(Edens_tag, sample_tag)[nskip:], binsize)
