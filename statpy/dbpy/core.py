@@ -112,7 +112,7 @@ class DBpy:
         if tags == None:
             tags = self.database_tags
         for tag in tags:    
-            for sample_tag in self.database[tag]:
+            for sample_tag in self.database[tag]: 
                 if "jks" not in self.database[tag][sample_tag]:
                     self.jackknife_resampling(tag, sample_tag)
 
@@ -131,7 +131,8 @@ class DBpy:
         for tag in self.database_tags:
             for sample_tag in self.database[tag]:
                 for cfg in self.database[tag][sample_tag]["sample"]:
-                    if np.isnan(self.database[tag][sample_tag]["sample"][cfg]).any(): self.database[tag][sample_tag]["sample"][cfg] = self.get_data(tag, sample_tag, "mean")
+                    if np.isnan(self.database[tag][sample_tag]["sample"][cfg]).any(): 
+                        self.database[tag][sample_tag]["sample"][cfg] = self.get_data(tag, sample_tag, "mean")
 
     def remove_cfgs(self, cfgs, sample_tag):
         self.database["cfgs"][sample_tag] = [cfg for cfg in self.database["cfgs"][sample_tag] if cfg not in cfgs]
@@ -248,20 +249,6 @@ class DBpy:
             del self.database[tag][sample_tag]["jkvar"+postfix]
         return var
 
-#    def jackknife_variance(self, f, tag, sample_tag, eps=1.0, dst_tag=None, dst_sample_tag=None, dst_jks_sample_tag=None, return_var=True, store=True):
-#        if dst_tag==None: dst_tag = tag
-#        if dst_sample_tag==None: dst_sample_tag = sample_tag
-#        if dst_jks_sample_tag==None: dst_jks_sample_tag = sample_tag
-#        self.jackknife_resampling(f, tag, sample_tag, eps, store, dst_tag, dst_jks_sample_tag)
-#        f_mean = f( self.database[tag][sample_tag]["mean"] )
-#        jks_data = np.array(list(self.get_data(dst_tag, dst_jks_sample_tag, "jks").values()))
-#        N = len(jks_data)
-#        var = np.mean([ (jks_data[k] - f_mean)**2 for k in range(N) ], axis=0) * (N - 1)
-#        if store:
-#            self.add_data(var, dst_tag, dst_sample_tag, "jkvar")
-#        if return_var:
-#            return var
-#
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
 #        if dst_tag == None: dst_tag = exact_exact_tag
 #        if dst_sample_tag == None: dst_sample_tag = exact_exact_sample_tag + "_AMA"
@@ -287,7 +274,20 @@ class DBpy:
 
 
 ################################### SCALE SETTING ###################################
-#
+
+    def flow_scale(self, tau_tag, E_tag, sample_tag, jks_tag):
+        tau = self.get_data(tau_tag, sample_tag, "mean")
+        scale = sp.qcd.scale_setting.gradient_flow_scale()
+        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, "mean", "sqrt_tau0")
+        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, jks_tag, "sqrt_tau0")
+        sqrt_tau0_var = self.jackknife_variance("sqrt_tau0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
+        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, "mean", "omega0")
+        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, jks_tag, "omega0")
+        omega0_var = self.jackknife_variance("omega0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
+
+        print(f"sqrt(tau0) = {self.get_data('sqrt_tau0', sample_tag, 'mean'):.4f} +- {sqrt_tau0_var**.5:.4f}")
+        print(f"wau0 = {self.get_data('omega0', sample_tag, 'mean'):.4f} +- {omega0_var**.5:.4f}")
+
 #    def set_scale(self, Edens_tag, sample_tag, binsize, tau, nskip=0, scales=["t0", "w0"], dst_suffix="", store=True):
 #        Edens_binned = sp.statistics.bin(self.get_data_arr(Edens_tag, sample_tag)[nskip:], binsize)
 #        if binsize != 1:
