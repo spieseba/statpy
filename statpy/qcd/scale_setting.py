@@ -41,18 +41,20 @@ class gradient_flow_scale:
     def comp_sqrt_tau0(self, tau, t2E):
         return np.sqrt(self.linear_interpolation(tau, t2E, self.ct0))
     
-    def comp_aGeV_inv_sqrt_t0(self, sqrt_tau0):
-        return sqrt_tau0 * 0.1973 / self.sqrt_t0_fm
-
+    def comp_sqrt_t0(self, sqrt_tau0, sqrt_t0_fm):
+        return sqrt_tau0 * 0.1973 / sqrt_t0_fm
+    
     def set_sqrt_tau0(self, tau, E):
         t2E = self.comp_t2E(tau, E)
         sqrt_tau0 = self.comp_sqrt_tau0(tau, t2E)
         return sqrt_tau0
 
-    def set_sqrt_t0(self, tau, E):
+    def set_sqrt_t0(self, tau, E, sqrt_t0_fm=None):
+        if sqrt_t0_fm == None:
+            sqrt_t0_fm = self.sqrt_t0_fm
         t2E = self.comp_t2E(tau, E)
         sqrt_tau0 = self.comp_sqrt_tau0(tau, t2E)
-        return comp_aGeV_inv_sqrt_t0(sqrt_tau0)
+        return self.comp_sqrt_t0(sqrt_tau0, sqrt_t0_fm)
 
     ########################################## w0 ###############################################
     
@@ -63,21 +65,24 @@ class gradient_flow_scale:
     def comp_omega0(self, tau, tdt2E):
         return np.sqrt(self.linear_interpolation(tau[1:-1], tdt2E[1:-1], self.cw0))
     
-    def comp_aGeV_inv_w0(self, omega0):
-        return omega0 * 0.1973 / self.w0_fm
-    
+    def comp_w0(self, omega0, w0_fm):
+        return omega0 * 0.1973 / w0_fm
+
     def set_omega0(self, tau, E):
         tdt2E = self.comp_tdt2E(tau, E)
         return self.comp_omega0(tau, tdt2E)
 
-    def set_w0(self, tau, E):
+    def set_w0(self, tau, E, w0_fm=None):
+        if w0_fm == None:
+            w0_fm = self.w0_fm
         tdt2E = self.comp_tdt2E(tau, E)
         omega0 = self.comp_omega0(tau, tdt2E)
-        return comp_aGeV_inv_w0(omega0)
-
+        return omega0 * 0.1973 / w0_fm
     
-#def ratio_error_prop(a, std_a, b, std_b):
-#    return a**2./b**2. * (std_a**2./a**2. + std_b**2./b**2.)
+    #############################################################################################
+    
+    #def ratio_error_prop(a, std_a, b, std_b):
+    #    return a**2./b**2. * (std_a**2./a**2. + std_b**2./b**2.)
 
     #def comp_aGeV_inv_t0_std(self, aGeV_inv, sqrt_tau0, sqrt_tau0_std): 
     #    # afm = sqrt_t0 / sqrt_tau0
