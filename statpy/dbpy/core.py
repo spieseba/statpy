@@ -6,256 +6,71 @@ import numpy as np
 from statpy.dbpy import np_json as json
 import statpy as sp
 
-class DBpy:
-    def __init__(self, src, safe_mode=False, verbose=True):
+###################################### DATABASE SYSTEM USING LEAFS CONTAINING MEAN AND JKS (SECONDARY OBSERVABLES) ###########################################
+
+class leaf:
+    def __init__(self, mean, jks):
+        self.mean = mean
+        self.jks = jks
+
+class jks_db:
+    db_type = "JKS-DB"
+
+    def __init__(self, *args, verbose=True):
         self.t0 = time()
-        self.safe_mode = safe_mode
-        assert type(src) == list 
-        if os.path.isfile(src[0]):
-            if verbose:
-                self.message(f"load db {src[0]}")
-            with open(src[0]) as f:
-                self.database = json.load(f)
-        else:
-            self.database = {}
-        self.update_db()
-        for s in src[1:]:
-            self.merge(s, verbose)
+        self.verbose = verbose
+        self.database = {}
+        for src in args:
+            self.add_src(src)
+
+    def add_src(self, src):
+        assert os.path.isfile(src):
+        self.message(f"load {src}", self.verbose)
+        with open(src) as f:
+            src_db = json.load(f)
+        for t, lf in src_db.items():
+            self.database[t] = leaf(lf.mean, lf.jks)
+    
+    def message(self, s, verbose=True):
+        if verbose: print(f"{db_type}:\t\t{time()-self.t0:.6f}s: " + s)
     
     def save(self, dst):
         with open(dst, "w") as f:
             json.dump(self.database, f)
-    
-    def message(self, s):
-        print(f"DBPY:\t\t{time()-self.t0:.6f}s: " + s)
 
-    def _query_yes_no(self, question, default="yes"):
-        if self.safe_mode:
-            query_yes_no(question, default)
-        else: 
-            return True
-    
-    def __str__(self, verbosity):
+    def print(self):
         s = 'DATABASE CONSISTS OF\n\n\n'
-        for tag, tag_dict in self.database.items():
+        for tag in self.database.keys():
             s += f'{tag:20s}\n'
-            if verbosity >= 1:
-                for sample_tag, sample_dict in tag_dict.items():
-                    s += f'└── {sample_tag:20s}\n'
-                    if verbosity >= 2:
-                        if tag != "cfgs":
-                            for cfg_tag in sample_dict:
-                                s += f'\t└── {cfg_tag}\n'
-                            #if verbosity >= 3:
-                            #    s += '\t\t' + f'{val.__str__()}'.replace('\n', '\n\t\t')
-                            #s += '\n'
         return s
-    
-    def print(self, verbosity=1):
-        print(self.__str__(verbosity=verbosity))  
 
-    def _add_data(self, data, dst_tag, dst_sample_tag, dst_data_tag):
-        if dst_tag in self.database:
-            if dst_sample_tag in self.database[dst_tag]:
-                self.database[dst_tag][dst_sample_tag][dst_data_tag] = data
-            else:
-                self.database[dst_tag][dst_sample_tag] = {dst_data_tag: data}
-        else:
-            self.database[dst_tag] = {dst_sample_tag: {dst_data_tag: data}}
+    ################################## FUNCTIONS #######################################
 
-    def add_data(self, data, dst_tag, dst_sample_tag, dst_data_tag):
-        try: 
-            self.database[dst_tag][dst_sample_tag][dst_data_tag]
-            if self._query_yes_no(f"{dst_data_tag} is already in database for {dst_sample_tag} in {dst_tag}. Overwrite?"):
-                self._add_data(data, dst_tag, dst_sample_tag, dst_data_tag)
-        except KeyError:
-            self._add_data(data, dst_tag, dst_sample_tag, dst_data_tag)
-    
-    def _get_data(self, tag, sample_tag, data_tag):
-        try:
-            return copy.deepcopy(self.database[tag][sample_tag][data_tag])
-        except KeyError:
-            print(f"requested data not in database. tag = {tag}, sample_tag = {sample_tag}, data_tag = {data_tag}")
+    def apply_f(self, f, tag, dst_tag):
+        lf = self.database[tag] 
+        lf.mean = f(lf.mean)
+        for jks_tag in lf.jks:
+            lf.jks[jks_tag] = f(lf.jks[jks_tag])
 
-    def get_data(self, tag, sample_tag, data_tag, array=False): 
-        if array:
-            return np.array(list(self._get_data(tag, sample_tag, data_tag).values()))
-        else:
-            return self._get_data(tag, sample_tag, data_tag)
-
-    def merge(self, src, verbose=True):
-        assert os.path.isfile(src)
-        if verbose:
-            self.message(f"load db {src}")
-        with open(src) as f:
-            src_db = json.load(f)
-        src_cfgs = src_db.pop("cfgs")
-        # add src_data to db
-        for tag in src_db:
-            for sample_tag in src_db[tag]:
-                for data_tag in src_db[tag][sample_tag]:
-                    self._add_data(src_db[tag][sample_tag][data_tag], tag, sample_tag, data_tag)
-        for sample_tag in src_cfgs:
-            try:
-                self.database["cfgs"][sample_tag] = sorted(list(set(self.database["cfgs"][sample_tag] + src_cfgs[sample_tag])))
-            except KeyError:
-                self.database["cfgs"][sample_tag] = sorted(src_cfgs[sample_tag])
-        self.update_db(verbose)
-    
-    def update_db(self, verbose=False):
-        if verbose:
-            self.message("update db")
-        self.update_tags()
-        self.compute_means()
-        self.fill_db_with_nan()
-        self.replace_nan_with_mean()
-        self.compute_jks()
-
-    def update_tags(self):
-        self.database_tags = list(self.database.keys())
-        self.database_tags.remove("cfgs")
-    
-    def compute_means(self, tags=None):
-        if tags == None:
-            tags = self.database_tags
-        for tag in tags:
-            for sample_tag in self.database[tag]:
-                self.sample_mean(tag, sample_tag)
-    
-    def fill_db_with_nan(self):
-        for tag in self.database_tags:
-            for sample_tag in self.database[tag]:
-                for cfg in self.database["cfgs"][sample_tag]:
-                    if str(cfg) not in self.database[tag][sample_tag]["sample"]:
-                        self.database[tag][sample_tag]["sample"][str(cfg)] = np.nan
-
-    def replace_nan_with_mean(self):
-        for tag in self.database_tags:
-            for sample_tag in self.database[tag]:
-                for cfg in self.database[tag][sample_tag]["sample"]:
-                    if np.isnan(self.database[tag][sample_tag]["sample"][cfg]).any(): 
-                        self.database[tag][sample_tag]["sample"][cfg] = self.get_data(tag, sample_tag, "mean")
-
-    def compute_jks(self, tags=None):
-        if tags == None:
-            tags = self.database_tags
-        for tag in tags:    
-            for sample_tag in self.database[tag]: 
-                for data_tag in list(self.database[tag][sample_tag].keys()):
-                    if "sample" in data_tag:
-                        self.jackknife_resampling(tag, sample_tag, data_tag, jks_tag="jks"+data_tag.split("sample")[1])
-
-    def remove_cfgs(self, cfgs, sample_tag):
-        self.database["cfgs"][sample_tag] = [cfg for cfg in self.database["cfgs"][sample_tag] if cfg not in cfgs]
-        for tag in self.database_tags:
-            if sample_tag in self.database[tag]:
-                for cfg in cfgs:
-                    self.database[tag][sample_tag]["sample"].pop(str(cfg), None)
-        
-###################################### FUNCTIONS #######################################
-
-    def apply_f(self, f, tag, sample_tag, data_tag, dst_tag, dst_data_tag=None):
-        if dst_data_tag == None: dst_data_tag = data_tag
-        obj = self.database[tag][sample_tag][data_tag]
-        if type(obj) == dict:
-            f_obj = {}
-            for key, val in obj.items():  
-                f_obj[key] = f(val)
-        else:
-            f_obj = f(obj)
-        self.add_data(f_obj, dst_tag, sample_tag, dst_data_tag)
-
-    def apply_f2(self, f, tag0, tag1, sample_tag, data_tag, dst_tag):
-        obj0 = self.get_data(tag0, sample_tag, data_tag); obj1 = self.get_data(tag1, sample_tag, data_tag)
-        assert type(obj0) == type(obj1)
-        if type(obj0) == dict:
-            f_obj = {}
-            for (key0, val0), (key1, val1) in zip(obj0.items(), obj1.items()):
-                f_obj[key] = f(val0, val1)
-        else:
-            f_obj = f(obj0, obj1)
-        self.add_data(f_obj, dst_tag, sample_tag, data_tag)
-
-#    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, jks_tag0=None, jks_tag1=None, store=True):
-#        def ratio(nom, denom):
-#            return nom / denom
-#        if jks_tag0 != None:
-#            data0_jks = self.get_data(tag0, sample_tag0, jks_tag0)
-#        else:
-#            data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
-#        if jks_tag1 != None:
-#            data1_jks = self.get_data(tag1, sample_tag1, jks_tag1) 
-#        else:
-#            data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
-#        
-#        r = ratio(self.get_data(tag0, sample_tag0, "mean"), self.get_data(tag1, sample_tag1, "mean"))
-#        r_jks = {}
-#        for cfg in data0_jks:
-#            r_jks[cfg] = ratio(data0_jks[cfg], data1_jks[cfg])
-#        r_jkvar = self.jackknife_variance_jks(r, r_jks, dst_tag, dst_sample_tag)
-#        if store:
-#            self.add_data(r, dst_tag, dst_sample_tag, "mean")
-#        return r, r_jkvar
-
-###################################### STATISTICS ######################################
-
-    def sample_mean(self, tag, sample_tag, data_tag="sample", data_axis=0, nanmean=False):
-        if nanmean:
-            mean = np.nanmean(self.get_data(tag, sample_tag, data_tag, array=True), axis=data_axis)
-        else:
-            mean = np.mean(self.get_data(tag, sample_tag, data_tag, array=True), axis=data_axis)
-        self.add_data(mean, tag, sample_tag, "mean")
-
-    def jackknife_resampling(self, tag, sample_tag, data_tag="sample", jks_tag="jks"):
-        data = self.get_data(tag, sample_tag, data_tag)
-        mean = self.get_data(tag, sample_tag, "mean")
+    def combine(self, f, tag1, tag2, dst_tag):
+        lf1 = db.database[tag1]; lf2 = db.database[tag2]
+        mean = f(lf1.mean, lf2.mean)
         jks = {}
-        for cfg in data:
-            jks[cfg] = mean + (mean - data[cfg]) / (len(data) - 1) 
-        self.add_data(jks, tag, sample_tag, jks_tag)
+        for jks_tag in lf1.jks:
+            if jks_tag in lf2.jks:
+                jks[tag + "-" + jks_tag.split("-")[1]] = f(lf1.jks[jks_tag], lf2.jks[jks_tag])
+            else:
+                jks[tag + "-" + jks_tag.split("-")[1]] = f(lf1.jks[jks_tag], lf2.mean)
+        for jks_tag in lf2.jks:
+            if jks_tag not in lf1.jks:
+                jks[tag + "-" + jks_tag.split("-")[1]] = f(lf1.mean, lf2.jks[jks_tag])
+        self.database[dst_tag] = leaf(mean, jks)
 
-    def jackknife_variance(self, tag, sample_tag, jks_tag="jks", dst_data_tag="jkvar"):
-        mean = self.get_data(tag, sample_tag, "mean")
-        jks = self.get_data(tag, sample_tag, jks_tag, array=True)
-        var = sp.statistics.jackknife.variance_jks(mean, jks)
-        self.add_data(var, tag, sample_tag, dst_data_tag)
-        return var
+    ################################## STATISTICS ######################################
 
-    def jackknife_covariance(self, tag, sample_tag, jks_tag="jks", dst_data_tag="jkcov"):
-        mean = self.get_data(tag, sample_tag, "mean")
-        jks = self.get_data(tag, sample_tag, jks_tag, array=True)
-        cov = sp.statistics.jackknife.covariance_jks(mean, jks)
-        self.add_data(cov, tag, sample_tag, dst_data_tag)
-        return cov
-
-    def bin(self, binsize, tag, sample_tag):
-        data = self.get_data(tag, sample_tag, "sample", array=True) 
-        bata = {}
-        for block, block_mean in enumerate(sp.statistics.bin(data, binsize)):
-            bata[str(block)] = block_mean
-        self.add_data(bata, tag, sample_tag, f"sample_b{binsize}")
-        return bata
-
-    def binning_study(self, binsizes, tag, sample_tag, rm_binsizes=[]):
-        self.message("Original sample size: ", len(self.database["cfgs"][sample_tag]))
-        var = {}
-        for b in binsizes:
-            if b == 1: 
-                postfix = ""
-            else: 
-                postfix = f"_b{b}"
-                self.bin(b, tag, sample_tag)
-            self.jackknife_resampling(tag, sample_tag, data_tag="sample"+postfix, jks_tag="jks"+postfix)
-            var[b] = self.jackknife_variance(tag, sample_tag, jks_tag="jks"+postfix, dst_data_tag="jkvar"+postfix)
-        for b in rm_binsizes:
-            if b == 1: 
-                postfix = ""
-            else: 
-                postfix = f"_b{b}"
-                del self.database[tag][sample_tag]["sample"+postfix]
-            del self.database[tag][sample_tag]["jks"+postfix]
-            del self.database[tag][sample_tag]["jkvar"+postfix]
-        return var
+    def jackknife_covariance(self):
+        # implement delayed m-elimination jackknife covariance
+        pass
 
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
 #        if dst_tag == None: dst_tag = exact_exact_tag
@@ -279,44 +94,156 @@ class DBpy:
 #            self.add_data(b, dst_tag, dst_sample_tag, "bias")
 #            self.add_data(m, dst_tag, dst_sample_tag, "mean")
 #        return m, m_jkvar, b, b_jkvar
+    
+
+    ############################### SCALE SETTING ###################################
+
+#    def gradient_flow_scale(self, tau_tag, E_tag, sample_tag, jks_tag, verbose=True):
+#        tau = self.get_data(tau_tag, sample_tag, "mean")
+#        scale = sp.qcd.scale_setting.gradient_flow_scale()
+#        # tau0
+#        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, "mean", "sqrt_tau0")
+#        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, jks_tag, "sqrt_tau0")
+#        sqrt_tau0_var = self.jackknife_variance("sqrt_tau0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
+#        # t0
+#        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), "sqrt_tau0", sample_tag, "mean", "sqrt_t0") 
+#        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), "sqrt_tau0", sample_tag, jks_tag, "sqrt_t0")
+#        sqrt_t0_var = self.jackknife_variance("sqrt_t0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
+#        # propagate systematic error of t0
+#        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std), "sqrt_tau0", sample_tag, "mean", "sqrt_t0", "mean+sqrt_t0_fm_std")
+#        sqrt_t0_sys_var = (self.database["sqrt_t0"][sample_tag]["mean"] - self.database["sqrt_t0"][sample_tag]["mean+sqrt_t0_fm_std"])**2.0
+#        self.add_data(sqrt_t0_sys_var, "sqrt_t0", sample_tag, "sqrt_t0_sys_var")
+#        # omega0
+#        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, "mean", "omega0")
+#        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, jks_tag, "omega0")
+#        omega0_var = self.jackknife_variance("omega0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
+#        # w0
+#        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), "omega0", sample_tag, "mean", "w0") 
+#        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), "omega0", sample_tag, jks_tag, "w0")
+#        w0_var = self.jackknife_variance("w0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
+#        # propagate systematic error of w0
+#        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm + scale.w0_fm_std), "omega0", sample_tag, "mean", "w0", "mean+omega0_fm_std")
+#        w0_sys_var = (self.database["w0"][sample_tag]["mean"] - self.database["w0"][sample_tag]["mean+omega0_fm_std"])**2.0
+#        self.add_data(w0_sys_var, "w0", sample_tag, "w0_sys_var")
+#        if verbose:
+#            self.message(f"sqrt(tau0) = {self.get_data('sqrt_tau0', sample_tag, 'mean'):.4f} +- {sqrt_tau0_var**.5:.4f}")
+#            self.message(f"omega0 = {self.get_data('omega0', sample_tag, 'mean'):.4f} +- {omega0_var**.5:.4f}")
+#            self.message(f"t0/GeV (cutoff) = {self.get_data('sqrt_t0', sample_tag, 'mean'):.4f} +- {sqrt_t0_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
+#            self.message(f"w0/GeV (cutoff) = {self.get_data('w0', sample_tag, 'mean'):.4f} +- {w0_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
 
-################################### SCALE SETTING ###################################
+################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
-    def gradient_flow_scale(self, tau_tag, E_tag, sample_tag, jks_tag, verbose=True):
-        tau = self.get_data(tau_tag, sample_tag, "mean")
-        scale = sp.qcd.scale_setting.gradient_flow_scale()
-        # tau0
-        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, "mean", "sqrt_tau0")
-        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, jks_tag, "sqrt_tau0")
-        sqrt_tau0_var = self.jackknife_variance("sqrt_tau0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-        # t0
-        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), "sqrt_tau0", sample_tag, "mean", "sqrt_t0") 
-        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), "sqrt_tau0", sample_tag, jks_tag, "sqrt_t0")
-        sqrt_t0_var = self.jackknife_variance("sqrt_t0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-        # propagate systematic error of t0
-        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std), "sqrt_tau0", sample_tag, "mean", "sqrt_t0", "mean+sqrt_t0_fm_std")
-        sqrt_t0_sys_var = (self.database["sqrt_t0"][sample_tag]["mean"] - self.database["sqrt_t0"][sample_tag]["mean+sqrt_t0_fm_std"])**2.0
-        self.add_data(sqrt_t0_sys_var, "sqrt_t0", sample_tag, "sqrt_t0_sys_var")
-        # omega0
-        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, "mean", "omega0")
-        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, jks_tag, "omega0")
-        omega0_var = self.jackknife_variance("omega0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-        # w0
-        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), "omega0", sample_tag, "mean", "w0") 
-        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), "omega0", sample_tag, jks_tag, "w0")
-        w0_var = self.jackknife_variance("w0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-        # propagate systematic error of w0
-        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm + scale.w0_fm_std), "omega0", sample_tag, "mean", "w0", "mean+omega0_fm_std")
-        w0_sys_var = (self.database["w0"][sample_tag]["mean"] - self.database["w0"][sample_tag]["mean+omega0_fm_std"])**2.0
-        self.add_data(w0_sys_var, "w0", sample_tag, "w0_sys_var")
-        if verbose:
-            self.message(f"sqrt(tau0) = {self.get_data('sqrt_tau0', sample_tag, 'mean'):.4f} +- {sqrt_tau0_var**.5:.4f}")
-            self.message(f"omega0 = {self.get_data('omega0', sample_tag, 'mean'):.4f} +- {omega0_var**.5:.4f}")
-            self.message(f"t0/GeV (cutoff) = {self.get_data('sqrt_t0', sample_tag, 'mean'):.4f} +- {sqrt_t0_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
-            self.message(f"w0/GeV (cutoff) = {self.get_data('w0', sample_tag, 'mean'):.4f} +- {w0_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
+class sample_leaf:
+    def __init__(self, sample, mean=None, jks=None):
+        self.sample = sample
+        self.mean = mean
+        self.jks = jks
+
+class sample_db(jks_db):
+    db_type = "SAMPLE-DB"
+
+    def add_src(self, src):
+        assert os.path.isfile(src):
+        self.message(f"load {src}", self.verbose)
+        with open(src) as f:
+            src_db = json.load(f)
+        for t, lf in src_db.items():
+            self.database[t] = leaf(lf.sample, lf.mean, lf.jks)
+    
+    def remove_cfgs(self, cfgs, tag):
+        for cfg in cfgs:
+            self.database[tag].sample.pop(str(cfg), None)
+
+    def print(self, verbosity=0):
+        self.message(self.__str__(verbosity=verbosity))
+    
+    def __str__(self, verbosity):
+        s = 'DATABASE CONSISTS OF\n\n\n'
+        for tag, lf in self.database.items():
+            s += f'{tag:20s}\n'
+            if verbosity >= 1:
+                s += f'└── "sample"\n'
+                if lf.mean != None:
+                    s += f'└── "mean"\n'
+                if lf.jks != None:
+                    s += f'└── "jks"\n'
+        return s
+
+    ################################## FUNCTIONS #######################################
+    
+    def apply_f_to_sample(self, f, tag, dst_tag):
+        lf = self.database[tag] 
+        for cfg in lf.sample:
+            lf.sample[cfg] = f(lf.sample[cfg])
+
+    ################################## STATISTICS ######################################
+   
+    def compute_means(self, tags):
+        for tag in tags:
+            self.database[tag].mean = np.mean(list(self.database[tag].sample.values()), axis=0)
+
+    def compute_jks(self, tags):
+        for tag in tags:
+            mean = self.database[tag].mean
+            sample = self.database[tag].sample
+            jks = {}
+            for cfg in sample:
+                jks[cfg] = mean + (mean - sample[cfg]) / (len(sample) - 1)
+            self.database[tag].jks = jks
+
+    def bin(self, binsize, tag):
+        sample = np.array(list(self.database[tag].sample)) 
+        return {str(b):m for b,m in enumerate(sp.statistics.bin(sample, binsize))}
+
+    def binning_study(self, binsizes, tag):
+        self.message("Unbinned sample size: ", len(self.database[tag].sample))
+        mean = self.database[tag].mean
+        var = {}
+        for b in binsizes:
+            bsample = self.bin(b, tag)
+            jks = sp.statistics.jackknife.samples(lambda x: x, bsample)
+            var[b] = sp.statistics.jackknife.variance_jks(mean, jks)
+        return var
+
+#################################################################################################################################################
+################################################################## TO DO ########################################################################
+#################################################################################################################################################
+
+
+
+
+        
+###################################### FUNCTIONS #######################################
+
+#    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, jks_tag0=None, jks_tag1=None, store=True):
+#        def ratio(nom, denom):
+#            return nom / denom
+#        if jks_tag0 != None:
+#            data0_jks = self.get_data(tag0, sample_tag0, jks_tag0)
+#        else:
+#            data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
+#        if jks_tag1 != None:
+#            data1_jks = self.get_data(tag1, sample_tag1, jks_tag1) 
+#        else:
+#            data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
+#        
+#        r = ratio(self.get_data(tag0, sample_tag0, "mean"), self.get_data(tag1, sample_tag1, "mean"))
+#        r_jks = {}
+#        for cfg in data0_jks:
+#            r_jks[cfg] = ratio(data0_jks[cfg], data1_jks[cfg])
+#        r_jkvar = self.jackknife_variance_jks(r, r_jks, dst_tag, dst_sample_tag)
+#        if store:
+#            self.add_data(r, dst_tag, dst_sample_tag, "mean")
+#        return r, r_jkvar
+
 
 ###################################### FITTING ######################################
+
+#    def multi_mc_fit(self, t):
+        
+
+#        return 0
 
 #    def multi_mc_fit(self, t, tags, sample_tags, C, model, p0, estimator, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
 #
@@ -487,37 +414,3 @@ class DBpy:
 #            self.database[dst_tag][sample_tag]["fit_err"] = fit_err
 #
 #        return m[0], m_cov[0][0]**.5
-
-################################################################################################################################################
-################################################################################################################################################
-################################################################################################################################################
-
-def query_yes_no(question, default="yes"):
-    """Ask a yes/no question via raw_input() and return their answer.
-
-    "question" is a string that is presented to the user.
-    "default" is the presumed answer if the user just hits <Enter>.
-            It must be "yes" (the default), "no" or None (meaning
-            an answer is required of the user).
-
-    The "answer" return value is True for "yes" or False for "no".
-    """
-    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
-    if default is None:
-        prompt = " [y/n] "
-    elif default == "yes":
-        prompt = " [Y/n] "
-    elif default == "no":
-        prompt = " [y/N] "
-    else:
-        raise ValueError("invalid default answer: '%s'" % default)
-
-    while True:
-        sys.stdout.write(question + prompt)
-        choice = input().lower()
-        if default is not None and choice == "":
-            return valid[default]
-        elif choice in valid:
-            return valid[choice]
-        else:
-            sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
