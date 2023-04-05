@@ -59,6 +59,11 @@ class fit:
         m.migrad()
         assert m.valid == True
         return np.array(m.values), m.fval
+    
+    def _opt_LevenbergMaquardt(self, t, y_est, W, model, p0, verbose=False):
+        p, chi2, iterations, success, J = self.min(t, y_est, W, model, p0, self.min_params)()
+        assert success == True
+        return p, chi2, J
         
     def estimate_parameters(self, f, y, p0):
         if self.method == "Nelder-Mead":
@@ -75,13 +80,17 @@ class fit:
                 print(f"jackknife parameter covariance is ", self.covariance)
         return self.covariance 
 
-    def fit(self, verbose=True, error=True):
+    def fit(self, verbose=True):
         self.y_est = self.estimator(self.y)
-        self.best_parameter, self.chi2 = self.estimate_parameters(self.chi_squared, self.y_est, self.p0)
-        if error:
+        if self.method in ["Nelder-Mead", "Migrad"]:
+            self.best_parameter, self.chi2 = self.estimate_parameters(self.chi_squared, self.y_est, self.p0)
             self.best_parameter_cov = self.jackknife(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbose)
-        else:
-            self.best_parameter_cov = np.zeros((len(self.best_parameter), len(self.best_parameter)))
+        if self.method in ["LevenbergMarquardt"]:
+            self.best_parameter, self.chi2, self.J = self.estimate_parameters(self.t, self.y_est, self.W, self.model, self.p0, verbose)
+            self.best_parameter_cov = self.jackknife(self.best_parameter, verbose)
+            #self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
+            #self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), self.best_parameter_cov_lm)
+        
         self.dof = len(self.t) - len(self.best_parameter)
         self.p = get_pvalue(self.chi2, self.dof)
         self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
