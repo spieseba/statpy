@@ -58,7 +58,7 @@ def infinite_binsize_extrapolation(bs, fit_bs, var_dict, N, model, p0, fit_metho
     def fit(t, y, cov, model, p0):
         models = {"singlemode": singlemode_model, "threeparam": threeparam_model}
         mod = models[model]()
-        fitter = sp.fitting.fit(t, y, cov, mod, p0, lambda x: x, method=fit_method, minimizer_params=fit_params)
+        fitter = sp.fitting.Fit(t, y, cov, mod, p0, lambda x: x, method=fit_method, minimizer_params=fit_params)
         fitter.fit()
         best_parameter = fitter.best_parameter; best_parameter_cov = fitter.best_parameter_cov
         fit_err = lambda t: (mod.parameter_gradient(t, best_parameter) @ best_parameter_cov @ mod.parameter_gradient(t, best_parameter))**0.5
