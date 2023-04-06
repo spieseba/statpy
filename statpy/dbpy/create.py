@@ -59,7 +59,6 @@ def query_yes_no(question, default="yes"):
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
 
-
 #def convert(src, dst, src_tags, dst_tags, cfg_prefix="", verbose=False):
 #    if os.path.isfile(dst):
 #        if query_yes_no(f"file {dst} already exists. Overwrite?"):
