@@ -195,7 +195,7 @@ class LevenbergMarquardt:
         return False, p, lmbd, chi2, nu
 
 
-class jacobian:
+class Jacobian:
     def __init__(self, model, t, p, delta):
         self.model = model
         self.t = t
