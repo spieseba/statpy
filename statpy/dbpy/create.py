@@ -22,7 +22,7 @@ def create_sample_db(src_dir, meas_tag, src_tags, dst, dst_tags, ensemble_label)
         for cfg, f in zip(cfgs, filenames):
             print(f"\tcfg={cfg}")
             sample[cfg] = load(f, src_tag)
-        database[ensemble_label + dst_tag] = SampleLeaf(sample)
+        database[ensemble_label + "/" + dst_tag] = SampleLeaf(sample)
     with open(dst, "w") as f:
         json.dump(database, f)
 
@@ -58,6 +58,7 @@ def query_yes_no(question, default="yes"):
             return valid[choice]
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
+
 
 #def convert(src, dst, src_tags, dst_tags, cfg_prefix="", verbose=False):
 #    if os.path.isfile(dst):
