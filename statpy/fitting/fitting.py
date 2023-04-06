@@ -1,6 +1,6 @@
 import numpy as np
 from iminuit import Minuit
-from .levenberg_marquardt import LevenbergMarquardt, jacobian, param_cov_lm, fit_std_err_lm
+from .levenberg_marquardt import LevenbergMarquardt #, Jacobian, param_cov_lm, fit_std_err_lm
 from ..statistics.jackknife import samples, covariance
 import scipy.optimize as opt
 from scipy.integrate import quad
@@ -18,7 +18,7 @@ nm_parameter = {
     "maxiter": None
 }
 
-class fit:
+class Fit:
     """
     fit class using Nelder-Mead provided by scipy or Migrad algorithm provided by iminuit package
 
