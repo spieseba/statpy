@@ -33,19 +33,39 @@ class jks_db:
         with open(dst, "w") as f:
             json.dump(self.database, f)
 
-    def print(self):
-        s = 'DATABASE CONSISTS OF\n\n\n'
-        for tag in self.database.keys():
-            s += f'{tag:20s}\n'
+    def print(self, verbosity=0):
+        self.message(self.__str__(verbosity=verbosity))
+    
+    def __str__(self, verbosity):
+        s = '\n\n\tDATABASE CONSISTS OF\n\n'
+        for tag, lf in self.database.items():
+            s += f'\t{tag:20s}\n'
+            if verbosity >= 1:
+                s += f'\t└── mean\n'
+                s += f'\t└── jks\n'
+                if len(lf.info) != 0:
+                    s += f'\t└── info\n'
+        return s
+
+    def print_info(self, tag):
+        self.message(self.__info_str__(tag))
+
+    def __info_str__(self, tag):
+        s = f'\n\n\tINFO DICT OF {tag}\n\n'
+        for k, i in self.database[tag].info.items():
+            s += f'\t{k:20s}: {i}\n'
         return s
 
     ################################## FUNCTIONS #######################################
 
     def apply_f(self, f, tag, dst_tag):
-        lf = self.database[tag] 
-        lf.mean = f(lf.mean)
+        lf = self.database[tag]
+        mean = f(lf.mean)
+        jks = {}
         for jks_tag in lf.jks:
-            lf.jks[jks_tag] = f(lf.jks[jks_tag])
+            jks[jks_tag] = f(lf.jks[jks_tag])
+        self.database[dst_tag] = Leaf(mean, jks)
+
 
     def combine(self, f, tag1, tag2, dst_tag):
         lf1 = self.database[tag1]; lf2 = self.database[tag2]
@@ -63,9 +83,51 @@ class jks_db:
 
     ################################## STATISTICS ######################################
 
-    def jackknife_covariance(self):
-        # implement delayed m-elimination jackknife covariance
-        pass
+    def jackknife_sample(self, tag, binsize, permutation_avg=False):
+        assert binsize > 1
+        mean = self.database[tag].mean
+        jks = self.database[tag].jks
+        # get sorted jks-tags 
+        jks_tags = sorted(list(jks.keys()), key=lambda x: int(x.split("-")[-1]))
+        N = len(jks_tags)
+        Nb = N // binsize 
+        jks_tags = jks_tags[:Nb*binsize] # cut off excess data
+        jks_bin = {}
+        for i in range(Nb):
+            jks_avg = []
+            # average over permutations
+            if permutation_avg == True: permutations = np.arange(binsize)
+            else: permutations = np.arange(1)
+            for p in permutations:
+                s = sum([jks[np.roll(jks_tags, p)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * mean
+                jks_avg.append(mean + s * (N-1) / (N-binsize))
+            jks_bin[i] = np.mean(jks_avg, axis=0)
+        return jks_bin
+
+    def jackknife_variance(self, tag, binsize, permutation_avg=False):
+        mean = self.database[tag].mean
+        if binsize == 1:
+            jks = self.database[tag].jks
+        else:
+            jks = self.jackknife_sample(tag, binsize, permutation_avg)
+        return sp.statistics.jackknife.variance_jks(mean, np.array(list(jks.values())))
+    
+    def jackknife_covariance(self, tag, binsize, permutation_avg=False):
+        mean = self.database[tag].mean
+        if binsize == 1:
+            jks = self.database[tag].jks
+        else:
+            jks = self.jackknife_sample(tag, binsize, permutation_avg)
+        return sp.statistics.jackknife.covariance_jks(mean, np.array(list(jks.values())))
+
+    def binning_study(self, tag, binsizes, permutation_avg=False):
+        self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
+        mean = self.database[tag].mean
+        var = {}
+        for b in binsizes:
+            var[b] = self.jackknife_variance(tag, b, permutation_avg)
+        return var
+
 
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
 #        if dst_tag == None: dst_tag = exact_exact_tag
@@ -93,38 +155,36 @@ class jks_db:
 
     ############################### SCALE SETTING ###################################
 
-#    def gradient_flow_scale(self, tau_tag, E_tag, sample_tag, jks_tag, verbose=True):
-#        tau = self.get_data(tau_tag, sample_tag, "mean")
-#        scale = sp.qcd.scale_setting.gradient_flow_scale()
-#        # tau0
-#        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, "mean", "sqrt_tau0")
-#        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), "E", sample_tag, jks_tag, "sqrt_tau0")
-#        sqrt_tau0_var = self.jackknife_variance("sqrt_tau0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-#        # t0
-#        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), "sqrt_tau0", sample_tag, "mean", "sqrt_t0") 
-#        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), "sqrt_tau0", sample_tag, jks_tag, "sqrt_t0")
-#        sqrt_t0_var = self.jackknife_variance("sqrt_t0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-#        # propagate systematic error of t0
-#        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std), "sqrt_tau0", sample_tag, "mean", "sqrt_t0", "mean+sqrt_t0_fm_std")
-#        sqrt_t0_sys_var = (self.database["sqrt_t0"][sample_tag]["mean"] - self.database["sqrt_t0"][sample_tag]["mean+sqrt_t0_fm_std"])**2.0
-#        self.add_data(sqrt_t0_sys_var, "sqrt_t0", sample_tag, "sqrt_t0_sys_var")
-#        # omega0
-#        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, "mean", "omega0")
-#        self.apply_f(lambda x: scale.set_omega0(tau, x), "E", sample_tag, jks_tag, "omega0")
-#        omega0_var = self.jackknife_variance("omega0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-#        # w0
-#        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), "omega0", sample_tag, "mean", "w0") 
-#        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), "omega0", sample_tag, jks_tag, "w0")
-#        w0_var = self.jackknife_variance("w0", sample_tag, jks_tag, dst_data_tag="jkvar"+jks_tag.split("jks")[1])
-#        # propagate systematic error of w0
-#        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm + scale.w0_fm_std), "omega0", sample_tag, "mean", "w0", "mean+omega0_fm_std")
-#        w0_sys_var = (self.database["w0"][sample_tag]["mean"] - self.database["w0"][sample_tag]["mean+omega0_fm_std"])**2.0
-#        self.add_data(w0_sys_var, "w0", sample_tag, "w0_sys_var")
-#        if verbose:
-#            self.message(f"sqrt(tau0) = {self.get_data('sqrt_tau0', sample_tag, 'mean'):.4f} +- {sqrt_tau0_var**.5:.4f}")
-#            self.message(f"omega0 = {self.get_data('omega0', sample_tag, 'mean'):.4f} +- {omega0_var**.5:.4f}")
-#            self.message(f"t0/GeV (cutoff) = {self.get_data('sqrt_t0', sample_tag, 'mean'):.4f} +- {sqrt_t0_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
-#            self.message(f"w0/GeV (cutoff) = {self.get_data('w0', sample_tag, 'mean'):.4f} +- {w0_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
+    def gradient_flow_scale(self, ensemble_label, binsize, verbose=True):
+        tau = self.database[ensemble_label + "/tau"].mean
+        scale = sp.qcd.scale_setting.gradient_flow_scale()
+        # tau0
+        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), ensemble_label + "/E", ensemble_label + "/sqrt_tau0")
+        sqrt_tau0_var = self.jackknife_variance(ensemble_label + "/sqrt_tau0", binsize)
+        # t0
+        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), ensemble_label + "/sqrt_tau0", ensemble_label + "/sqrt_t0") 
+        sqrt_t0_var = self.jackknife_variance(ensemble_label + "/sqrt_t0", binsize)
+        # propagate systematic error of t0
+        sqrt_t0_mean_shifted = scale.comp_sqrt_t0(self.database[ensemble_label + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
+        sqrt_t0_sys_var = (self.database[ensemble_label + "/sqrt_t0"].mean - sqrt_t0_mean_shifted)**2.0
+        self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_mean_shifted"] = sqrt_t0_mean_shifted
+        self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_sys_var"] = sqrt_t0_sys_var
+        # omega0
+        self.apply_f(lambda x: scale.set_omega0(tau, x), ensemble_label + "/E", ensemble_label + "/omega0")
+        omega0_var = self.jackknife_variance(ensemble_label + "/omega0", binsize)
+        # w0
+        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), ensemble_label + "/omega0", ensemble_label + "/w0") 
+        w0_var = self.jackknife_variance(ensemble_label + "/w0", binsize)
+        # propagate systematic error of w0
+        w0_mean_shifted = scale.comp_w0(self.database[ensemble_label + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
+        w0_sys_var = (self.database[ensemble_label + "/w0"].mean - w0_mean_shifted)**2.0
+        self.database[ensemble_label + "/w0"].info["w0_mean_shifted"] = w0_mean_shifted
+        self.database[ensemble_label + "/w0"].info["w0_sys_var"] = w0_sys_var
+        if verbose:
+            self.message(f"sqrt(tau0) = {self.database[ensemble_label + '/sqrt_tau0'].mean:.4f} +- {sqrt_tau0_var**.5:.4f}")
+            self.message(f"omega0 = {self.database[ensemble_label + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
+            self.message(f"t0/GeV (cutoff) = {self.database[ensemble_label + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
+            self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
 
 ################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
@@ -148,32 +208,42 @@ class sample_db(jks_db):
         self.message(self.__str__(verbosity=verbosity))
     
     def __str__(self, verbosity):
-        s = 'DATABASE CONSISTS OF\n\n\n'
+        s = '\n\n\tDATABASE CONSISTS OF\n\n'
         for tag, slf in self.database.items():
-            s += f'{tag:20s}\n'
+            s += f'\t{tag:20s}\n'
             if verbosity >= 1:
-                s += f'└── "sample"\n'
-                if slf.mean != None:
-                    s += f'└── "mean"\n'
-                if slf.jks != None:
-                    s += f'└── "jks"\n'
+                s += f'\t└── sample\n'
+                if np.array(slf.mean).any() != None:
+                    s += f'\t└── mean\n'
+                if np.array(slf.jks) != None:
+                    s += f'\t└── jks\n'
+                if len(slf.info) != 0:
+                    s += f'\t└── info\n'
         return s
+
+    def cfgs(self, tag):
+        return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
 
     ################################## FUNCTIONS #######################################
     
     def apply_f_to_sample(self, f, tag, dst_tag):
         slf = self.database[tag] 
-        new_slf = {}
+        sample = {}
         for cfg in slf.sample:
-            new_slf.sample[cfg] = f(slf.sample[cfg])
+            sample[cfg] = f(slf.sample[cfg])
+        self.database[dst_tag] = SampleLeaf(sample)
 
     ################################## STATISTICS ######################################
    
-    def compute_means(self, tags):
+    def compute_means(self, tags=None):
+        if tags == None:
+            tags = self.database.keys()
         for tag in tags:
             self.database[tag].mean = np.mean(list(self.database[tag].sample.values()), axis=0)
 
-    def compute_jks(self, tags):
+    def compute_jks(self, tags=None):
+        if tags == None:
+            tags = self.database.keys()
         for tag in tags:
             mean = self.database[tag].mean
             sample = self.database[tag].sample
@@ -182,19 +252,27 @@ class sample_db(jks_db):
                 jks[cfg] = mean + (mean - sample[cfg]) / (len(sample) - 1)
             self.database[tag].jks = jks
 
-    def bin(self, binsize, tag):
-        sample = np.array(list(self.database[tag].sample)) 
+    def bin(self, tag, binsize):
+        sample = np.array(list(self.database[tag].sample.values())) 
         return {str(b):m for b,m in enumerate(sp.statistics.bin(sample, binsize))}
 
-    def binning_study(self, binsizes, tag):
-        self.message("Unbinned sample size: ", len(self.database[tag].sample))
+    def jackknife_variance_sample(self, tag, binsize=1, f=lambda x: x):
+        mean = self.database[tag].mean
+        if binsize == 1:
+            jks = np.array(list(self.database[tag].jks.values()))
+        else:
+            bsample = np.array(list(self.bin(tag, binsize).values()))
+            jks = sp.statistics.jackknife.samples(f, bsample)
+        return sp.statistics.jackknife.variance_jks(mean, jks)
+
+    def binning_study_sample(self, tag, binsizes):
+        self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
         mean = self.database[tag].mean
         var = {}
         for b in binsizes:
-            bsample = self.bin(b, tag)
-            jks = sp.statistics.jackknife.samples(lambda x: x, bsample)
-            var[b] = sp.statistics.jackknife.variance_jks(mean, jks)
+            var[b] = self.jackknife_variance_sample(tag, b)
         return var
+
 
 #################################################################################################################################################
 ################################################################## TO DO ########################################################################
