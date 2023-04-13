@@ -78,11 +78,11 @@ class LevenbergMarquardt:
 
         p = self.p0
         update = update_types[self.update_type]
-        J = jacobian(self.model, self.t, p, self.delta)()
+        J = Jacobian(self.model, self.t, p, self.delta)()
         lmbd = lambda_inits[self.update_type](self.lmbd0, J)
         nu = 2
         for i in range(self.maxiter):
-            J = jacobian(self.model, self.t, p, self.delta)()
+            J = Jacobian(self.model, self.t, p, self.delta)()
             converged, p, lmbd, chi2, nu = update(p, lmbd, J, nu)
             if converged:
                 return p, chi2, i, True, J

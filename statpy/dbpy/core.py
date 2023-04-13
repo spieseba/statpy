@@ -187,6 +187,70 @@ class jks_db:
             self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
 
+    ################################## FITTING ######################################
+
+    def fit_indep_samples(self, t, tags, C, model, p0, method, minimizer_params, verbose=True):
+        y = np.array([self.database[tag].mean for tag in tags])
+        jks = np.array([self.database[tag].jks for tag in tags])
+        fitter = sp.fitting.Fitter(t, y, C, model, lambda x: x, method, minimizer_params)
+        best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
+        print("y:", y)
+        print("best parameter:", best_parameter)
+        print("chi2:", chi2)
+        
+        best_parameter_jks = np.zeros_like(jks)
+#        best_parameter_cov = np.zeros((len(best_parameter), len(best_parameter)))         
+        for i in range(len(jks)):
+            best_parameter_s = {}
+            for cfg in jks[i]:
+                y_jks = np.array(list(y[:i]) + [jks[i][cfg]] + list(y[i+1:]))
+                best_parameter_s[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, y_jks, best_parameter)
+            best_parameter_jks[i] = best_parameter_s
+#            best_parameter_cov += sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(best_parameter_s.values())))
+        print("best parameter jks:", best_parameter_jks[0])
+#        dof = len(t) - len(best_parameter)
+#        p = fitter.get_pvalue(chi2, dof)
+#        if verbose:
+#            for i in range(len(best_parameter)):
+#                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+#            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
+#        return best_parameter, best_parameter_cov
+    
+
+    def multi_mc_fit(self, t, tags, C, model, p0, verbose=True):
+        
+        y = np.array([self.database[tag].mean for tag in tags])
+        y_sample = np.array([np.array(list(self.database[tag].sample.values())) for tag in tags])
+        tau_dict = {1500: self.database["pbc/beta2.4/tau"].mean, 3000: self.database["obc/beta3.05/tau"].mean}
+        def estimator(E):
+            scale = sp.qcd.scale_setting.gradient_flow_scale()
+            return scale.set_sqrt_t0(tau_dict[len(E)], E)
+        y = np.array([estimator(y[i]) for i in range(len(y))])
+        print("y:", y)
+        fitter = sp.fitting.Fitter(t, y, C, model, lambda x: x, method="Nelder-Mead", 
+                minimizer_params={"update_type": 3, "eps1": 1e-6, "eps2": 1e-6, "eps3": 1e-4})            
+        best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
+        dof = len(t) - len(best_parameter)
+        p = fitter.get_pvalue(chi2, dof)
+        print("best parameter:", best_parameter)
+        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
+        print("chi2:", chi2)
+        print()
+
+        def multi_mc_jackknife(parameter_estimator):
+            best_parameter_jks = np.array([sp.statistics.jackknife.samples(lambda yi: parameter_estimator(np.array(list(y[:i]) + [estimator(yi)] + list(y[i+1:])))[0], y_sample[i]) for i in range(len(t))]) 
+            
+            covariances = np.array([sp.statistics.jackknife.covariance(lambda yi: parameter_estimator(np.array(list(y[:i]) + [estimator(yi)] + list(y[i+1:])))[0], y_sample[i], best_parameter_jks[i]) for i in range(len(t))])
+            print(sum(covariances)) 
+            #print("best parameter jks:", jks_parameter[0])
+            #return sum(covariances)    
+
+        #best_parameter_cov = 
+        multi_mc_jackknife(lambda y: fitter.estimate_parameters(fitter.chi_squared, y, best_parameter))
+         
+
+
+
 ################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
 class sample_db(jks_db):
@@ -306,51 +370,6 @@ class sample_db(jks_db):
 #        return r, r_jkvar
 
 
-###################################### FITTING ######################################
-
-#    def multi_mc_fit(self, t):
-        
-
-#        return 0
-
-#    def multi_mc_fit(self, t, tags, sample_tags, C, model, p0, estimator, fit_tag="FIT", method="Nelder-Mead", minimizer_params={}, verbose=True, store=False, return_fitter=False):
-#
-#        mos = []
-#        for tag, sample_tag in zip(tags, sample_tags):
-#            mos.append(list(map(lambda e: (tag, e), sample_tag)))
-#        y = []
-#        for mo in mos:
-#            for ts in mo:
-#                ta, s = ts
-#                y.append(self.get_data_arr(ta, s))
-#
-#        assert isinstance(model, dict)
-#        model_func = list(model.values())[0]        
-#        assert method in ["Levenberg-Marquardt", "Migrad", "Nelder-Mead"]
-#        if method in ["Migrad", "Nelder-Mead"]:
-#            fitter = sp.fitting.fit(t, y, C, model_func, p0, estimator, method, minimizer_params)
-#        else:
-#            fitter = sp.fitting.LM_fit(t, y, C, model_func, p0, estimator, minimizer_params)
-#
-#        fitter.multi_mc_fit(verbose)
-#
-#        if store:
-#            self.add_data(t, fit_tag, "t", "-")
-#            self.add_data(C, fit_tag, "C", "-")
-#            self.add_data(list(model.keys())[0], fit_tag, "model", "-")
-#            self.add_data(method, fit_tag, "minimizer", "-")
-#            self.add_data(minimizer_params, fit_tag, "minimizer_params", "-")
-#            self.add_data(p0, fit_tag, "p0", "-")
-#            self.add_data(fitter.best_parameter, fit_tag, "best_parameter", "-")
-#            self.add_data(fitter.best_parameter_cov, fit_tag, "best_parameter_cov", "-")
-#            self.add_data(fitter.jks_parameter, fit_tag, "jks_parameter", "-")
-#            self.add_data(fitter.p, fit_tag, "pval", "-")
-#            self.add_data(fitter.chi2, fit_tag, "chi2", "-")
-#            self.add_data(fitter.dof, fit_tag, "dof", "-")
-#            self.add_data(fitter.fit_err, fit_tag, "fit_err", "-")
-#        
-#        if return_fitter:
-#            return fitter
 
 ###################################### SPECTROSCOPY ######################################
 
