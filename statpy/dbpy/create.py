@@ -3,7 +3,7 @@
 import os, sys
 import numpy as np
 from statpy.dbpy import custom_json as json
-from statpy.dbpy.leafs import Leaf, SampleLeaf
+from statpy.dbpy.leafs import Leaf
 
 def create_sample_db(src_dir, meas_tag, src_tags, dst, dst_tags, ensemble_label):
     if os.path.isfile(dst):
@@ -22,7 +22,7 @@ def create_sample_db(src_dir, meas_tag, src_tags, dst, dst_tags, ensemble_label)
         for cfg, f in zip(cfgs, filenames):
             print(f"\tcfg={cfg}")
             sample[cfg] = load(f, src_tag)
-        database[ensemble_label + "/" + dst_tag] = SampleLeaf(sample)
+        database[ensemble_label + "/" + dst_tag] = Leaf(mean=None, jks=None, sample=sample)
     with open(dst, "w") as f:
         json.dump(database, f)
 

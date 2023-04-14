@@ -4,7 +4,7 @@ import os
 from time import time
 import numpy as np
 from statpy.dbpy import custom_json as json
-from statpy.dbpy.leafs import Leaf, SampleLeaf
+from statpy.dbpy.leafs import Leaf #, SampleLeaf
 import statpy as sp
 
 ###################################### DATABASE SYSTEM USING LEAFS CONTAINING MEAN AND JKS (SECONDARY OBSERVABLES) ###########################################
@@ -24,8 +24,13 @@ class jks_db:
         with open(src) as f:
             src_db = json.load(f)
         for t, lf in src_db.items():
-            self.database[t] = Leaf(lf.mean, lf.jks)
-    
+            self.database[t] = Leaf(lf.mean, lf.jks, None)
+
+    def add_Leaf(self, tag, mean, jks, sample):
+        assert (isinstance(sample, dict) or sample==None)
+        assert (isinstance(jks, dict) or jks==None)
+        self.database[tag] = Leaf(mean, jks, sample)
+
     def message(self, s, verbose=True):
         if verbose: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
     
@@ -34,15 +39,19 @@ class jks_db:
             json.dump(self.database, f)
 
     def print(self, verbosity=0):
-        self.message(self.__str__(verbosity=verbosity))
-    
+        self.message(self.__str__(verbosity=verbosity))    
+
     def __str__(self, verbosity):
         s = '\n\n\tDATABASE CONSISTS OF\n\n'
         for tag, lf in self.database.items():
             s += f'\t{tag:20s}\n'
             if verbosity >= 1:
-                s += f'\t└── mean\n'
-                s += f'\t└── jks\n'
+                if np.array(lf.mean).any() != None:
+                    s += f'\t└── mean\n'
+                if np.array(lf.jks).any() != None:
+                    s += f'\t└── jks\n'
+                if np.array(lf.sample).any() != None:
+                    s += f'\t└── sample\n' 
                 if len(lf.info) != 0:
                     s += f'\t└── info\n'
         return s
@@ -64,7 +73,7 @@ class jks_db:
         jks = {}
         for jks_tag in lf.jks:
             jks[jks_tag] = f(lf.jks[jks_tag])
-        self.database[dst_tag] = Leaf(mean, jks)
+        self.database[dst_tag] = Leaf(mean, jks, None)
 
 
     def combine(self, f, tag1, tag2, dst_tag):
@@ -79,7 +88,7 @@ class jks_db:
         for jks_tag in lf2.jks:
             if jks_tag not in lf1.jks:
                 jks[dst_tag + "-" + jks_tag.split("-")[1]] = f(lf1.mean, lf2.jks[jks_tag])
-        self.database[dst_tag] = Leaf(mean, jks)
+        self.database[dst_tag] = Leaf(mean, jks, None)
 
     ################################## STATISTICS ######################################
 
@@ -191,65 +200,25 @@ class jks_db:
 
     def fit_indep_samples(self, t, tags, C, model, p0, method, minimizer_params, verbose=True):
         y = np.array([self.database[tag].mean for tag in tags])
-        jks = np.array([self.database[tag].jks for tag in tags])
+        y_jks = np.array([self.database[tag].jks for tag in tags])
         fitter = sp.fitting.Fitter(t, y, C, model, lambda x: x, method, minimizer_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
-        print("y:", y)
-        print("best parameter:", best_parameter)
-        print("chi2:", chi2)
         
-        best_parameter_jks = np.zeros_like(jks)
-#        best_parameter_cov = np.zeros((len(best_parameter), len(best_parameter)))         
-        for i in range(len(jks)):
-            best_parameter_s = {}
-            for cfg in jks[i]:
-                y_jks = np.array(list(y[:i]) + [jks[i][cfg]] + list(y[i+1:]))
-                best_parameter_s[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, y_jks, best_parameter)
-            best_parameter_jks[i] = best_parameter_s
-#            best_parameter_cov += sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(best_parameter_s.values())))
-        print("best parameter jks:", best_parameter_jks[0])
-#        dof = len(t) - len(best_parameter)
-#        p = fitter.get_pvalue(chi2, dof)
-#        if verbose:
-#            for i in range(len(best_parameter)):
-#                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-#            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
-#        return best_parameter, best_parameter_cov
-    
-
-    def multi_mc_fit(self, t, tags, C, model, p0, verbose=True):
-        
-        y = np.array([self.database[tag].mean for tag in tags])
-        y_sample = np.array([np.array(list(self.database[tag].sample.values())) for tag in tags])
-        tau_dict = {1500: self.database["pbc/beta2.4/tau"].mean, 3000: self.database["obc/beta3.05/tau"].mean}
-        def estimator(E):
-            scale = sp.qcd.scale_setting.gradient_flow_scale()
-            return scale.set_sqrt_t0(tau_dict[len(E)], E)
-        y = np.array([estimator(y[i]) for i in range(len(y))])
-        print("y:", y)
-        fitter = sp.fitting.Fitter(t, y, C, model, lambda x: x, method="Nelder-Mead", 
-                minimizer_params={"update_type": 3, "eps1": 1e-6, "eps2": 1e-6, "eps3": 1e-4})            
-        best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
+        best_parameter_jks = np.zeros_like(y_jks)
+        best_parameter_cov = np.zeros((len(best_parameter), len(best_parameter)))         
+        for i in range(len(y_jks)):
+            t_jks = {}
+            for cfg in y_jks[i]:
+                t_jks[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, np.array(list(y[:i]) + [y_jks[i][cfg]] + list(y[i+1:])), best_parameter)
+            best_parameter_jks[i] = t_jks
+            best_parameter_cov += sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(t_jks.values())))
         dof = len(t) - len(best_parameter)
         p = fitter.get_pvalue(chi2, dof)
-        print("best parameter:", best_parameter)
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
-        print("chi2:", chi2)
-        print()
-
-        def multi_mc_jackknife(parameter_estimator):
-            best_parameter_jks = np.array([sp.statistics.jackknife.samples(lambda yi: parameter_estimator(np.array(list(y[:i]) + [estimator(yi)] + list(y[i+1:])))[0], y_sample[i]) for i in range(len(t))]) 
-            
-            covariances = np.array([sp.statistics.jackknife.covariance(lambda yi: parameter_estimator(np.array(list(y[:i]) + [estimator(yi)] + list(y[i+1:])))[0], y_sample[i], best_parameter_jks[i]) for i in range(len(t))])
-            print(sum(covariances)) 
-            #print("best parameter jks:", jks_parameter[0])
-            #return sum(covariances)    
-
-        #best_parameter_cov = 
-        multi_mc_jackknife(lambda y: fitter.estimate_parameters(fitter.chi_squared, y, best_parameter))
-         
-
-
+        if verbose:
+            for i in range(len(best_parameter)):
+                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
+        return best_parameter, best_parameter_cov
 
 ################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
@@ -261,29 +230,12 @@ class sample_db(jks_db):
         self.message(f"load {src}", self.verbose)
         with open(src) as f:
             src_db = json.load(f)
-        for t, slf in src_db.items():
-            self.database[t] = SampleLeaf(slf.sample, slf.mean, slf.jks)
-    
+        for t, lf in src_db.items():
+            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample)
+
     def remove_cfgs(self, cfgs, tag):
         for cfg in cfgs:
             self.database[tag].sample.pop(str(cfg), None)
-
-    def print(self, verbosity=0):
-        self.message(self.__str__(verbosity=verbosity))
-    
-    def __str__(self, verbosity):
-        s = '\n\n\tDATABASE CONSISTS OF\n\n'
-        for tag, slf in self.database.items():
-            s += f'\t{tag:20s}\n'
-            if verbosity >= 1:
-                s += f'\t└── sample\n'
-                if np.array(slf.mean).any() != None:
-                    s += f'\t└── mean\n'
-                if np.array(slf.jks) != None:
-                    s += f'\t└── jks\n'
-                if len(slf.info) != 0:
-                    s += f'\t└── info\n'
-        return s
 
     def cfgs(self, tag):
         return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
@@ -291,11 +243,14 @@ class sample_db(jks_db):
     ################################## FUNCTIONS #######################################
     
     def apply_f_to_sample(self, f, tag, dst_tag):
-        slf = self.database[tag] 
+        lf = self.database[tag] 
         sample = {}
-        for cfg in slf.sample:
-            sample[cfg] = f(slf.sample[cfg])
-        self.database[dst_tag] = SampleLeaf(sample)
+        for cfg in lf.sample:
+            sample[cfg] = f(lf.sample[cfg])
+        if tag == dst_tag:
+            self.database[dst_tag].sample = sample
+        else:
+            self.database[dst_tag] = Leaf(None, None, sample)
 
     ################################## STATISTICS ######################################
    
@@ -336,6 +291,15 @@ class sample_db(jks_db):
         for b in binsizes:
             var[b] = self.jackknife_variance_sample(tag, b)
         return var
+
+class sample_db_from_data(sample_db):
+    def __init__(self, *args, verbose=True):
+        self.t0 = time()
+        self.verbose = verbose
+        self.database = {}
+        for src in args:
+            assert isinstance(src, tuple)
+            self.add_Leaf(*src)
 
 
 #################################################################################################################################################

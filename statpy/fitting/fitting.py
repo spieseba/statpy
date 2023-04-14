@@ -5,6 +5,7 @@ from ..statistics.jackknife import samples, covariance
 import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
+import statpy as sp
 
 # default Nelder-Mead parameter
 nm_parameter = {
@@ -22,7 +23,6 @@ class Fitter:
                 y (numpy array): Markov chains at each t or numpy array of means. Note: pass array of means encapsulated in another array.
                 C (numpy 2D array): Covariance matrix of the data.
                 model (function): fit function which takes independent variable t, model parameter array p as an input and returns real number.
-                p0 (numpy array): array containing the start values of the parameter vector.
                 estimator (function): function which takes sample (y or y[i]) as an input and returns desired quantity.
                 method (string): minimization method. Can be "Nelder-Mead", "Migrad" or "Levenberg-Marquardt". Default is "Nelder-Mead".
     """
@@ -106,7 +106,7 @@ class Fitter:
         return sum(covs)    
 
     def fit_indep_samples(self, p0, verbose=True):
-        self.y_est = np.array([self.estimator(self.y[i]) for i in range(len(self.t))])
+        self.y_est = np.array([self.estimator(np.mean(self.y[i], axis=0)) for i in range(len(self.t))])
         self.best_parameter, self.chi2, J = self.estimate_parameters(self.chi_squared, self.y_est, p0)
         self.best_parameter_cov = self.jackknife_indep_samples(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbose=False)
         #if self.method == "Levenberg-Marquardt":
@@ -120,34 +120,36 @@ class Fitter:
                 print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
             print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}")
 
+    
+#def fit_indep_samples(self, t, tags, C, model, p0, method, minimizer_params, verbose=True):
+def fit_indep_samples_db(t, y, C, model, p0, method, minimizer_params, verbose=True):
+    y_means = np.array([np.mean(y[i], axis=0) for i in range(len(t))])  #np.array([self.database[tag].mean for tag in tags])
+    y_jks = np.array([sp.statistics.jackknife.samples(lambda x: x, y[i]) for i in range(len(t))]) #jks = np.array([self.database[tag].jks for tag in tags])
+    jks_dicts = []
+    for jks in y_jks:
+        d = {cfg:jks[cfg] for cfg in range(len(jks))}
+        jks_dicts.append(d)
+    jks_dicts = np.array(jks_dicts)
 
-#class LM_fit:V
-#
-#
-#    def multi_mc_jackknife(self, verbose=False):
-#        self.jks_parameter = np.array([samples(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model, self.best_parameter)[0], self.y[i]) for i in range(len(self.t))]) 
-#        self.covariances = np.array([covariance(lambda yi: self.estimate_parameters(self.t, np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])), self.W, self.model, self.best_parameter)[0], self.y[i], self.jks_parameter[i]) for i in range(len(self.t))]) 
-#        if verbose:
-#            for i in range(len(self.t)):
-#                print(f"jackknife parameter covariance from t[{i}] is ", self.covariances[i])
-#        return sum(self.covariances)    
-#
-#
-#    def multi_mc_fit(self, verbose=True):
-#        self.y_est = np.array([self.estimator(np.mean(self.y[i], axis=0)) for i in range(len(self.t))])
-#        self.best_parameter, self.chi2, self.J = self.estimate_parameters(self.t, self.y_est, self.W, self.model, self.p0, verbose)
-#        self.best_parameter_cov = self.multi_mc_jackknife(verbose)
-#        self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
-#        self.dof = len(self.t) - len(self.best_parameter)
-#        self.p = get_pvalue(self.chi2, self.dof)
-#        self.fit_err =  lambda trange: fit_std_err(trange, self.best_parameter, self.model.parameter_gradient, self.best_parameter_cov)
-#        self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), 
-#                            self.best_parameter_cov_lm)
-#        if verbose:
-#            for i in range(len(self.best_parameter)):
-#                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
-#            print(f"parameter covariance = {self.best_parameter_cov}")
-#            print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}")
-#
-######################################################################################
-##
+    fitter = sp.fitting.Fitter(t, y_means, C, model, lambda x: x, method, minimizer_params)
+    best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y_means, p0)
+    print("best parameter:", best_parameter)
+    print("chi2:", chi2)
+    
+    best_parameter_jks = np.zeros_like(jks_dicts)
+    best_parameter_cov = np.zeros((len(best_parameter), len(best_parameter)))         
+    for i in range(len(jks_dicts)):
+        best_parameter_s = {}
+        for cfg in jks_dicts[i]:
+            tmp_jks = np.array(list(y_means[:i]) + [jks_dicts[i][cfg]] + list(y_means[i+1:]))
+            best_parameter_s[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, tmp_jks, best_parameter)
+        best_parameter_jks[i] = best_parameter_s
+        best_parameter_cov += sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(best_parameter_s.values())))
+    dof = len(t) - len(best_parameter)
+   
+    p = fitter.get_pvalue(chi2, dof)
+    if verbose:
+        for i in range(len(best_parameter)):
+            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
+    #return best_parameter, best_parameter_cov
