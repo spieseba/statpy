@@ -172,59 +172,67 @@ class jks_db:
         sqrt_tau0_var = self.jackknife_variance(ensemble_label + "/sqrt_tau0", binsize)
         # t0
         self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), ensemble_label + "/sqrt_tau0", ensemble_label + "/sqrt_t0") 
-        sqrt_t0_var = self.jackknife_variance(ensemble_label + "/sqrt_t0", binsize)
+        sqrt_t0_stat_var = self.jackknife_variance(ensemble_label + "/sqrt_t0", binsize)
         # propagate systematic error of t0
         sqrt_t0_mean_shifted = scale.comp_sqrt_t0(self.database[ensemble_label + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
         sqrt_t0_sys_var = (self.database[ensemble_label + "/sqrt_t0"].mean - sqrt_t0_mean_shifted)**2.0
+        self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_stat_var"] = sqrt_t0_stat_var
         self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_mean_shifted"] = sqrt_t0_mean_shifted
         self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_sys_var"] = sqrt_t0_sys_var
+        self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_var"] = sqrt_t0_stat_var + sqrt_t0_sys_var
         # omega0
         self.apply_f(lambda x: scale.set_omega0(tau, x), ensemble_label + "/E", ensemble_label + "/omega0")
         omega0_var = self.jackknife_variance(ensemble_label + "/omega0", binsize)
         # w0
         self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), ensemble_label + "/omega0", ensemble_label + "/w0") 
-        w0_var = self.jackknife_variance(ensemble_label + "/w0", binsize)
+        w0_stat_var = self.jackknife_variance(ensemble_label + "/w0", binsize)
         # propagate systematic error of w0
         w0_mean_shifted = scale.comp_w0(self.database[ensemble_label + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
         w0_sys_var = (self.database[ensemble_label + "/w0"].mean - w0_mean_shifted)**2.0
+        self.database[ensemble_label + "/w0"].info["w0_stat_var"] = w0_stat_var
         self.database[ensemble_label + "/w0"].info["w0_mean_shifted"] = w0_mean_shifted
         self.database[ensemble_label + "/w0"].info["w0_sys_var"] = w0_sys_var
+        self.database[ensemble_label + "/w0"].info["w0_var"] = w0_stat_var + w0_sys_var
         if verbose:
             self.message(f"sqrt(tau0) = {self.database[ensemble_label + '/sqrt_tau0'].mean:.4f} +- {sqrt_tau0_var**.5:.4f}")
             self.message(f"omega0 = {self.database[ensemble_label + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
-            self.message(f"t0/GeV (cutoff) = {self.database[ensemble_label + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
-            self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
+            self.message(f"t0/GeV (cutoff) = {self.database[ensemble_label + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_stat_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_stat_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
+            self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
 
     ################################## FITTING ######################################
 
-    def fit_indep_samples(self, t, tags, C, model, p0, method, minimizer_params, verbose=True):
+    def fit_indep_samples(self, t, tags, C, model, p0, method, minimizer_params, verbosity=0):
         y = np.array([self.database[tag].mean for tag in tags])
         y_jks = np.array([self.database[tag].jks for tag in tags])
         fitter = sp.fitting.Fitter(t, y, C, model, lambda x: x, method, minimizer_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
-        
         best_parameter_jks = np.zeros_like(y_jks)
         best_parameter_cov = np.zeros((len(best_parameter), len(best_parameter)))         
-        for i in range(len(y_jks)):
-            t_jks = {}
+        for i in range(len(t)):
+            yt_jks = {}
             for cfg in y_jks[i]:
-                t_jks[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, np.array(list(y[:i]) + [y_jks[i][cfg]] + list(y[i+1:])), best_parameter)
-            best_parameter_jks[i] = t_jks
-            best_parameter_cov += sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(t_jks.values())))
+                yt_jks[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, np.array(list(y[:i]) + [y_jks[i][cfg]] + list(y[i+1:])), best_parameter)
+            best_parameter_jks[i] = yt_jks
+            best_parameter_t_cov = sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(yt_jks.values())))
+            if verbosity >=1: 
+                print(f"jackknife parameter covariance from t[{i}] is ", best_parameter_t_cov)
+            best_parameter_cov += best_parameter_t_cov
         dof = len(t) - len(best_parameter)
         p = fitter.get_pvalue(chi2, dof)
-        if verbose:
+        if verbosity >= 0:
             for i in range(len(best_parameter)):
                 print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
             print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
         return best_parameter, best_parameter_cov
+    
+    def model_prediction_var(self, t, best_parameter, best_parameter_cov, model_parameter_gradient):
+        return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
 
 ################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
 class sample_db(jks_db):
     db_type = "SAMPLE-DB"
-
     def add_src(self, src):
         assert os.path.isfile(src)
         self.message(f"load {src}", self.verbose)
