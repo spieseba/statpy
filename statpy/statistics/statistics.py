@@ -21,15 +21,6 @@ def bin(data, b, *argv):
     return np.array(bata) 
 
 ####################### INFINITE BINSIZE EXTRAPOLATION ########################
-# theoretical std estimate of var
-def std_of_var(var, J):
-    # J = N//b
-    return np.sqrt(2.*(J-1)/J**2.) * var
-
-def ratio_err_prop(A, A_var, B, B_var):
-    # f = A/B
-    return (A/B)**2.0 * (A_var/A**2.0 + B_var/B**2.0)
-
 
 # one parameter model for variance ratio var[S]/var[1]
 # assumes single dominant markov mode tau ~ tau_int
@@ -53,58 +44,70 @@ class threeparam_model:
     def parameter_gradient(self, t, p):
         return np.array([2.*(1. - np.sqrt(p[1]**2.)/t) + 2.*np.sqrt(p[2]**2.)*(1./t + 1./p[0])*np.exp(-t/p[0]), -2.*p[0]/t, np.exp(-t/p[0])/t], dtype=object)
 
+# theoretical std estimate of var
+def var_of_var(var, J):
+    # J = N//b
+    return (np.sqrt(2.*(J-1)/J**2.) * var)**2.
 
-def infinite_binsize_extrapolation(bs, fit_bs, var_dict, N, model, p0, fit_method="Migrad", fit_params={}, make_plot=True):
-    def fit(t, y, cov, model, p0):
-        models = {"singlemode": singlemode_model, "threeparam": threeparam_model}
-        mod = models[model]()
-        fitter = sp.fitting.Fitter(t, y, cov, mod, lambda x: x, method=fit_method, minimizer_params=fit_params)
-        fitter.fit(p0)
-        best_parameter = fitter.best_parameter; best_parameter_cov = fitter.best_parameter_cov
-        fit_err = lambda t: (mod.parameter_gradient(t, best_parameter) @ best_parameter_cov @ mod.parameter_gradient(t, best_parameter))**0.5
-        return best_parameter, best_parameter_cov, mod, fit_err
-    var = np.array([var_dict[b] for b in bs])
-    var_var = np.array([std_of_var(var_dict[b], N//b) for b in bs])**2.
-    var_ratio = var/var[0]
-    var_ratio_var = np.array([ratio_err_prop(var[b-bs[0]], var_var[b-bs[0]], var[0], var_var[0]) for b in bs])
+def ratio_var(a, a_var, b, b_var):
+    # f = A/B
+    return (a/b)**2. * (a_var/a**2. + b_var/b**2.)
+
+def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model, p0, fit_method="Migrad", fit_params={}, make_plot=True):
+    # theoretical estimate of var on var
+    var_var = {b:var_of_var(var_dict[b], N//b) for b in var_dict}
+    # compute variance ratio and propagate error
+    var_ratio = {b:var_dict[b]/var_dict[1] for b in var_dict}
+    var_ratio_var = {b:ratio_var(var_dict[b], var_var[b], var_dict[1], var_var[1]) for b in var_dict}
+    # fit model to var_ratio
+    fit_models = {"singlemode": singlemode_model, "threeparam": threeparam_model} 
+    model = fit_models[fit_model]()
+    fitter = sp.fitting.Fitter(t=binsizes_to_be_fitted, y=np.array([var_ratio[b] for b in binsizes_to_be_fitted]), 
+                               C=np.diag(np.array([var_ratio_var[b] for b in binsizes_to_be_fitted])), 
+                               model=model, estimator=lambda x : x, method=fit_method, minimizer_params=fit_params)
     try:
-        best_parameter, best_parameter_cov, model_func, fit_err = fit(bs[fit_bs], var_ratio[fit_bs], np.diag(var_ratio_var[fit_bs]), model, p0)
-        assert model in ["singlemode", "threeparam"]
-        if model == "singlemode":
-            ratio_inf = 2. * best_parameter[0]; ratio_inf_var = np.array([2.0]) @ best_parameter_cov @ np.array([2.0])
+        fitter.fit(p0)
+        if fit_model == "singlemode": 
+            ratio_inf_b = 2. * fitter.best_parameter[0]; ratio_inf_b_var = np.array([2.0]) @ fitter.best_parameter_cov @ np.array([2.0])
             model_label = r"$2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]$"
-        if model == "threeparam":
-            ratio_inf = 2. * best_parameter[0]; ratio_inf_var = np.array([2.0, 0, 0]) @ best_parameter_cov @ np.array([2.0, 0, 0])
+        if fit_model == "threeparam":
+            ratio_inf_b = 2. * fitter.best_parameter[0]; ratio_inf_b_var = np.array([2.0, 0, 0]) @ fitter.best_parameter_cov @ np.array([2.0, 0, 0])
             model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)$"
         if make_plot:
+            # figure
             fig, ax = plt.subplots(figsize=(16,5))
-            color = "C0"
             ax.set_ylabel(r"$\sigma^2[S]\,/\,\sigma^2[1]$")
             ax.set_xlabel(r"binsize S")
-            ax.errorbar(bs, var_ratio, var_ratio_var**.5, linestyle="", marker="+", capsize=5, color=color, label="data")
-            color = "C1"
-            trange = np.arange(bs[fit_bs[0]], bs[fit_bs[-1]], 0.01)
-            fy = np.array([model_func(t, best_parameter) for t in trange]); fyerr = np.array([fit_err(t) for t in trange])
-            ax.plot(trange, fy, color=color)
-            ax.fill_between(trange, fy-fyerr, fy+fyerr, alpha=0.5, color=color)
-            color = "C2"
-            ax.plot(trange, [ratio_inf for t in trange], color=color, label=r"$2\tau = $" + f"{ratio_inf:.2f} +- {ratio_inf_var**.5:.2f}, fit model: " + model_label)
-            ax.fill_between(trange, ratio_inf-ratio_inf_var**.5, ratio_inf+ratio_inf_var**.5, alpha=0.5, color=color)
+            # data
+            ax.errorbar(var_ratio.keys(), var_ratio.values(), np.array(list(var_ratio_var.values()))**.5, 
+                        linestyle="", marker="+", capsize=5, color="C0", label="data")
+            # fit
+            brange = np.arange(binsizes_to_be_fitted[0], binsizes_to_be_fitted[-1], 0.01)
+            fb = np.array([model(b, fitter.best_parameter) for b in brange])
+            fb_std = np.array([fitter.fit_var(b)**.5 for b in brange])
+            ax.plot(brange, fb, color="C1") 
+            ax.fill_between(brange, fb-fb_std, fb+fb_std, alpha=0.5, color="C1")
+            # infinite binsize extrapolation
+            ax.plot(brange, [ratio_inf_b for b in brange], color="C2", 
+                    label=r"$2\tau = $" + f"{ratio_inf_b:.2f} +- {ratio_inf_b_var**.5:.2f}, fit model: " + model_label)
+            ax.fill_between(brange, ratio_inf_b-ratio_inf_b_var**.5, ratio_inf_b+ratio_inf_b_var**.5, alpha=0.5, color="C2")
+            # optics
             ax.grid()
             ax.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
     except AssertionError:
         print("Fitter did not converge")
-        ratio_inf = []; ratio_inf_var = []
+        ratio_inf_b = []; ratio_inf_b_var = []
         if make_plot:
             fig, ax = plt.subplots(figsize=(16,5))
             color = "C0"
             ax.set_ylabel(r"$\sigma^2[S]\,/\,\sigma^2[1]$")
             ax.set_xlabel(r"binsize S")
-            ax.errorbar(bs, var_ratio, var_ratio_var**.5, linestyle="", marker="+", capsize=5, color=color, label="data")
+            ax.errorbar(var_ratio.keys(), var_ratio.values(), np.array(list(var_ratio_var.values()))**.5, 
+                        linestyle="", marker="+", capsize=5, color="C0", label="data")
             ax.grid()
             ax.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
-    return ratio_inf, ratio_inf_var
+    return ratio_inf_b, ratio_inf_b_var

@@ -137,7 +137,6 @@ class jks_db:
             var[b] = self.jackknife_variance(tag, b, permutation_avg)
         return var
 
-
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
 #        if dst_tag == None: dst_tag = exact_exact_tag
 #        if dst_sample_tag == None: dst_sample_tag = exact_exact_sample_tag + "_AMA"
@@ -160,7 +159,6 @@ class jks_db:
 #            self.add_data(b, dst_tag, dst_sample_tag, "bias")
 #            self.add_data(m, dst_tag, dst_sample_tag, "mean")
 #        return m, m_jkvar, b, b_jkvar
-    
 
     ############################### SCALE SETTING ###################################
 
@@ -198,7 +196,6 @@ class jks_db:
             self.message(f"omega0 = {self.database[ensemble_label + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
             self.message(f"t0/GeV (cutoff) = {self.database[ensemble_label + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_stat_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_stat_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
             self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
-
 
     ################################## FITTING ######################################
 
