@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os
+import os, h5py
 from time import time
 import numpy as np
 from statpy.dbpy import custom_json as json
@@ -9,7 +9,7 @@ import statpy as sp
 
 ###################################### DATABASE SYSTEM USING LEAFS CONTAINING MEAN AND JKS (SECONDARY OBSERVABLES) ###########################################
 
-class jks_db:
+class JKS_DB:
     db_type = "JKS-DB"
     def __init__(self, *args, verbose=True):
         self.t0 = time()
@@ -20,19 +20,21 @@ class jks_db:
 
     def add_src(self, src):
         assert os.path.isfile(src)
-        self.message(f"load {src}", self.verbose)
+        self.message(f"load {src}")
         with open(src) as f:
             src_db = json.load(f)
         for t, lf in src_db.items():
-            self.database[t] = Leaf(lf.mean, lf.jks, None)
+            self.database[t] = Leaf(lf.mean, lf.jks)
 
-    def add_Leaf(self, tag, mean, jks, sample):
+    def add_Leaf(self, tag, mean, jks, sample=None, nrwf=None, info=None):
         assert (isinstance(sample, dict) or sample==None)
         assert (isinstance(jks, dict) or jks==None)
-        self.database[tag] = Leaf(mean, jks, sample)
+        assert (isinstance(nrwf, dict) or nrwf==None)
+        assert (isinstance(info, dict) or info==None)
+        self.database[tag] = Leaf(mean, jks, sample, nrwf, info)
 
-    def message(self, s, verbose=True):
-        if verbose: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
+    def message(self, s):
+        if self.verbose: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
     
     def save(self, dst):
         with open(dst, "w") as f:
@@ -52,6 +54,8 @@ class jks_db:
                     s += f'\t└── jks\n'
                 if np.array(lf.sample).any() != None:
                     s += f'\t└── sample\n' 
+                if np.array(lf.nrwf).any() != None:
+                    s += f'\t└── nrwf\n' 
                 if len(lf.info) != 0:
                     s += f'\t└── info\n'
         return s
@@ -65,6 +69,13 @@ class jks_db:
             s += f'\t{k:20s}: {i}\n'
         return s
 
+    # helper function
+    def as_array(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj
+        else:
+            return np.array(list(obj.values()))
+    
     ################################## FUNCTIONS #######################################
 
     def apply_f(self, f, tag, dst_tag):
@@ -74,7 +85,6 @@ class jks_db:
         for jks_tag in lf.jks:
             jks[jks_tag] = f(lf.jks[jks_tag])
         self.database[dst_tag] = Leaf(mean, jks, None)
-
 
     def combine(self, f, tag1, tag2, dst_tag):
         lf1 = self.database[tag1]; lf2 = self.database[tag2]
@@ -92,12 +102,12 @@ class jks_db:
 
     ################################## STATISTICS ######################################
 
-    def jackknife_sample(self, tag, binsize, permutation_avg=False):
-        assert binsize > 1
-        mean = self.database[tag].mean
-        jks = self.database[tag].jks
+    def compute_jks(self, tag, binsize, permutation_avg=False):
+        lf = self.database[tag]
+        if binsize == 1:
+            return lf.jks
         # get sorted jks-tags 
-        jks_tags = sorted(list(jks.keys()), key=lambda x: int(x.split("-")[-1]))
+        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1]))
         N = len(jks_tags)
         Nb = N // binsize 
         jks_tags = jks_tags[:Nb*binsize] # cut off excess data
@@ -108,30 +118,21 @@ class jks_db:
             if permutation_avg == True: permutations = np.arange(binsize)
             else: permutations = np.arange(1)
             for p in permutations:
-                s = sum([jks[np.roll(jks_tags, p)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * mean
-                jks_avg.append(mean + s * (N-1) / (N-binsize))
+                s = sum([lf.jks[np.roll(jks_tags, p)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
+                jks_avg.append(lf.mean + s * (N-1) / (N-binsize))
             jks_bin[i] = np.mean(jks_avg, axis=0)
         return jks_bin
 
     def jackknife_variance(self, tag, binsize, permutation_avg=False):
-        mean = self.database[tag].mean
-        if binsize == 1:
-            jks = self.database[tag].jks
-        else:
-            jks = self.jackknife_sample(tag, binsize, permutation_avg)
-        return sp.statistics.jackknife.variance_jks(mean, np.array(list(jks.values())))
+        jks = self.as_array(self.compute_jks(tag, binsize, permutation_avg))
+        return sp.statistics.jackknife.variance_jks(np.mean(jks, axis=0), jks)
     
     def jackknife_covariance(self, tag, binsize, permutation_avg=False):
-        mean = self.database[tag].mean
-        if binsize == 1:
-            jks = self.database[tag].jks
-        else:
-            jks = self.jackknife_sample(tag, binsize, permutation_avg)
-        return sp.statistics.jackknife.covariance_jks(mean, np.array(list(jks.values())))
+        jks = self.as_array(self.compute_jks(tag, binsize, permutation_avg))
+        return sp.statistics.jackknife.covariance_jks(np.mean(jks, axis=0), jks)
 
     def binning_study(self, tag, binsizes, permutation_avg=False):
         self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
-        mean = self.database[tag].mean
         var = {}
         for b in binsizes:
             var[b] = self.jackknife_variance(tag, b, permutation_avg)
@@ -198,11 +199,33 @@ class jks_db:
             self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
     ################################## FITTING ######################################
+ 
+    def fit(self, t, tag, binsize, cov, p0, model, method, minimizer_params, dst_tag, verbosity=0):
+        y = self.database[tag].mean
+        y_jks = self.compute_jks(tag, binsize) 
+        fitter = sp.fitting.Fitter(t, y, cov, model, lambda x: x, method, minimizer_params)
+        best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
+        best_parameter_jks = {}
+        for cfg in y_jks:
+            best_parameter_jks[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, y_jks[cfg], best_parameter)
+        best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
+        if verbosity >=1: 
+            print(f"jackknife parameter covariance is ", best_parameter_cov) 
+        dof = len(t) - len(best_parameter)
+        pval = fitter.get_pvalue(chi2, dof)
+        if verbosity >= 0:
+            for i in range(len(best_parameter)):
+                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")
+        self.add_Leaf(dst_tag, best_parameter, best_parameter_jks, None, None, 
+                      info={"best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval})
+        return best_parameter, best_parameter_cov 
 
-    def fit_indep_samples(self, t, tags, C, model, p0, method, minimizer_params, verbosity=0):
+    # maybe use apply_f instead of getting data
+    def fit_indep_samples(self, t, tags, binsizes, cov, model, p0, method, minimizer_params, verbosity=0):
         y = np.array([self.database[tag].mean for tag in tags])
-        y_jks = np.array([self.database[tag].jks for tag in tags])
-        fitter = sp.fitting.Fitter(t, y, C, model, lambda x: x, method, minimizer_params)
+        y_jks = np.array([self.compute_jks(tag, binsize) for tag, binsize in zip(tags, binsizes)]) 
+        fitter = sp.fitting.Fitter(t, y, cov, model, lambda x: x, method, minimizer_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
         best_parameter_jks = np.zeros_like(y_jks)
         best_parameter_cov = np.zeros((len(best_parameter), len(best_parameter)))         
@@ -211,28 +234,28 @@ class jks_db:
             for cfg in y_jks[i]:
                 yt_jks[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, np.array(list(y[:i]) + [y_jks[i][cfg]] + list(y[i+1:])), best_parameter)
             best_parameter_jks[i] = yt_jks
-            best_parameter_t_cov = sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(yt_jks.values())))
+            best_parameter_t_cov = sp.statistics.jackknife.covariance_jks(best_parameter, self.as_array(yt_jks))
             if verbosity >=1: 
                 print(f"jackknife parameter covariance from t[{i}] is ", best_parameter_t_cov)
             best_parameter_cov += best_parameter_t_cov
         dof = len(t) - len(best_parameter)
-        p = fitter.get_pvalue(chi2, dof)
+        pval = fitter.get_pvalue(chi2, dof)
         if verbosity >= 0:
             for i in range(len(best_parameter)):
                 print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
+            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")
         return best_parameter, best_parameter_cov
     
     def model_prediction_var(self, t, best_parameter, best_parameter_cov, model_parameter_gradient):
         return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
-
+    
 ################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
-class sample_db(jks_db):
+class Sample_DB(JKS_DB):
     db_type = "SAMPLE-DB"
     def add_src(self, src):
         assert os.path.isfile(src)
-        self.message(f"load {src}", self.verbose)
+        self.message(f"load {src}")
         with open(src) as f:
             src_db = json.load(f)
         for t, lf in src_db.items():
@@ -258,53 +281,80 @@ class sample_db(jks_db):
             self.database[dst_tag] = Leaf(None, None, sample)
 
     ################################## STATISTICS ######################################
-   
-    def compute_means(self, tags=None):
+ 
+    def init_means(self, tags=None):
         if tags == None:
             tags = self.database.keys()
         for tag in tags:
-            self.database[tag].mean = np.mean(list(self.database[tag].sample.values()), axis=0)
+            lf = self.database[tag]
+            if lf.sample != None:
+                if lf.nrwf == None:
+                    lf.mean = np.mean(self.as_array(lf.sample), axis=0)
+                else:
+                    lf.mean = np.mean(self.as_array(lf.nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
-    def compute_jks(self, tags=None):
+    def init_jks(self, tags=None):
         if tags == None:
             tags = self.database.keys()
         for tag in tags:
-            mean = self.database[tag].mean
-            sample = self.database[tag].sample
-            jks = {}
-            for cfg in sample:
-                jks[cfg] = mean + (mean - sample[cfg]) / (len(sample) - 1)
-            self.database[tag].jks = jks
+            lf = self.database[tag]
+            if lf.nrwf == None:
+                jks = {}
+                for cfg in lf.sample:
+                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
+            else:
+                jks = {}
+                for cfg in lf.sample:
+                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * lf.nrwf[cfg] / (len(lf.sample) - lf.nrwf[cfg])
+            lf.jks = jks
 
-    def bin(self, tag, binsize):
-        sample = np.array(list(self.database[tag].sample.values())) 
-        return {str(b):m for b,m in enumerate(sp.statistics.bin(sample, binsize))}
-
-    def jackknife_variance_sample(self, tag, binsize=1, f=lambda x: x):
-        mean = self.database[tag].mean
+    def compute_jks_SampleDB(self, tag, binsize, f=lambda x: x):
+        lf = self.database[tag]
         if binsize == 1:
-            jks = np.array(list(self.database[tag].jks.values()))
+            jks = self.as_array(lf.jks)
         else:
-            bsample = np.array(list(self.bin(tag, binsize).values()))
-            jks = sp.statistics.jackknife.samples(f, bsample)
-        return sp.statistics.jackknife.variance_jks(mean, jks)
+            if lf.nrwf == None:
+                bsample = sp.statistics.bin(self.as_array(lf.sample), binsize)
+                jks = sp.statistics.jackknife.samples(f, bsample)
+            else:
+                bsample = sp.statistics.bin(self.as_array(lf.sample), binsize, self.as_array(lf.nrwf)); bnrwf = sp.statistics.bin(self.as_array(lf.nrwf), binsize)
+                jks = sp.statistics.jackknife.samples(f, bsample, bnrwf[:, None])
+        return jks
+    
+    def jackknife_variance_SampleDB(self, tag, binsize, f=lambda x: x):
+        jks = self.compute_jks_SampleDB(tag, binsize, f)
+        return sp.statistics.jackknife.variance_jks(np.mean(jks, axis=0), jks)
 
-    def binning_study_sample(self, tag, binsizes):
+    def binning_study_SampleDB(self, tag, binsizes):
         self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
-        mean = self.database[tag].mean
         var = {}
         for b in binsizes:
-            var[b] = self.jackknife_variance_sample(tag, b)
+            var[b] = self.jackknife_variance_SampleDB(tag, b)
         return var
 
-class sample_db_from_data(sample_db):
-    def __init__(self, *args, verbose=True):
-        self.t0 = time()
-        self.verbose = verbose
-        self.database = {}
-        for src in args:
-            assert isinstance(src, tuple)
-            self.add_Leaf(*src)
+############################## DATABASE SYSTEM USING LEAFS CONTAINING MEAN, JKS, SAMPLE and RWF (PRIMARY and SECONDARY OBSERVABLES) ##################################
+
+class SampleRWF_DB(Sample_DB):
+    db_type = "SAMPLE-RWF-DB" 
+    def add_src(self, src):
+        assert isinstance(src, tuple)
+        sample_path, rwf_path, ensemble_label, observable_tag = src
+        assert os.path.isfile(sample_path)
+        assert os.path.isfile(rwf_path)
+        self.message(f"load {sample_path} with {rwf_path}")
+        sample = np.array(h5py.File(sample_path, "r").get(observable_tag)[:]); sample = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(sample)}
+        rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf); nrwf = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(nrwf)}
+        self.add_Leaf(ensemble_label + "/" + observable_tag, None, None, sample, nrwf)
+    
+#class sample_db_from_data(sample_db):
+#    def __init__(self, *args, verbose=True):
+#        self.t0 = time()
+#        self.verbose = verbose
+#        self.database = {}
+#        for src in args:
+#            assert isinstance(src, tuple)
+#            self.add_Leaf(*src)
+
 
 
 #################################################################################################################################################

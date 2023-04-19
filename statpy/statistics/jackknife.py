@@ -31,6 +31,7 @@ def variance(f, x, *argv):
     f_mean = f(mean)
     if len(argv) != 0:
         f_samples = argv[0]
+        N = len(f_samples)
         return np.sum(np.array([(f_samples[j] - f_mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
     return np.mean([ ( f( (N * mean - x[k]) / (N - 1) ) - f_mean )**2 for k in range(N) ], axis=0) * (N-1)
 

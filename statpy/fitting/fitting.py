@@ -82,7 +82,7 @@ class Fitter:
         return cov
 
     def fit(self, p0, verbosity=0):
-        self.y_est = self.estimator(self.y)
+        self.y_est = self.estimator(np.mean(self.y, axis=0))
         self.best_parameter, self.chi2, self.J = self.estimate_parameters(self.chi_squared, self.y_est, p0)
         self.best_parameter_cov = self.jackknife(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbosity)
         #if self.method == "Levenberg-Marquardt":
