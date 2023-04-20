@@ -203,7 +203,7 @@ class JKS_DB:
     def fit(self, t, tag, binsize, cov, p0, model, method, minimizer_params, dst_tag, verbosity=0):
         y = self.database[tag].mean
         y_jks = self.compute_jks(tag, binsize) 
-        fitter = sp.fitting.Fitter(t, y, cov, model, lambda x: x, method, minimizer_params)
+        fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
         best_parameter_jks = {}
         for cfg in y_jks:
@@ -221,11 +221,10 @@ class JKS_DB:
                       info={"best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval})
         return best_parameter, best_parameter_cov 
 
-    # maybe use apply_f instead of getting data
-    def fit_indep_samples(self, t, tags, binsizes, cov, model, p0, method, minimizer_params, verbosity=0):
+    def fit_indep(self, t, tags, binsizes, cov, model, p0, method, minimizer_params, verbosity=0):
         y = np.array([self.database[tag].mean for tag in tags])
         y_jks = np.array([self.compute_jks(tag, binsize) for tag, binsize in zip(tags, binsizes)]) 
-        fitter = sp.fitting.Fitter(t, y, cov, model, lambda x: x, method, minimizer_params)
+        fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
         best_parameter_jks = np.zeros_like(y_jks)
         best_parameter_cov = np.zeros((len(best_parameter), len(best_parameter)))         
@@ -282,8 +281,8 @@ class Sample_DB(JKS_DB):
 
     ################################## STATISTICS ######################################
  
-    def init_means(self, tags=None):
-        if tags == None:
+    def init_sample_means(self, *tags):
+        if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
@@ -293,8 +292,8 @@ class Sample_DB(JKS_DB):
                 else:
                     lf.mean = np.mean(self.as_array(lf.nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
-    def init_jks(self, tags=None):
-        if tags == None:
+    def init_sample_jks(self, *tags):
+        if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
@@ -308,9 +307,11 @@ class Sample_DB(JKS_DB):
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * lf.nrwf[cfg] / (len(lf.sample) - lf.nrwf[cfg])
             lf.jks = jks
 
-    def compute_jks_SampleDB(self, tag, binsize, f=lambda x: x):
+    def compute_sample_jks(self, tag, binsize, f=lambda x: x):
         lf = self.database[tag]
         if binsize == 1:
+            if lf.jks == None:
+                self.init_sample_jks(tag)
             jks = self.as_array(lf.jks)
         else:
             if lf.nrwf == None:
@@ -321,15 +322,19 @@ class Sample_DB(JKS_DB):
                 jks = sp.statistics.jackknife.samples(f, bsample, bnrwf[:, None])
         return jks
     
-    def jackknife_variance_SampleDB(self, tag, binsize, f=lambda x: x):
-        jks = self.compute_jks_SampleDB(tag, binsize, f)
+    def sample_jackknife_variance(self, tag, binsize, f=lambda x: x):
+        jks = self.compute_sample_jks(tag, binsize, f)
         return sp.statistics.jackknife.variance_jks(np.mean(jks, axis=0), jks)
 
-    def binning_study_SampleDB(self, tag, binsizes):
+    def sample_jackknife_covariance(self, tag, binsize, f=lambda x: x):
+        jks = self.compute_sample_jks(tag, binsize, f)
+        return sp.statistics.jackknife.covariance_jks(np.mean(jks, axis=0), jks)
+    
+    def sample_binning_study(self, tag, binsizes):
         self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
         var = {}
         for b in binsizes:
-            var[b] = self.jackknife_variance_SampleDB(tag, b)
+            var[b] = self.sample_jackknife_variance(tag, b)
         return var
 
 ############################## DATABASE SYSTEM USING LEAFS CONTAINING MEAN, JKS, SAMPLE and RWF (PRIMARY and SECONDARY OBSERVABLES) ##################################

@@ -64,11 +64,11 @@ class const_model:
 
 def correlator_fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None, verbosity=0):
     # mean fit
-    fitter = sp.fitting.Fitter(t, Ct, Ct_cov, model, lambda x: x, fit_method, fit_params)
+    fitter = sp.fitting.Fitter(t, Ct_cov, model, lambda x: x, fit_method, fit_params)
     best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
     # jks fits
     if jks_fit_method == None: jks_fit_method = fit_method; jks_fit_params = fit_params
-    jks_fitter = sp.fitting.Fitter(t, Ct, Ct_cov, model, lambda x: x, jks_fit_method, jks_fit_params)
+    jks_fitter = sp.fitting.Fitter(t, Ct_cov, model, lambda x: x, jks_fit_method, jks_fit_params)
     best_parameter_jks = {}
     for cfg in  Ct_jks:
         best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(fitter.chi_squared, Ct_jks[cfg], best_parameter)
@@ -96,7 +96,7 @@ def correlator_exp_fit(t, Ct, cov, p0, bc="pbc", Nt=0, min_method="Nelder-Mead",
         model = symmetric_exp_model(Nt)
     else:
         model = exp_model()
-    fitter = sp.fitting.Fitter(t, Ct, cov, model, lambda x: x, method=min_method, minimizer_params=minimizer_params)
+    fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method=min_method, minimizer_params=minimizer_params)
     best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
     dof = len(t) - len(best_parameter)
     pvalue = fitter.get_pvalue(chi2, dof)
@@ -112,7 +112,7 @@ def correlator_double_exp_fit(t, Ct, cov, p0, bc="pbc", Nt=0, method="Nelder-Mea
         model = symmetric_double_exp_model(Nt)
     else:
         raise
-    fitter = sp.fitting.Fitter(t, Ct, cov, model, lambda x: x, method=method, minimizer_params=minimizer_params)
+    fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method=method, minimizer_params=minimizer_params)
     best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
     dof = len(t) - len(best_parameter)
     pvalue = fitter.get_pvalue(chi2, dof)

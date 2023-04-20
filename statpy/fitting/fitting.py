@@ -26,8 +26,8 @@ class Fitter:
                 estimator (function): function which takes sample (y or y[i]) as an input and returns desired quantity.
                 method (string): minimization method. Can be "Nelder-Mead", "Migrad" or "Levenberg-Marquardt". Default is "Nelder-Mead".
     """
-    def __init__(self, t, y, C, model, estimator, method="Nelder-Mead", minimizer_params={}):
-        self.t = t; self.y = y; self.C = C
+    def __init__(self, t, C, model, estimator, method="Nelder-Mead", minimizer_params={}):
+        self.t = t; self.C = C
         self.W = np.linalg.inv(C)
         self.model = model
         self.estimator = estimator
@@ -81,8 +81,9 @@ class Fitter:
                 print(f"jackknife parameter covariance is ", cov)
         return cov
 
-    def fit(self, p0, verbosity=0):
-        self.y_est = self.estimator(np.mean(self.y, axis=0))
+    def fit(self, y, p0, verbosity=0):
+        self.y = y
+        self.y_est = self.estimator(self.y)
         self.best_parameter, self.chi2, self.J = self.estimate_parameters(self.chi_squared, self.y_est, p0)
         self.best_parameter_cov = self.jackknife(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbosity)
         #if self.method == "Levenberg-Marquardt":
@@ -99,15 +100,16 @@ class Fitter:
 ###################################################################################################################################
 
     def jackknife_indep_samples(self, parameter_estimator, verbosity=0):
-        self.best_parameter_jks = np.array([samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i]) for i in range(len(self.t))]) 
-        covs = np.array([covariance(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y[i], self.best_parameter_jks[i]) for i in range(len(self.t))]) 
+        self.best_parameter_jks = np.array([samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y_samples[i]) for i in range(len(self.t))]) 
+        covs = np.array([covariance(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y_samples[i], self.best_parameter_jks[i]) for i in range(len(self.t))]) 
         if verbosity >= 1:
             for i in range(len(self.t)):
                 print(f"jackknife parameter covariance from t[{i}] is ", covs[i])
         return sum(covs)    
 
-    def fit_indep_samples(self, p0, verbosity=0):
-        self.y_est = np.array([self.estimator(np.mean(self.y[i], axis=0)) for i in range(len(self.t))])
+    def fit_indep_samples(self, y_samples, p0, verbosity=0):
+        self.y_samples = y_samples
+        self.y_est = np.array([self.estimator(np.mean(self.y_samples[i], axis=0)) for i in range(len(self.t))])
         self.best_parameter, self.chi2, J = self.estimate_parameters(self.chi_squared, self.y_est, p0)
         self.best_parameter_cov = self.jackknife_indep_samples(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbosity)
         #if self.method == "Levenberg-Marquardt":
