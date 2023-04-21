@@ -100,6 +100,24 @@ class JKS_DB:
                 jks[dst_tag + "-" + jks_tag.split("-")[1]] = f(lf1.mean, lf2.jks[jks_tag])
         self.database[dst_tag] = Leaf(mean, jks, None)
 
+#    def _combine(self, *tags, f=lambda x: x, f_tag="f_tag"):
+#        lfs = [self.database[tag] for tag in tags]
+#        means = [lf.mean for lf in lfs]
+#        jks = [lf.jks for lf in lfs]
+#
+#        f_mean = f(*means)
+#        f_jks = {}
+#        ensemble_labels = "-".join(np.unique([tag.split("-")[0] for tag in tags]))
+#        for jks_tag in np.unique([list(j.keys()) for j in jks]):
+#            f_jks[combined_label] = f(*[self.try_jks(lf, jks_tag) for lf in lfs])
+#        self.database[f_tag] = Leaf(f_mean, f_jks, None)
+#
+#    def try_jks(self, lf, key):
+#        try:
+#            return lf.jks[key]
+#        except KeyError:
+#            return lf.mean
+
     ################################## STATISTICS ######################################
 
     def compute_jks(self, tag, binsize, permutation_avg=False):
@@ -112,6 +130,9 @@ class JKS_DB:
         Nb = N // binsize 
         jks_tags = jks_tags[:Nb*binsize] # cut off excess data
         jks_bin = {}
+        #for i in range(Nb):
+        #    s = sum([lf.jks[jks_tags[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
+        #jks_bin[i].append(lf.mean + s * (N-1) / (N-binsize))
         for i in range(Nb):
             jks_avg = []
             # average over permutations
