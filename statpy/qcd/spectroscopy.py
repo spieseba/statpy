@@ -84,41 +84,6 @@ def correlator_fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks
     return best_parameter, best_parameter_cov 
 
 
-
-#### depreciated ####
-def correlator_exp_fit(t, Ct, cov, p0, bc="pbc", Nt=0, min_method="Nelder-Mead", minimizer_params={}, shift=0, verbose=True):
-    assert min_method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
-    Ct = np.roll(Ct, shift).real
-    cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1).real
-    assert bc in ["pbc", "obc"]
-    if bc == "pbc":
-        assert Nt != 0
-        model = symmetric_exp_model(Nt)
-    else:
-        model = exp_model()
-    fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method=min_method, minimizer_params=minimizer_params)
-    best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
-    dof = len(t) - len(best_parameter)
-    pvalue = fitter.get_pvalue(chi2, dof)
-    return best_parameter, chi2, pvalue, dof, model 
-
-def correlator_double_exp_fit(t, Ct, cov, p0, bc="pbc", Nt=0, method="Nelder-Mead", minimizer_params={}, shift=0, verbose=True):
-    assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
-    Ct = np.roll(Ct, shift).real
-    cov = np.roll(np.roll(cov, shift, axis=0), shift, axis=1).real
-    assert bc in ["pbc", "obc"]
-    if bc == "pbc":
-        assert Nt != 0
-        model = symmetric_double_exp_model(Nt)
-    else:
-        raise
-    fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method=method, minimizer_params=minimizer_params)
-    best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
-    dof = len(t) - len(best_parameter)
-    pvalue = fitter.get_pvalue(chi2, dof)
-    return best_parameter, chi2, pvalue, dof, model 
-
-
 #def const_fit(t, y, cov, p0, method="Nelder-Mead", minimizer_params={}, error=True, verbose=True):
 #    assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
 #    model = const_model()
