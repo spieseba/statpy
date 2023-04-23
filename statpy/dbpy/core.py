@@ -16,7 +16,10 @@ class JKS_DB:
         self.verbose = verbose
         self.database = {}
         for src in args:
-            self.add_src(src)
+            if isinstance(src, str):
+                self.add_src(src)
+            if isinstance(src, tuple):
+                self.add_Leaf(*src)
 
     def add_src(self, src):
         assert os.path.isfile(src)
@@ -68,6 +71,13 @@ class JKS_DB:
         for k, i in self.database[tag].info.items():
             s += f'\t{k:20s}: {i}\n'
         return s
+    
+    def remove(self, *tags):
+        for tag in tags:
+            try:
+                del self.database[tag]
+            except KeyError:
+                print(f"{tag} not in database")
 
     # helper function
     def as_array(self, obj):
@@ -86,41 +96,25 @@ class JKS_DB:
             jks[jks_tag] = f(lf.jks[jks_tag])
         self.database[dst_tag] = Leaf(mean, jks, None)
 
-    def combine(self, f, tag1, tag2, dst_tag):
-        lf1 = self.database[tag1]; lf2 = self.database[tag2]
-        mean = f(lf1.mean, lf2.mean)
-        jks = {}
-        for jks_tag in lf1.jks:
-            if jks_tag in lf2.jks:
-                jks[dst_tag + "-" + jks_tag.split("-")[1]] = f(lf1.jks[jks_tag], lf2.jks[jks_tag])
-            else:
-                jks[dst_tag + "-" + jks_tag.split("-")[1]] = f(lf1.jks[jks_tag], lf2.mean)
-        for jks_tag in lf2.jks:
-            if jks_tag not in lf1.jks:
-                jks[dst_tag + "-" + jks_tag.split("-")[1]] = f(lf1.mean, lf2.jks[jks_tag])
-        self.database[dst_tag] = Leaf(mean, jks, None)
+    def combine(self, *tags, f=lambda x: x, dst_tag="dst_tag"):
+        lfs = [self.database[tag] for tag in tags]
+        f_mean = f(*[lf.mean for lf in lfs])
+        f_jks = {}
+        cfgs = np.unique([list(lf.jks.keys()) for lf in lfs]) 
+        for cfg in cfgs:
+            x = [self.try_jks(lf, cfg) for lf in lfs]
+            f_jks[cfg] = f(*x)
+        self.database[dst_tag] = Leaf(f_mean, f_jks, None)
 
-#    def _combine(self, *tags, f=lambda x: x, f_tag="f_tag"):
-#        lfs = [self.database[tag] for tag in tags]
-#        means = [lf.mean for lf in lfs]
-#        jks = [lf.jks for lf in lfs]
-#
-#        f_mean = f(*means)
-#        f_jks = {}
-#        ensemble_labels = "-".join(np.unique([tag.split("-")[0] for tag in tags]))
-#        for jks_tag in np.unique([list(j.keys()) for j in jks]):
-#            f_jks[combined_label] = f(*[self.try_jks(lf, jks_tag) for lf in lfs])
-#        self.database[f_tag] = Leaf(f_mean, f_jks, None)
-#
-#    def try_jks(self, lf, key):
-#        try:
-#            return lf.jks[key]
-#        except KeyError:
-#            return lf.mean
+    def try_jks(self, lf, cfg):
+        try:
+            return lf.jks[cfg]
+        except KeyError:
+            return lf.mean
 
     ################################## STATISTICS ######################################
 
-    def compute_jks(self, tag, binsize, permutation_avg=False):
+    def compute_jks(self, tag, binsize, shift=0):
         lf = self.database[tag]
         if binsize == 1:
             return lf.jks
@@ -130,33 +124,36 @@ class JKS_DB:
         Nb = N // binsize 
         jks_tags = jks_tags[:Nb*binsize] # cut off excess data
         jks_bin = {}
-        #for i in range(Nb):
-        #    s = sum([lf.jks[jks_tags[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
-        #jks_bin[i].append(lf.mean + s * (N-1) / (N-binsize))
         for i in range(Nb):
-            jks_avg = []
-            # average over permutations
-            if permutation_avg == True: permutations = np.arange(binsize)
-            else: permutations = np.arange(1)
-            for p in permutations:
-                s = sum([lf.jks[np.roll(jks_tags, p)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
-                jks_avg.append(lf.mean + s * (N-1) / (N-binsize))
-            jks_bin[i] = np.mean(jks_avg, axis=0)
+            s = sum([lf.jks[np.roll(jks_tags, shift)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
+            jks_bin[i] = lf.mean + s * (N-1) / (N-binsize)
         return jks_bin
 
-    def jackknife_variance(self, tag, binsize, permutation_avg=False):
-        jks = self.as_array(self.compute_jks(tag, binsize, permutation_avg))
-        return sp.statistics.jackknife.variance_jks(np.mean(jks, axis=0), jks)
+    def jackknife_variance(self, tag, binsize, pavg=False):
+        permutations = np.arange(1)
+        if pavg:
+            permutations = np.arange(binsize)
+        var = []
+        for p in permutations:
+            jks = self.as_array(self.compute_jks(tag, binsize, p))
+            var.append(sp.statistics.jackknife.variance_jks(np.mean(jks, axis=0), jks))
+        return np.mean(var, axis=0)
     
-    def jackknife_covariance(self, tag, binsize, permutation_avg=False):
-        jks = self.as_array(self.compute_jks(tag, binsize, permutation_avg))
-        return sp.statistics.jackknife.covariance_jks(np.mean(jks, axis=0), jks)
+    def jackknife_covariance(self, tag, binsize, pavg=False):
+        permutations = np.arange(1)
+        if pavg:
+            permutations = np.arange(binsize)
+        cov = []
+        for p in permutations:
+            jks = self.as_array(self.compute_jks(tag, binsize, p))
+            cov.append(sp.statistics.jackknife.covariance_jks(np.mean(jks, axis=0), jks))
+        return np.mean(cov, axis=0)
 
-    def binning_study(self, tag, binsizes, permutation_avg=False):
+    def binning_study(self, tag, binsizes, pavg=False):
         self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
         var = {}
         for b in binsizes:
-            var[b] = self.jackknife_variance(tag, b, permutation_avg)
+            var[b] = self.jackknife_variance(tag, b, pavg)
         return var
 
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
@@ -300,6 +297,21 @@ class Sample_DB(JKS_DB):
         else:
             self.database[dst_tag] = Leaf(None, None, sample)
 
+    def combine_samples(self, *tags, f=lambda x: x, dst_tag="dst_tag"):
+        lfs = [self.database[tag] for tag in tags]
+        f_sample = {}
+        cfgs = np.unique([list(lf.sample.keys()) for lf in lfs]) 
+        for cfg in cfgs:
+            x = [self.try_sample(lf, cfg) for lf in lfs]
+            f_sample[cfg] = f(*x) 
+        self.database[dst_tag] = Leaf(None, None, f_sample)
+
+    def try_sample(self, lf, cfg):
+        try: 
+            return lf.sample[cfg]
+        except KeyError:
+            return lf.mean
+     
     ################################## STATISTICS ######################################
  
     def init_sample_means(self, *tags):
@@ -372,14 +384,6 @@ class SampleRWF_DB(Sample_DB):
         rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf); nrwf = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(nrwf)}
         self.add_Leaf(ensemble_label + "/" + observable_tag, None, None, sample, nrwf)
     
-#class sample_db_from_data(sample_db):
-#    def __init__(self, *args, verbose=True):
-#        self.t0 = time()
-#        self.verbose = verbose
-#        self.database = {}
-#        for src in args:
-#            assert isinstance(src, tuple)
-#            self.add_Leaf(*src)
 
 
 
