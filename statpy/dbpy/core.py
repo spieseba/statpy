@@ -88,22 +88,18 @@ class JKS_DB:
     
     ################################## FUNCTIONS #######################################
 
-    def apply_f(self, f, tag, dst_tag):
-        lf = self.database[tag]
-        mean = f(lf.mean)
-        jks = {}
-        for jks_tag in lf.jks:
-            jks[jks_tag] = f(lf.jks[jks_tag])
-        self.database[dst_tag] = Leaf(mean, jks, None)
-
-    def combine(self, *tags, f=lambda x: x, dst_tag="dst_tag"):
+    def combine(self, *tags, f=lambda x: x, f_jks=None, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
         f_mean = f(*[lf.mean for lf in lfs])
+        if f_jks == None: 
+            f_jks = f
         f_jks = {}
         cfgs = np.unique([list(lf.jks.keys()) for lf in lfs]) 
         for cfg in cfgs:
             x = [self.try_jks(lf, cfg) for lf in lfs]
-            f_jks[cfg] = f(*x)
+            f_jks[cfg] = f_jks(*x)
+        if dst_tag == None:
+            return Leaf(f_mean, f_jks, None)
         self.database[dst_tag] = Leaf(f_mean, f_jks, None)
 
     def try_jks(self, lf, cfg):
@@ -156,6 +152,7 @@ class JKS_DB:
             var[b] = self.jackknife_variance(tag, b, pavg)
         return var
 
+# remember to add binsizes
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
 #        if dst_tag == None: dst_tag = exact_exact_tag
 #        if dst_sample_tag == None: dst_sample_tag = exact_exact_sample_tag + "_AMA"
@@ -218,9 +215,9 @@ class JKS_DB:
 
     ################################## FITTING ######################################
  
-    def fit(self, t, tag, binsize, cov, p0, model, method, minimizer_params, dst_tag, verbosity=0):
+    def fit(self, t, tag, cov, p0, model, method, minimizer_params, dst_tag=None, verbosity=0):
         y = self.database[tag].mean
-        y_jks = self.compute_jks(tag, binsize) 
+        y_jks = self.database[tag].jks 
         fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
         best_parameter_jks = {}
@@ -235,9 +232,10 @@ class JKS_DB:
             for i in range(len(best_parameter)):
                 print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
             print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")
+        if dst_tag == None:
+            return best_parameter, best_parameter_cov
         self.add_Leaf(dst_tag, best_parameter, best_parameter_jks, None, None, 
                       info={"best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval})
-        return best_parameter, best_parameter_cov 
 
     def fit_indep(self, t, tags, binsizes, cov, model, p0, method, minimizer_params, verbosity=0):
         y = np.array([self.database[tag].mean for tag in tags])
@@ -286,24 +284,16 @@ class Sample_DB(JKS_DB):
         return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
 
     ################################## FUNCTIONS #######################################
-    
-    def apply_f_to_sample(self, f, tag, dst_tag):
-        lf = self.database[tag] 
-        sample = {}
-        for cfg in lf.sample:
-            sample[cfg] = f(lf.sample[cfg])
-        if tag == dst_tag:
-            self.database[dst_tag].sample = sample
-        else:
-            self.database[dst_tag] = Leaf(None, None, sample)
 
-    def combine_samples(self, *tags, f=lambda x: x, dst_tag="dst_tag"):
+    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
         f_sample = {}
         cfgs = np.unique([list(lf.sample.keys()) for lf in lfs]) 
         for cfg in cfgs:
             x = [self.try_sample(lf, cfg) for lf in lfs]
             f_sample[cfg] = f(*x) 
+        if dst_tag == None:
+            return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
 
     def try_sample(self, lf, cfg):
