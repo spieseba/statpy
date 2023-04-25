@@ -281,7 +281,19 @@ class Sample_DB(JKS_DB):
             self.database[tag].sample.pop(str(cfg), None)
 
     def cfgs(self, tag):
-        return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
+        return [int(x.split("-")[-1]) for x in self.database[tag].sample.keys()]
+    
+    def merge_samples(self, *tags, dst_tag=None, dst_cfgs=None):
+        assert dst_cfgs != None
+        lfs = [self.database[tag] for tag in tags]
+        sample = np.concatenate([self.as_array(lf.sample) for lf in lfs], axis=0)
+        dst_sample = {}
+        for cfg, val in zip(dst_cfgs, sample):
+            dst_sample[cfg] = val
+        if dst_tag == None:
+            return Leaf(None, None, sample)
+        else:
+            self.database[dst_tag] = Leaf(None, None, dst_sample)
 
     ################################## FUNCTIONS #######################################
 
