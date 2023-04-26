@@ -152,33 +152,9 @@ class JKS_DB:
             var[b] = self.jackknife_variance(tag, b, pavg)
         return var
     
-    def AMA(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, bias_tag, dst_tag):
-        self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x-y, dst_tag=bias_tag)
-        self.combine(sloppy_sloppy_tag, bias_tag, f=lambda x,y: x+y, dst_tag=dst_tag)
-
-# remember to add binsizes
-#    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
-#        if dst_tag == None: dst_tag = exact_exact_tag
-#        if dst_sample_tag == None: dst_sample_tag = exact_exact_sample_tag + "_AMA"
-#        def bias(exact, sloppy):
-#            return exact - sloppy   
-#        exact_exact_jks = self.jackknife_resampling(lambda x: x, exact_exact_tag, exact_exact_sample_tag)
-#        exact_sloppy_jks = self.jackknife_resampling(lambda x: x, exact_sloppy_tag, exact_sloppy_sample_tag)
-#        sloppy_sloppy_jks = self.jackknife_resampling(lambda x: x, sloppy_sloppy_tag, sloppy_sloppy_sample_tag)
-#        b = bias(self.get_data(exact_exact_tag, exact_exact_sample_tag, "mean"), self.get_data(exact_sloppy_tag, exact_sloppy_sample_tag, "mean"))
-#        b_jks = {}
-#        for cfg in exact_exact_jks:
-#            b_jks[cfg] = bias(exact_exact_jks[cfg], exact_sloppy_jks[cfg])
-#        b_jkvar = self.jackknife_variance_jks(b, b_jks, dst_tag, dst_sample_tag, dst_cfg_prefix="bias_")
-#        m = self.get_data(sloppy_sloppy_tag, sloppy_sloppy_sample_tag, "mean") + b
-#        m_jks = {}
-#        for cfg in sloppy_sloppy_jks:
-#            m_jks[cfg] = sloppy_sloppy_jks[cfg] + b_jks[cfg]
-#        m_jkvar = self.jackknife_variance_jks(m, m_jks, dst_tag, dst_sample_tag)
-#        if store: 
-#            self.add_data(b, dst_tag, dst_sample_tag, "bias")
-#            self.add_data(m, dst_tag, dst_sample_tag, "mean")
-#        return m, m_jkvar, b, b_jkvar
+    def AMA(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_tag):
+        self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x-y, dst_tag=dst_tag+"_bias")
+        self.combine(sloppy_sloppy_tag, dst_tag+"_bias", f=lambda x,y: x+y, dst_tag=dst_tag)
 
     ############################### SCALE SETTING ###################################
 
