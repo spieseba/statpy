@@ -90,17 +90,17 @@ class JKS_DB:
 
     def combine(self, *tags, f=lambda x: x, f_jks=None, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
-        f_mean = f(*[lf.mean for lf in lfs])
+        mean = f(*[lf.mean for lf in lfs])
         if f_jks == None: 
             f_jks = f
-        f_jks = {}
+        jks = {}
         cfgs = np.unique([list(lf.jks.keys()) for lf in lfs]) 
         for cfg in cfgs:
             x = [self.try_jks(lf, cfg) for lf in lfs]
-            f_jks[cfg] = f_jks(*x)
+            jks[cfg] = f_jks(*x)
         if dst_tag == None:
-            return Leaf(f_mean, f_jks, None)
-        self.database[dst_tag] = Leaf(f_mean, f_jks, None)
+            return Leaf(mean, jks, None)
+        self.database[dst_tag] = Leaf(mean, jks, None)
 
     def try_jks(self, lf, cfg):
         try:
@@ -151,6 +151,10 @@ class JKS_DB:
         for b in binsizes:
             var[b] = self.jackknife_variance(tag, b, pavg)
         return var
+    
+    def AMA(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, bias_tag, dst_tag):
+        self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x-y, dst_tag=bias_tag)
+        self.combine(sloppy_sloppy_tag, bias_tag, f=lambda x,y: x+y, dst_tag=dst_tag)
 
 # remember to add binsizes
 #    def AMA(self, exact_exact_tag, exact_exact_sample_tag, exact_sloppy_tag, exact_sloppy_sample_tag, sloppy_sloppy_tag, sloppy_sloppy_sample_tag, dst_tag=None, dst_sample_tag=None, store=True):
