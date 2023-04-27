@@ -88,16 +88,33 @@ class JKS_DB:
     
     ################################## FUNCTIONS #######################################
 
-    def combine(self, *tags, f=lambda x: x, f_jks=None, dst_tag=None):
+    def combine_mean(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
         mean = f(*[lf.mean for lf in lfs])
-        if f_jks == None: 
-            f_jks = f
+        if dst_tag == None:
+            return mean
+        try:
+            self.database[dst_tag].mean = mean
+        except KeyError:
+            self.database[dst_tag] = Leaf(mean, None, None)
+
+    def combine_jks(self, *tags, f=lambda x: x, dst_tag=None):
+        lfs = [self.database[tag] for tag in tags]
         jks = {}
         cfgs = np.unique([list(lf.jks.keys()) for lf in lfs]) 
         for cfg in cfgs:
             x = [self.try_jks(lf, cfg) for lf in lfs]
-            jks[cfg] = f_jks(*x)
+            jks[cfg] = f(*x)
+        if dst_tag == None:
+            return jks
+        try:
+            self.database[dst_tag].jks = jks
+        except KeyError:
+            self.database[dst_tag] = Leaf(None, jks, None)
+
+    def combine(self, *tags, f=lambda x: x, dst_tag=None):
+        mean = self.combine_mean(*tags, f=f)
+        jks = self.combine_jks(*tags, f=f)
         if dst_tag == None:
             return Leaf(mean, jks, None)
         self.database[dst_tag] = Leaf(mean, jks, None)
@@ -114,7 +131,7 @@ class JKS_DB:
         lf = self.database[tag]
         if binsize == 1:
             return lf.jks
-        # get sorted jks-tags 
+        # get sorted jks-tags; this does not work for multiple ensembles; bin configs corresponding to different ensemble separately?
         jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1]))
         N = len(jks_tags)
         Nb = N // binsize 
@@ -195,27 +212,22 @@ class JKS_DB:
 
     ################################## FITTING ######################################
  
-    def fit(self, t, tag, cov, p0, model, method, minimizer_params, dst_tag=None, verbosity=0):
-        y = self.database[tag].mean
-        y_jks = self.database[tag].jks 
+    def fit(self, t, tag, cov, p0, model, method, minimizer_params, dst_tag, verbosity=0):
         fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
-        best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, y, p0)
-        best_parameter_jks = {}
-        for cfg in y_jks:
-            best_parameter_jks[cfg], _, _ = fitter.estimate_parameters(fitter.chi_squared, y_jks[cfg], best_parameter)
-        best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
+        self.combine_mean(tag, f=lambda y: fitter.estimate_parameters(fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
+        best_parameter = self.database[dst_tag].mean
+        self.combine_jks(tag, f=lambda y: fitter.estimate_parameters(fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag)  
+        best_parameter_cov = self.jackknife_covariance(dst_tag, binsize=1, pavg=True)
         if verbosity >=1: 
             print(f"jackknife parameter covariance is ", best_parameter_cov) 
+        chi2 = fitter.chi_squared(best_parameter, self.database[tag].mean[t])
         dof = len(t) - len(best_parameter)
         pval = fitter.get_pvalue(chi2, dof)
+        self.database[dst_tag].info = {"t": t, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
         if verbosity >= 0:
             for i in range(len(best_parameter)):
                 print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")
-        if dst_tag == None:
-            return best_parameter, best_parameter_cov
-        self.add_Leaf(dst_tag, best_parameter, best_parameter_jks, None, None, 
-                      info={"best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval})
+            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}") 
 
     def fit_indep(self, t, tags, binsizes, cov, model, p0, method, minimizer_params, verbosity=0):
         y = np.array([self.database[tag].mean for tag in tags])
@@ -373,46 +385,6 @@ class SampleRWF_DB(Sample_DB):
 ################################################################## TO DO ########################################################################
 #################################################################################################################################################
 
-
-
-
-        
-###################################### FUNCTIONS #######################################
-
-#    def mean_ratio(self, tag0, sample_tag0, tag1, sample_tag1, dst_tag, dst_sample_tag, jks_tag0=None, jks_tag1=None, store=True):
-#        def ratio(nom, denom):
-#            return nom / denom
-#        if jks_tag0 != None:
-#            data0_jks = self.get_data(tag0, sample_tag0, jks_tag0)
-#        else:
-#            data0_jks = self.jackknife_resampling(lambda x: x, tag0, sample_tag0)
-#        if jks_tag1 != None:
-#            data1_jks = self.get_data(tag1, sample_tag1, jks_tag1) 
-#        else:
-#            data1_jks = self.jackknife_resampling(lambda x: x, tag1, sample_tag1)
-#        
-#        r = ratio(self.get_data(tag0, sample_tag0, "mean"), self.get_data(tag1, sample_tag1, "mean"))
-#        r_jks = {}
-#        for cfg in data0_jks:
-#            r_jks[cfg] = ratio(data0_jks[cfg], data1_jks[cfg])
-#        r_jkvar = self.jackknife_variance_jks(r, r_jks, dst_tag, dst_sample_tag)
-#        if store:
-#            self.add_data(r, dst_tag, dst_sample_tag, "mean")
-#        return r, r_jkvar
-
-
-
-###################################### SPECTROSCOPY ######################################
-
-#    def Ct_binning_study(self, Ct_tag, sample_tag, binsizes, keep_binsizes, t=None, shift=0, var=False, return_vals=False):
-#        vals = self.binning_study(Ct_tag, sample_tag, binsizes, keep_binsizes, var)
-#        bs = list(vals.keys())
-#        if t == None:
-#            print(f"Binning study of {Ct_tag} (binsizes={bs}):\n", [np.roll(vals[b], shift) for b in bs])
-#        else:
-#            print(f"Binning study of {Ct_tag} for t={t} (binsizes={bs}):\n", [np.roll(vals[b], shift)[t] for b in bs])
-#        if return_vals:
-#            return vals
 #
 #    def effective_mass_log(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
 #        Ct = self.get_data(Ct_tag, sample_tag, "mean")
