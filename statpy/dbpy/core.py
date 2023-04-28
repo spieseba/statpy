@@ -103,7 +103,7 @@ class JKS_DB:
         jks = {}
         cfgs = np.unique(np.concatenate([list(lf.jks.keys()) for lf in lfs]))
         for cfg in cfgs:
-            x = [self.try_jks(lf, cfg) for lf in lfs]
+            x = [lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs]
             jks[cfg] = f(*x)
         if dst_tag == None:
             return jks
@@ -111,12 +111,6 @@ class JKS_DB:
             self.database[dst_tag].jks = jks
         except KeyError:
             self.database[dst_tag] = Leaf(None, jks, None)
-
-    def try_jks(self, lf, cfg):
-        try:
-            return lf.jks[cfg]
-        except KeyError:
-            return lf.mean
 
     def combine(self, *tags, f=lambda x: x, dst_tag=None):
         mean = self.combine_mean(*tags, f=f)
@@ -236,7 +230,7 @@ class JKS_DB:
     
     def fit_indep(self, t, tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
         fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
-        self.combine_mean(*tags, f=lambda *y: fitter.estimate_parameters(fitter.chi_squared, y, p0)[0], dst_tag=dst_tag)
+        self.combine_mean(*tags, f=lambda *y: fitter.estimate_parameters(fitter.chi_squared, y, p0)[0], dst_tag=dst_tag) 
         best_parameter = self.database[dst_tag].mean
         self.combine_jks(*tags, f=lambda *y: fitter.estimate_parameters(fitter.chi_squared, y, best_parameter)[0], dst_tag=dst_tag)
         best_parameter_cov = self.jackknife_covariance(dst_tag, binsize, pavg=True)
