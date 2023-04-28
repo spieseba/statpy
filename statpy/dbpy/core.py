@@ -101,7 +101,7 @@ class JKS_DB:
     def combine_jks(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
         jks = {}
-        cfgs = np.unique([list(lf.jks.keys()) for lf in lfs]) 
+        cfgs = np.unique(np.concatenate([list(lf.jks.keys()) for lf in lfs]))
         for cfg in cfgs:
             x = [self.try_jks(lf, cfg) for lf in lfs]
             jks[cfg] = f(*x)
@@ -112,6 +112,12 @@ class JKS_DB:
         except KeyError:
             self.database[dst_tag] = Leaf(None, jks, None)
 
+    def try_jks(self, lf, cfg):
+        try:
+            return lf.jks[cfg]
+        except KeyError:
+            return lf.mean
+
     def combine(self, *tags, f=lambda x: x, dst_tag=None):
         mean = self.combine_mean(*tags, f=f)
         jks = self.combine_jks(*tags, f=f)
@@ -119,20 +125,15 @@ class JKS_DB:
             return Leaf(mean, jks, None)
         self.database[dst_tag] = Leaf(mean, jks, None)
 
-    def try_jks(self, lf, cfg):
-        try:
-            return lf.jks[cfg]
-        except KeyError:
-            return lf.mean
-
     ################################## STATISTICS ######################################
 
-    def compute_jks(self, tag, binsize, shift=0):
+    def compute_jks(self, tag, binsize, shift=0, verbose=False):
         lf = self.database[tag]
         if binsize == 1:
             return lf.jks
-        # get sorted jks-tags; this does not work for multiple ensembles; bin configs corresponding to different ensemble separately?
-        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1]))
+        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: (x.split("-")[0], int(x.split("-")[-1])))
+        if verbose:
+            print(jks_tags)
         N = len(jks_tags)
         Nb = N // binsize 
         jks_tags = jks_tags[:Nb*binsize] # cut off excess data
@@ -179,10 +180,12 @@ class JKS_DB:
         tau = self.database[ensemble_label + "/tau"].mean
         scale = sp.qcd.scale_setting.gradient_flow_scale()
         # tau0
-        self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), ensemble_label + "/E", ensemble_label + "/sqrt_tau0")
+        self.combine(ensemble_label + "/E", f=lambda x: scale.set_sqrt_tau0(tau, x), dst_tag=ensemble_label + "/sqrt_tau0")
+        #self.apply_f(lambda x: scale.set_sqrt_tau0(tau, x), ensemble_label + "/E", ensemble_label + "/sqrt_tau0")
         sqrt_tau0_var = self.jackknife_variance(ensemble_label + "/sqrt_tau0", binsize)
         # t0
-        self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), ensemble_label + "/sqrt_tau0", ensemble_label + "/sqrt_t0") 
+        self.combine(ensemble_label + "/sqrt_tau0", f=lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), dst_tag=ensemble_label + "/sqrt_t0") 
+        #self.apply_f(lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), ensemble_label + "/sqrt_tau0", ensemble_label + "/sqrt_t0") 
         sqrt_t0_stat_var = self.jackknife_variance(ensemble_label + "/sqrt_t0", binsize)
         # propagate systematic error of t0
         sqrt_t0_mean_shifted = scale.comp_sqrt_t0(self.database[ensemble_label + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
@@ -192,10 +195,12 @@ class JKS_DB:
         self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_sys_var"] = sqrt_t0_sys_var
         self.database[ensemble_label + "/sqrt_t0"].info["sqrt_t0_var"] = sqrt_t0_stat_var + sqrt_t0_sys_var
         # omega0
-        self.apply_f(lambda x: scale.set_omega0(tau, x), ensemble_label + "/E", ensemble_label + "/omega0")
+        self.combine(ensemble_label + "/E", f=lambda x: scale.set_omega0(tau, x), dst_tag=ensemble_label + "/omega0")
+        #self.apply_f(lambda x: scale.set_omega0(tau, x), ensemble_label + "/E", ensemble_label + "/omega0")
         omega0_var = self.jackknife_variance(ensemble_label + "/omega0", binsize)
         # w0
-        self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), ensemble_label + "/omega0", ensemble_label + "/w0") 
+        self.combine(ensemble_label + "/omega0", f=lambda x: scale.comp_w0(x, scale.w0_fm), dst_tag=ensemble_label + "/w0") 
+        #self.apply_f(lambda x: scale.comp_w0(x, scale.w0_fm), ensemble_label + "/omega0", ensemble_label + "/w0") 
         w0_stat_var = self.jackknife_variance(ensemble_label + "/w0", binsize)
         # propagate systematic error of w0
         w0_mean_shifted = scale.comp_w0(self.database[ensemble_label + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
@@ -212,12 +217,12 @@ class JKS_DB:
 
     ################################## FITTING ######################################
  
-    def fit(self, t, tag, cov, p0, model, method, minimizer_params, dst_tag, verbosity=0):
+    def fit(self, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
         fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
         self.combine_mean(tag, f=lambda y: fitter.estimate_parameters(fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
         best_parameter = self.database[dst_tag].mean
         self.combine_jks(tag, f=lambda y: fitter.estimate_parameters(fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag)  
-        best_parameter_cov = self.jackknife_covariance(dst_tag, binsize=1, pavg=True)
+        best_parameter_cov = self.jackknife_covariance(dst_tag, binsize, pavg=True)
         if verbosity >=1: 
             print(f"jackknife parameter covariance is ", best_parameter_cov) 
         chi2 = fitter.chi_squared(best_parameter, self.database[tag].mean[t])
@@ -228,8 +233,26 @@ class JKS_DB:
             for i in range(len(best_parameter)):
                 print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
             print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}") 
+    
+    def fit_indep(self, t, tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
+        fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
+        self.combine_mean(*tags, f=lambda *y: fitter.estimate_parameters(fitter.chi_squared, y, p0)[0], dst_tag=dst_tag)
+        best_parameter = self.database[dst_tag].mean
+        self.combine_jks(*tags, f=lambda *y: fitter.estimate_parameters(fitter.chi_squared, y, best_parameter)[0], dst_tag=dst_tag)
+        best_parameter_cov = self.jackknife_covariance(dst_tag, binsize, pavg=True)
+        if verbosity >=1: 
+            print(f"jackknife parameter covariance is ", best_parameter_cov) 
+        chi2 = fitter.chi_squared(best_parameter, np.array([self.database[tag].mean for tag in tags]))
+        dof = len(t) - len(best_parameter)
+        pval = fitter.get_pvalue(chi2, dof)
+        self.database[dst_tag].info = {"t": t, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
+        if verbosity >= 0:
+            for i in range(len(best_parameter)):
+                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+        return best_parameter, best_parameter_cov 
 
-    def fit_indep(self, t, tags, binsizes, cov, model, p0, method, minimizer_params, verbosity=0):
+    def _fit_indep(self, t, tags, binsizes, cov, p0, model, method, minimizer_params, verbosity=0):
         y = np.array([self.database[tag].mean for tag in tags])
         y_jks = np.array([self.compute_jks(tag, binsize) for tag, binsize in zip(tags, binsizes)]) 
         fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
