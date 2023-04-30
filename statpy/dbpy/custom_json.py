@@ -25,9 +25,6 @@ def to_json(obj):
         return {'__complex__': obj.__repr__()}
     if isinstance(obj, Leaf):
         return {'__leaf__': obj.to_dict()}
-    #if isinstance(obj, SampleLeaf):
-    #    return {'__sampleleaf__': obj.to_dict()}
-    # Let the base class default method raise the TypeError
     raise TypeError('Unable to serialise object of type {}'.format(type(obj)))
 
 def from_json(obj):
@@ -51,8 +48,6 @@ def from_json(obj):
             return complex(obj['__complex__'])
         if '__leaf__' in obj:
             return Leaf.from_dict(obj['__leaf__'])
-        #if '__sampleleaf__' in obj:
-        #    return SampleLeaf.from_dict(obj['__sampleleaf__'])
     return obj
 
 # over-write the load(s)/dump(s) functions

@@ -309,18 +309,12 @@ class Sample_DB(JKS_DB):
         f_sample = {}
         cfgs = np.unique([list(lf.sample.keys()) for lf in lfs]) 
         for cfg in cfgs:
-            x = [self.try_sample(lf, cfg) for lf in lfs]
+            x = [lf.sample[cfg] if cfg in lf.sample else lf.mean for lf in lfs]
             f_sample[cfg] = f(*x) 
         if dst_tag == None:
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
-
-    def try_sample(self, lf, cfg):
-        try: 
-            return lf.sample[cfg]
-        except KeyError:
-            return lf.mean
-     
+ 
     ################################## STATISTICS ######################################
  
     def init_sample_means(self, *tags):
