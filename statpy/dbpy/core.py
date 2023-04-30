@@ -20,6 +20,9 @@ class JKS_DB:
                 self.add_src(src)
             if isinstance(src, tuple):
                 self.add_Leaf(*src)
+            if isinstance(src, dict):
+                for t, lf in src:
+                    self.database[t] = Leaf(lf.mean, lf.jks, None, None, lf.info)
 
     def add_src(self, src):
         assert os.path.isfile(src)
@@ -27,9 +30,9 @@ class JKS_DB:
         with open(src) as f:
             src_db = json.load(f)
         for t, lf in src_db.items():
-            self.database[t] = Leaf(lf.mean, lf.jks)
+            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.nrwf, lf.info)
 
-    def add_Leaf(self, tag, mean, jks, sample=None, nrwf=None, info=None):
+    def add_Leaf(self, tag, mean, jks, sample, nrwf, info):
         assert (isinstance(sample, dict) or sample==None)
         assert (isinstance(jks, dict) or jks==None)
         assert (isinstance(nrwf, dict) or nrwf==None)
@@ -273,18 +276,10 @@ class JKS_DB:
     def model_prediction_var(self, t, best_parameter, best_parameter_cov, model_parameter_gradient):
         return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
     
-################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
+################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, RWF, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
 class Sample_DB(JKS_DB):
     db_type = "SAMPLE-DB"
-    def add_src(self, src):
-        assert os.path.isfile(src)
-        self.message(f"load {src}")
-        with open(src) as f:
-            src_db = json.load(f)
-        for t, lf in src_db.items():
-            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample)
-
     def remove_cfgs(self, cfgs, tag):
         for cfg in cfgs:
             self.database[tag].sample.pop(str(cfg), None)
@@ -303,6 +298,9 @@ class Sample_DB(JKS_DB):
             return Leaf(None, None, sample)
         else:
             self.database[dst_tag] = Leaf(None, None, dst_sample)
+
+    def return_JKS_DB(self):
+        return JKS_DB(self.database)
 
     ################################## FUNCTIONS #######################################
 
@@ -380,22 +378,6 @@ class Sample_DB(JKS_DB):
         for b in binsizes:
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
-
-############################## DATABASE SYSTEM USING LEAFS CONTAINING MEAN, JKS, SAMPLE and RWF (PRIMARY and SECONDARY OBSERVABLES) ##################################
-
-class SampleRWF_DB(Sample_DB):
-    db_type = "SAMPLE-RWF-DB" 
-    def add_src(self, src):
-        assert isinstance(src, tuple)
-        sample_path, rwf_path, ensemble_label, observable_tag = src
-        assert os.path.isfile(sample_path)
-        assert os.path.isfile(rwf_path)
-        self.message(f"load {sample_path} with {rwf_path}")
-        sample = np.array(h5py.File(sample_path, "r").get(observable_tag)[:]); sample = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(sample)}
-        rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf); nrwf = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(nrwf)}
-        self.add_Leaf(ensemble_label + "/" + observable_tag, None, None, sample, nrwf)
-    
-
 
 
 #################################################################################################################################################
