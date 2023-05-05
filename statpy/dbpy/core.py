@@ -185,8 +185,11 @@ class JKS_DB:
         # propagate systematic error of t0
         sqrt_t0_mean_shifted = scale.comp_sqrt_t0(self.database[ensemble_label + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
         sqrt_t0_sys_var = (self.database[ensemble_label + "/sqrt_t0"].mean - sqrt_t0_mean_shifted)**2.0
+        if self.database[ensemble_label + "/sqrt_t0"].info == None: self.database[ensemble_label + "/sqrt_t0"].info = {} 
         self.database[ensemble_label + "/sqrt_t0"].info = {"sqrt_t0_stat_var": sqrt_t0_stat_var,
             "sqrt_t0_mean_shifted": sqrt_t0_mean_shifted, "sqrt_t0_sys_var": sqrt_t0_sys_var, "sqrt_t0_var": sqrt_t0_stat_var + sqrt_t0_sys_var}
+        print("sqrt_t0_mean_shifted = ", sqrt_t0_mean_shifted)
+        print("sqrt_t0_sys_var = ", sqrt_t0_sys_var)
         # omega0
         self.combine(ensemble_label + "/E", f=lambda x: scale.set_omega0(tau, x), dst_tag=ensemble_label + "/omega0")
         omega0_var = self.jackknife_variance(ensemble_label + "/omega0", binsize)
@@ -196,6 +199,7 @@ class JKS_DB:
         # propagate systematic error of w0
         w0_mean_shifted = scale.comp_w0(self.database[ensemble_label + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
         w0_sys_var = (self.database[ensemble_label + "/w0"].mean - w0_mean_shifted)**2.0
+        if self.database[ensemble_label + "/w0"].info == None: self.database[ensemble_label + "/w0"].info = {} 
         self.database[ensemble_label + "/w0"].info = {"w0_stat_var": w0_stat_var, 
             "w0_mean_shifted": w0_mean_shifted, "w0_sys_var": w0_sys_var, "w0_var": w0_stat_var + w0_sys_var}
         if verbose:
@@ -205,8 +209,14 @@ class JKS_DB:
             self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
     ################################## FITTING ######################################
+
+    def fit(self, t, tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
+        if isinstance(tags, str):
+            return self.fit_single(t, tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity)
+        if isinstance(tags, list) or isinstance(tags, np.ndarray):
+            return self.fit_multiple(t, tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity)
  
-    def fit(self, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
+    def fit_single(self, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
         fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
         self.combine_mean(tag, f=lambda y: fitter.estimate_parameters(fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
         best_parameter = self.database[dst_tag].mean
@@ -223,7 +233,7 @@ class JKS_DB:
                 print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
             print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}") 
     
-    def fit_indep(self, t, tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
+    def fit_multiple(self, t, tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
         fitter = sp.fitting.Fitter(t, cov, model, lambda x: x, method, minimizer_params)
         self.combine_mean(*tags, f=lambda *y: fitter.estimate_parameters(fitter.chi_squared, y, p0)[0], dst_tag=dst_tag) 
         best_parameter = self.database[dst_tag].mean
@@ -239,7 +249,6 @@ class JKS_DB:
             for i in range(len(best_parameter)):
                 print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
             print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
-        return best_parameter, best_parameter_cov 
 
     def _fit_indep(self, t, tags, binsizes, cov, p0, model, method, minimizer_params, verbosity=0):
         y = np.array([self.database[tag].mean for tag in tags])
@@ -267,7 +276,20 @@ class JKS_DB:
     
     def model_prediction_var(self, t, best_parameter, best_parameter_cov, model_parameter_gradient):
         return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
-    
+
+    ################################## SPECTROSCOPY ######################################
+
+    def effective_mass_curve_fit(self, t0_min, t0_max, nt, tag, cov, p0, bc, method, minimizer_params, binsize, dst_tag, verbosity=0):
+        assert bc in ["pbc", "obc"]
+        model = {"pbc": sp.qcd.spectroscopy.symmetric_exp_model(len(self.database[tag].mean)), "obc": sp.qcd.spectroscopy.exp_model()}[bc]
+        for t0 in range(t0_min, t0_max):
+            t = np.arange(nt) + t0
+            if verbosity >=0: self.message(f"fit window: {t}")
+            self.fit(t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag=dst_tag + f"={t0}", verbosity=verbosity)
+            self.database[dst_tag + f"={t0}"].mean = self.database[dst_tag + f"={t0}"].mean[1]
+            self.database[dst_tag + f"={t0}"].jks = {cfg:val[1] for cfg, val in self.database[dst_tag + f"={t0}"].jks.items()} 
+            self.database[dst_tag + f"={t0}"].info["best_parameter_cov"] = self.database[dst_tag + f"={t0}"].info["best_parameter_cov"][1]
+
 ################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, RWF, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
 class Sample_DB(JKS_DB):
@@ -370,58 +392,6 @@ class Sample_DB(JKS_DB):
 ################################################################## TO DO ########################################################################
 #################################################################################################################################################
 
-#
-#    def effective_mass_log(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
-#        Ct = self.get_data(Ct_tag, sample_tag, "mean")
-#        m_eff_log = sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift)
-#        self.add_data(m_eff_log, dst_tag, sample_tag, "mean")
-#        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_log(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)
-#        return self.get_data(dst_tag, sample_tag, "mean"), self.get_data(dst_tag, sample_tag, "jkvar")**0.5
-#
-#    def effective_mass_acosh(self, Ct_tag, sample_tag, dst_tag, tmax, shift=0, store=True):
-#        Ct = self.get_data(Ct_tag, sample_tag, "mean")
-#        m_eff_cosh = sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift)
-#        self.add_data(m_eff_cosh, dst_tag, sample_tag, "mean")
-#        self.jackknife_variance(lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax, shift), Ct_tag, sample_tag, dst_tag=dst_tag, return_var=False, store=store)    
-#        return self.get_data(dst_tag, sample_tag, "mean"), self.get_data(dst_tag, sample_tag, "jkvar")**0.5
-#
-#    def correlator_exp_fit(self, t, Ct_tag, sample_tag, cov, p0, bc="pbc", min_method="Nelder-Mead", min_params={}, shift=0, verbose=True, dst_tag="CORR_FIT", store=True):        
-#        Ct_mean = self.get_data(Ct_tag, sample_tag, "mean")
-#        Ct_jks = self.get_data(Ct_tag, sample_tag, "jks")
-#        Nt = len(Ct_mean)
-#        best_parameter, chi2, pval, dof, model = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_mean[t], cov[t][:,t], p0, bc, Nt, min_method, min_params, shift, verbose=False)
-#        best_parameter_jks = {}
-#        for cfg in Ct_jks:
-#            best_parameter_jks[cfg], _, _, _, _ = sp.qcd.spectroscopy.correlator_exp_fit(t, Ct_jks[cfg][t], cov[t][:,t], best_parameter, bc, Nt, min_method, min_params, shift, verbose=False)
-#        best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, np.array(list(best_parameter_jks.values())))
-#        fit_err = lambda x: sp.fitting.fit_std_err(x, best_parameter, model.parameter_gradient, best_parameter_cov)
-#        if verbose:
-#            print("fit window:", t)
-#            for i in range(len(best_parameter)):
-#                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-#            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")
-#        if store:
-#            model_str = {"pbc": "p[0] * exp(-p[1]t)", "obc": "p[0] * [exp(-p[1]t) + exp(-p[1](T-t))]"}
-#            try:
-#                self.database[dst_tag]
-#            except KeyError:
-#                self.database[dst_tag] = {}
-#            self.database[dst_tag][sample_tag] = {}
-#            self.database[dst_tag][sample_tag]["t"] = t
-#            self.database[dst_tag][sample_tag]["model"] = model_str[bc]
-#            self.database[dst_tag][sample_tag]["model_func"] = model
-#            self.database[dst_tag][sample_tag]["minimizer"] = min_method
-#            self.database[dst_tag][sample_tag]["minimizer_params"] = min_params
-#            self.database[dst_tag][sample_tag]["p0"] = p0
-#            self.database[dst_tag][sample_tag]["best_parameter"] = best_parameter
-#            self.database[dst_tag][sample_tag]["best_parameter_cov"] = best_parameter_cov
-#            self.database[dst_tag][sample_tag]["best_parameter_jks"] = best_parameter_jks
-#            self.database[dst_tag][sample_tag]["pval"] = pval
-#            self.database[dst_tag][sample_tag]["chi2"] = chi2
-#            self.database[dst_tag][sample_tag]["dof"] = dof
-#            self.database[dst_tag][sample_tag]["fit_err"] = fit_err 
-#        return best_parameter, best_parameter_cov, best_parameter_jks
-#
 #    def effective_mass_curve_fit(self, t0min, t0max, nt, Ct_tag, sample_tag, cov, p0_Ct_fit, bc="pbc", min_method="Nelder-Mead", min_params={}, shift=0, verbose=True, dst_tag="M_EFF_CURVE_FIT", dst_tag_Ct="Ct_FIT", store=True):
 #        mt = []; mt_var = []; best_parameter_jks_arr = []
 #        for t0 in range(t0min, t0max):
@@ -467,25 +437,5 @@ class Sample_DB(JKS_DB):
 #            print(f"m_eff = {m[0]} +- {m_cov[0][0]**.5}")
 #            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
 #
-#        if store:
-#            try:
-#                self.database[dst_tag]
-#            except KeyError:
-#                self.database[dst_tag] = {}
-#            self.database[dst_tag][sample_tag] = {}
-#            self.database[dst_tag][sample_tag]["fit_window"] = t
-#            self.database[dst_tag][sample_tag]["mt_cov"] = mt_cov
-#            self.database[dst_tag][sample_tag]["model"] = "const."
-#            self.database[dst_tag][sample_tag]["model_func"] = model
-#            self.database[dst_tag][sample_tag]["minimizer"] = method
-#            self.database[dst_tag][sample_tag]["minimizer_params"] = minimizer_params
-#            self.database[dst_tag][sample_tag]["p0"] = p0
-#            self.database[dst_tag][sample_tag]["m_eff"] = m
-#            self.database[dst_tag][sample_tag]["m_eff_cov"] = m_cov
-#            self.database[dst_tag][sample_tag]["m_eff_jks"] = m_jks
-#            self.database[dst_tag][sample_tag]["pval"] = p
-#            self.database[dst_tag][sample_tag]["chi2"] = chi2
-#            self.database[dst_tag][sample_tag]["dof"] = dof
-#            self.database[dst_tag][sample_tag]["fit_err"] = fit_err
 #
 #        return m[0], m_cov[0][0]**.5

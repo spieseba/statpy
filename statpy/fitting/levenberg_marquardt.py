@@ -46,12 +46,14 @@ class LevenbergMarquardt:
                 i (int): number of iterations
                 converged (boolean): Success of fitting
     """
-    def __init__(self, t, y, W, model, p0, lm_parameter_user={}):
+    def __init__(self, t, y, W, model, p0, lm_parameter_user=None):
         self.t = t; self.y = y; self.W = W
         self.model = model
         self.p0 = p0
         self.Np = len(p0)
         # change default minimization parameters with user specified input
+        if lm_parameter_user == None:
+            lm_parameter_user = {}
         for param, value in lm_parameter_user.items():
             lm_parameter[param] = value
         self.delta = lm_parameter["delta"]
@@ -75,7 +77,6 @@ class LevenbergMarquardt:
     def __call__(self):
         update_types = {1: self.LevenbergMarquardtUpdate, 2: self.QuadraticUpdate, 3:self.NielsenLambdaUpdate}
         lambda_inits = {1: self.lambda_init1, 2: self.lambda_init2, 3: self.lambda_init2}
-
         p = self.p0
         update = update_types[self.update_type]
         J = Jacobian(self.model, self.t, p, self.delta)()

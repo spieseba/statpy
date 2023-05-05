@@ -26,14 +26,17 @@ class Fitter:
                 estimator (function): function which takes sample (y or y[i]) as an input and returns desired quantity.
                 method (string): minimization method. Can be "Nelder-Mead", "Migrad" or "Levenberg-Marquardt". Default is "Nelder-Mead".
     """
-    def __init__(self, t, C, model, estimator, method="Nelder-Mead", minimizer_params={}):
+    def __init__(self, t, C, model, estimator, method="Nelder-Mead", minimizer_params=None):
         self.t = t; self.C = C
         self.W = np.linalg.inv(C)
         self.model = model
         self.estimator = estimator
         assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
         self.method = method
-        self.min_params = minimizer_params
+        if minimizer_params == None:
+            self.min_params = {}
+        else:
+            self.min_params = minimizer_params
         self.boolean = True
  
     def chi_squared(self, p, y):
