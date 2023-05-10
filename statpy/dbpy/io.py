@@ -39,13 +39,17 @@ class IO:
 
 
 class CLS_IO:
-    def __init__(self, sample_path, rwf_path, sample_tag, ensemble_label):
+    def __init__(self, sample_path, rwf_path, ensemble_label, obs_tags):
         assert os.path.isfile(sample_path)
         assert os.path.isfile(rwf_path)
-        self.tag= f"{ensemble_label}/{sample_tag}"
-        sample = np.array(h5py.File(sample_path, "r").get(sample_tag)[:])
-        self.sample = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(sample)}
-        rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf)
-        self.nrwf = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(nrwf)}
+        self.lfs = []
+        for obs_tag in obs_tags:
+            tag = f"{ensemble_label}/{obs_tag}" 
+            sample = np.array(h5py.File(sample_path, "r").get(obs_tag)[:])
+            sample = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(sample)}
+            rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf)
+            nrwf = {f"{ensemble_label}-{cfg}":val for cfg, val in enumerate(nrwf)} 
+            self.lfs.append((tag, None, None, sample, nrwf, None))
+
     def __call__(self):
-        return self.tag, None, None, self.sample, self.nrwf, None
+        return self.lfs
