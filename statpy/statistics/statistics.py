@@ -67,7 +67,6 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
                                model=model, estimator=lambda x : x, method=fit_method, minimizer_params=fit_params)
     try:
         fitter.fit(np.array([var_ratio[b] for b in binsizes_to_be_fitted]), p0)
-        #fitter.fit(np.array([var_ratio[b] for b in binsizes_to_be_fitted]), p0)
         if fit_model == "singlemode": 
             ratio_inf_b = 2. * fitter.best_parameter[0]; ratio_inf_b_var = np.array([2.0]) @ fitter.best_parameter_cov @ np.array([2.0])
             model_label = r"$2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]$"
