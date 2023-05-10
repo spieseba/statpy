@@ -62,7 +62,7 @@ class JKS_DB:
                     s += f'\t└── sample\n' 
                 if np.array(lf.nrwf).any() != None:
                     s += f'\t└── nrwf\n' 
-                if len(lf.info) != 0:
+                if lf.info != None:
                     s += f'\t└── info\n'
         return s
 
@@ -386,56 +386,4 @@ class Sample_DB(JKS_DB):
         for b in binsizes:
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
-
-
-#################################################################################################################################################
-################################################################## TO DO ########################################################################
-#################################################################################################################################################
-
-#    def effective_mass_curve_fit(self, t0min, t0max, nt, Ct_tag, sample_tag, cov, p0_Ct_fit, bc="pbc", min_method="Nelder-Mead", min_params={}, shift=0, verbose=True, dst_tag="M_EFF_CURVE_FIT", dst_tag_Ct="Ct_FIT", store=True):
-#        mt = []; mt_var = []; best_parameter_jks_arr = []
-#        for t0 in range(t0min, t0max):
-#            t = np.arange(t0, t0+nt)
-#            best_parameter, best_parameter_cov, best_parameter_jks = self.correlator_exp_fit(t, Ct_tag, sample_tag, cov, p0_Ct_fit, bc, min_method, min_params, shift, verbose=verbose, dst_tag=dst_tag_Ct+f"_{t0}", store=store)
-#            mt.append(best_parameter[1])
-#            mt_var.append(best_parameter_cov[1][1])
-#            best_parameter_jks_arr.append(best_parameter_jks)    
-#        # transform jks data appropriately
-#        mt = np.array(mt); mt_var = np.array(mt_var)
-#        mt_jks = {}
-#        for cfg in best_parameter_jks_arr[0]:
-#            mt_cfg = []
-#            for best_parameter_jks in best_parameter_jks_arr:
-#                mt_cfg.append(best_parameter_jks[cfg][1])
-#            mt_jks[cfg] = np.array(mt_cfg)
-#        if store:
-#            self.add_data(mt, dst_tag, sample_tag, "mean")
-#            self.add_data(mt_var, dst_tag, sample_tag, "jkvar")
-#            self.add_data(mt_jks, dst_tag, sample_tag, "jks")
-#        return mt, mt_var, mt_jks
-#
-#    def effective_mass_const_fit(self, t, mt_tag, sample_tag, dst_tag, p0, method, minimizer_params={}, verbose=True, store=True):    
-#        mt = self.get_data(mt_tag, sample_tag, "mean")[t]
-#        mt_cov = np.diag(self.get_data(mt_tag, sample_tag, "jkvar"))[t][:,t]
-#        m, p, chi2, dof, model = sp.qcd.spectroscopy.const_fit(t, mt, mt_cov, p0, method, minimizer_params, error=False, verbose=False)
-#
-#        mt_jks = self.get_data(mt_tag, sample_tag, "jks")
-#        m_jks = {}
-#        for cfg in mt_jks:
-#            m_jks[cfg], _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, mt_jks[cfg][t], mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
-#        #for mt_jk in mt_jks.values():
-#        #    m_jk, _, _, _, _ = sp.qcd.spectroscopy.const_fit(t, mt_jk[t], mt_cov, p0=m, method=method, minimizer_params=minimizer_params, error=False, verbose=False)
-#        #    m_jks.append(m_jk)
-#
-#        m_cov = sp.statistics.jackknife.covariance_jks(m, np.array(list(m_jks.values())))
-#        model = sp.qcd.spectroscopy.const_model()
-#        fit_err = lambda t: (model.parameter_gradient(t,m) @ m_cov @ model.parameter_gradient(t,m))**0.5
-#
-#        if verbose:
-#            print("*** constant mass fit ***")
-#            print("fit window:", t)
-#            print(f"m_eff = {m[0]} +- {m_cov[0][0]**.5}")
-#            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
-#
-#
-#        return m[0], m_cov[0][0]**.5
+    
