@@ -3,6 +3,7 @@
 import os, h5py
 from time import time
 import numpy as np
+import matplotlib.pyplot as plt
 from statpy.dbpy import custom_json as json
 from statpy.dbpy.leafs import Leaf 
 import statpy as sp
@@ -11,9 +12,9 @@ import statpy as sp
 
 class JKS_DB:
     db_type = "JKS-DB"
-    def __init__(self, *args, verbose=True):
+    def __init__(self, *args, verbosity=0):
         self.t0 = time()
-        self.verbose = verbose
+        self.verbosity = verbosity
         self.database = {}
         for src in args:
             if isinstance(src, str):
@@ -39,8 +40,9 @@ class JKS_DB:
         assert (isinstance(info, dict) or info==None)
         self.database[tag] = Leaf(mean, jks, sample, nrwf, info)
 
-    def message(self, s):
-        if self.verbose: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
+    def message(self, s, verbosity=None):
+        if verbosity == None: verbosity = self.verbosity
+        if verbosity >= 0: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
     
     def save(self, dst):
         with open(dst, "w") as f:
@@ -387,3 +389,107 @@ class Sample_DB(JKS_DB):
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
     
+    ################################## SPECTROSCOPY ######################################
+
+    def lattice_charm_fit_range(self, tag, binsize, ds, p0s, fit_method="Levenberg-Marquardt", fit_params=None, verbosity=0):
+        """
+        * perform uncorrelated fits at binsize b=20 using double symmetric double exponential fit model for different fit ranges $[d,N_t -d]$
+        * ground state captured in one exponential and excited states in the other
+        * determine size of excited state contribution using fit model for all t
+        * cut off time values from fit range for which excited state contribution is smaller than $\frac{\text{std}\left(C(t)\right)}{4}$
+        * final fit range is the smallest of the reduced fit windows
+        """
+        if fit_params == None:
+            fit_params = {"maxiter":5000, "tol":1e-8, "eps1":1e-11, "eps2":1e-11, "eps3":1e-9}
+        jks = self.compute_sample_jks(tag, binsize)
+        mean = np.mean(jks, axis=0)
+        var = sp.statistics.jackknife.variance_jks(mean, jks)
+        Nt = len(mean)
+        fit_range = np.arange(Nt)
+        for d,p0 in zip(ds,p0s):
+            t = np.arange(d, Nt-d)
+            self.message(f"fit range: {t}", verbosity)
+            y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
+            model = sp.qcd.spectroscopy.symmetric_double_exp_model(Nt)
+            best_parameter, best_parameter_cov = sp.qcd.spectroscopy.correlator_fit(t, y, y_jks, cov, p0, model, 
+                                                    fit_method, fit_params, jks_fit_method="Migrad", jks_fit_params={}, verbosity=verbosity)
+            # sort parameters
+            if best_parameter[0] <  best_parameter[2]: sorted_bp = [best_parameter[0], best_parameter[1], 0, 0]
+            else: sorted_bp = [best_parameter[2], best_parameter[3], 0, 0]
+            criterion = np.array([model(t, sorted_bp) for t in range(Nt)]) < var**.5/4
+            t_reduced = np.arange(Nt)[criterion]
+            if len(t_reduced) < len(fit_range):
+                fit_range = t_reduced
+            self.message(f"reduced fit range {t_reduced}", verbosity)
+            if verbosity >= 0:     
+                print("----------------------------------------------------------------------------------------------------------------------------------")
+                print("----------------------------------------------------------------------------------------------------------------------------------")
+        self.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
+        return fit_range
+    
+    def lattice_charm_spectroscopy(self, tag, B, fit_range, p0, fit_method="Migrad", fit_params=None, make_plot=True, verbosity=0):
+        """
+        * perform correlated fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
+        * covariance of correlators is estimated on unbinned dataset
+        """
+        A_dict = {}; A_var_dict = {}
+        m_dict = {}; m_var_dict = {}
+        # estimate cov using unbinned sample
+        cov = self.sample_jackknife_covariance(tag, binsize=1)
+        for b in range(1,B+1):
+            self.message(f"BINSIZE = {b}\n", verbosity)
+            jks = self.compute_sample_jks(tag, binsize=b)
+            mean = np.mean(jks, axis=0)
+            t = fit_range
+            y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
+            model = sp.qcd.spectroscopy.symmetric_exp_model(len(mean))
+            best_parameter, best_parameter_cov = sp.qcd.spectroscopy.correlator_fit(t, y, y_jks, cov[t][:,t], 
+                                                    p0, model, fit_method, fit_params, verbosity=verbosity)
+            A_dict[b] = best_parameter[0]; A_var_dict[b] = best_parameter_cov[0][0]
+            m_dict[b] = best_parameter[1]; m_var_dict[b] = best_parameter_cov[1][1]
+            if verbosity >=0:
+                print("\n-----------------------------------------------------------------------------------------")
+                print("-----------------------------------------------------------------------------------------\n")
+            if b == B:
+                if make_plot:
+                    fig, ax0 = plt.subplots(figsize=(12,8))
+                    # correlator
+                    color = "C0"
+                    ax0.set_xlabel(r"source-sink separation $t$")
+                    ax0.set_ylabel(r"$C_\pi(t)$", color=color)     
+                    ax0.errorbar(np.arange(len(mean)), mean, sp.statistics.jackknife.variance_jks(mean, jks)**0.5, linestyle="", capsize=3, color=color)
+                    ax0.tick_params(axis='y', labelcolor=color)
+                    ax0.grid(axis="x")
+                    ax0.set_title(f"{tag} - binsize = {B}")
+                    # correlator fit
+                    trange = np.arange(t[0], t[-1], 0.1)
+                    color = "C2"
+                    model = sp.qcd.spectroscopy.symmetric_exp_model(len(mean))
+                    fy = np.array([model(t, best_parameter) for t in trange])
+                    fy_err = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
+                    ax0.plot(trange, fy, color=color, lw=.5, label=r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit")
+                    ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
+                    ax0.set_ylim(0.0, mean[fit_range[0]]*2.)
+                    ax0.legend(loc="upper left")
+                    # fit range marker
+                    ax0.axvline(t[0], color="gray", linestyle="--")
+                    ax0.axvline(t[-1], color="gray", linestyle="--")
+                    # effective mass curve
+                    mt = sp.qcd.spectroscopy.effective_mass_acosh(mean, tmax=63)
+                    mt_var = self.sample_jackknife_variance(tag, B, lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax=63))
+                    ax1 = ax0.twinx()
+                    color = "C3"
+                    ax1.set_ylabel("$m(t)$", color=color)
+                    ax1.errorbar(np.arange(len(mt)), mt, mt_var**.5, linestyle="", capsize=3, color=color)
+                    ax1.tick_params(axis='y', labelcolor=color)
+                    ax1.grid(axis="y")
+                    # effective mass from fit
+                    color = "C4"
+                    meff_arr = np.array([best_parameter[1] for t in trange])
+                    ax1.plot(trange, meff_arr, color=color, lw=.5, label=r"$m_{eff} = $" + f"{best_parameter[1]:.4f} +- {best_parameter_cov[1][1]**.5:.4f}")
+                    ax1.fill_between(trange, meff_arr-best_parameter_cov[1][1]**.5, meff_arr+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
+                    ax1.set_ylim(0.0, best_parameter[1]*3.)
+                    ax1.legend(loc="upper right")
+                    plt.tight_layout()
+                    plt.plot()
+        return A_dict, A_var_dict, m_dict, m_var_dict
