@@ -1,11 +1,10 @@
 import numpy as np
-from ..statistics.jackknife import variance, samples, variance_jks
 
 class gradient_flow_scale:
     def __init__(self, ct0=0.3, cw0=0.3):
         # t0
         self.ct0 = ct0
-        self.sqrt_t0_fm = 0.1638; self.sqrt_t0_fm_std = 0.0010# taken from arXiv:1401.3270
+        self.sqrt_t0_fm = 0.1638; self.sqrt_t0_fm_std = 0.0010 # taken from arXiv:1401.3270
         # w0
         self.cw0 = cw0
         self.w0_fm = 0.1670; self.w0_fm_std = 0.0010 # taken from arXiv:1401.3270
@@ -79,43 +78,3 @@ class gradient_flow_scale:
         omega0 = self.comp_omega0(tau, tdt2E)
         return omega0 * 0.1973 / w0_fm
     
-    #############################################################################################
-    
-    #def ratio_error_prop(a, std_a, b, std_b):
-    #    return a**2./b**2. * (std_a**2./a**2. + std_b**2./b**2.)
-
-    #def comp_aGeV_inv_t0_std(self, aGeV_inv, sqrt_tau0, sqrt_tau0_std): 
-    #    # afm = sqrt_t0 / sqrt_tau0
-    #    afm_std = np.sqrt( ratio_error_prop(self.sqrt_t0_fm, self.sqrt_t0_fm_std, sqrt_tau0, sqrt_tau0_std)  )
-    #    aGeV_std = afm_std / 0.1973; aGeV_inv_std = abs(aGeV_std * aGeV_inv**2)
-    #    return aGeV_inv_std
-    
-    #def get_cutoff_t0(self, sqrt_tau0, sqrt_tau0_std, verbose=False):
-    #    aGeV_inv = self.comp_aGeV_inv_t0(sqrt_tau0)
-    #    aGeV_inv_std = self.comp_aGeV_inv_t0_std(aGeV_inv, sqrt_tau0, sqrt_tau0_std)
-    #    afm = self.sqrt_t0_fm / sqrt_tau0 
-    #    afm_std = np.sqrt( ratio_error_prop(self.sqrt_t0_fm, self.sqrt_t0_fm_std, sqrt_tau0, sqrt_tau0_std)  )
-    #    if verbose:
-    #        print(f"scale: sqrt(tau0) = {sqrt_tau0:.6f} +- {sqrt_tau0_std:.6f}")
-    #        print(f"cutoff: {aGeV_inv:.6f} +- {aGeV_inv_std:.6f} GeV")
-    #        print(f"lattice spacing: {afm/0.1973:.6f} +- {afm_std/0.1973:.6f} 1/GeV")
-    #        print(f"lattice spacing: {afm:.6f} +- {afm_std:.6f} fm")  
-    #    return aGeV_inv, aGeV_inv_std
-    
-    #def comp_aGeV_inv_w0_std(self, aGeV_inv, wau0, wau0_std):
-    #    # afm = w0/wau0
-    #    afm_std = np.sqrt( ratio_error_prop(self.w0_fm, self.w0_fm_std, wau0, self.wau0_std)  )
-    #    aGeV_std = afm_std / 0.1973; aGeV_inv_std = abs(aGeV_std * aGeV_inv**2) 
-    #    return aGeV_inv_std
-
-    #def get_cutoff_w0(self, wau0, wau0_std, verbose=False):
-    #    aGeV_inv = self.comp_aGeV_inv_w0(wau0)
-    #    aGeV_inv_std = self.comp_aGeV_inv_w0_std(aGeV_inv, wau0, wau0_std)
-    #    afm = self.w0_fm / wau0
-    #    afm_std = np.sqrt( ratio_error_prop(self.w0_fm, self.w0_fm_std, wau0, self.wau0_std)  )
-    #    if verbose:
-    #        print(f"scale: wau0 = {wau0:.6f} +- {wau0_std:.6f}")
-    #        print(f"cutoff: {aGeV_inv:.6f} +- {aGeV_inv_std:.6f} GeV")
-    #        print(f"lattice spacing: {afm/0.1973:.6f} +- {afm_std/0.1973:.6f} 1/GeV")
-    #        print(f"lattice spacing: {afm:.6f} +- {afm_std:.6f} fm")  
-    #    return aGeV_inv, aGeV_inv_std
