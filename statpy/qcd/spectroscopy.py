@@ -82,13 +82,3 @@ def correlator_fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
     return best_parameter, best_parameter_cov 
-
-
-#def const_fit(t, y, cov, p0, method="Nelder-Mead", minimizer_params={}, error=True, verbose=True):
-#    assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
-#    model = const_model()
-#    fitter = sp.fitting.fit(t, y, cov, model, p0, estimator=lambda x: x, method=method, minimizer_params=minimizer_params)
-#    fitter.fit(verbose, error)
-#    if error:
-#        return fitter.best_parameter, fitter.best_parameter_cov, fitter.fit_err, fitter.p, fitter.chi2, fitter.dof, model
-#    return fitter.best_parameter, fitter.p, fitter.chi2, fitter.dof, model
