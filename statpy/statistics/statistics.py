@@ -1,3 +1,4 @@
+from typing import Any
 import numpy as np
 import matplotlib.pyplot as plt
 import statpy as sp
@@ -24,7 +25,12 @@ def bin(data, b, *argv):
 
 # one parameter model for variance ratio var[S]/var[1]
 # assumes single dominant markov mode tau ~ tau_int
-# can fit from S0=1
+# can fit from S0=1a
+# model = 2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]
+# gradient = 2 - \frac{4\tau}{S}\left(1 - e^{-S/\tau}\right) + 2 e^{-S/\tau}
+# infinite binsize extrapolation: 
+#   \lim_{S \rightarrow \infty} 2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right] = 2\tau
+#   \lim_{S \rightarrow \infty} \frac{\partial}{\partial\tau} 2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right] = 2
 class singlemode_model:
     def __init__(self):
         pass
@@ -32,10 +38,27 @@ class singlemode_model:
         return 2. * p[0] * (1. - p[0]/t * (1. - np.exp(-t/p[0])))
     def parameter_gradient(self, t, p):
         return np.array([2. - 4.*p[0]/t * (1. - np.exp(-t/p[0])) + 2.*np.exp(-t/p[0])], dtype=object)
+    
+# two parameter model for variance ratio var[S]/var[1]
+# leading order expectation
+# start fit at S0 ~ 2tau
+class twoparameter_model:
+    def __init__(self):
+        pass
+    def __call__(self, t, p):
+        return 2. * p[0] * (1 - np.sqrt(p[1]**2.)/t)
+    def parameter_gradient(self, t, p):
+        return np.array([2.*(1 - np.sqrt(p[1]**2.)/t), -2.*p[0]/t])
 
 # three paramater model for variance ratio var[S]/var[1]
 # takes exponential corrections to 2tau(1 - c/S) into account
 # start fit at S0 ~ 2tau
+# model = f(\tau_{A,int}, c_A, d_A) = 2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)
+# parameter gradient = [ 2\left(1 - \frac{c_A}{S}\right) + 2d_A\left(\frac{1}{S} + \frac{1}{\tau_{A,int}}\right) e^{-S/\tau_{A,int}},
+# - \frac{2\tau_{A,int}}{S}, \frac{e^{-S/\tau_{A,int}}}{S}]
+# infinite binsize extrapolation: 
+#   \lim_{S \rightarrow \infty} f(\tau_{A,int}, c_A, d_A) = 2\tau
+#   \lim_{S \rightarrow \infty} parameter_gradient  = [2, 0, 0]
 class threeparam_model:
     def __init__(self):
         pass
@@ -60,7 +83,7 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
     var_ratio = {b:var_dict[b]/var_dict[1] for b in var_dict}
     var_ratio_var = {b:ratio_var(var_dict[b], var_var[b], var_dict[1], var_var[1]) for b in var_dict}
     # fit model to var_ratio
-    fit_models = {"singlemode": singlemode_model, "threeparam": threeparam_model} 
+    fit_models = {"singlemode": singlemode_model, "twoparam": twoparameter_model, "threeparam": threeparam_model} 
     model = fit_models[fit_model]()
     fitter = sp.fitting.Fitter(t=binsizes_to_be_fitted,
                                C=np.diag(np.array([var_ratio_var[b] for b in binsizes_to_be_fitted])), 
@@ -68,10 +91,13 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
     try:
         fitter.fit(np.array([var_ratio[b] for b in binsizes_to_be_fitted]), p0)
         if fit_model == "singlemode": 
-            ratio_inf_b = 2. * fitter.best_parameter[0]; ratio_inf_b_var = np.array([2.0]) @ fitter.best_parameter_cov @ np.array([2.0])
+            ratio_inf_b = 2. * fitter.best_parameter[0] #; ratio_inf_b_var = np.array([2.0]) @ fitter.best_parameter_cov @ np.array([2.0])
             model_label = r"$2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]$"
+        if fit_model == "twoparam":
+            ratio_inf_b = 2. * fitter.best_parameter[0] 
+            model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S}\right)$"
         if fit_model == "threeparam":
-            ratio_inf_b = 2. * fitter.best_parameter[0]; ratio_inf_b_var = np.array([2.0, 0, 0]) @ fitter.best_parameter_cov @ np.array([2.0, 0, 0])
+            ratio_inf_b = 2. * fitter.best_parameter[0] #; ratio_inf_b_var = np.array([2.0, 0, 0]) @ fitter.best_parameter_cov @ np.array([2.0, 0, 0])
             model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)$"
         if make_plot:
             # figure
@@ -84,13 +110,13 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
             # fit
             brange = np.arange(binsizes_to_be_fitted[0], binsizes_to_be_fitted[-1], 0.01)
             fb = np.array([model(b, fitter.best_parameter) for b in brange])
-            fb_std = np.array([fitter.fit_var(b)**.5 for b in brange])
+            #fb_std = np.array([fitter.fit_var(b)**.5 for b in brange])
             ax.plot(brange, fb, color="C1") 
-            ax.fill_between(brange, fb-fb_std, fb+fb_std, alpha=0.5, color="C1")
+            #ax.fill_between(brange, fb-fb_std, fb+fb_std, alpha=0.5, color="C1")
             # infinite binsize extrapolation
             ax.plot(brange, [ratio_inf_b for b in brange], color="C2", 
-                    label=r"$2\tau = $" + f"{ratio_inf_b:.2f} +- {ratio_inf_b_var**.5:.2f}, fit model: " + model_label)
-            ax.fill_between(brange, ratio_inf_b-ratio_inf_b_var**.5, ratio_inf_b+ratio_inf_b_var**.5, alpha=0.5, color="C2")
+                    label=r"$2\tau = $" + f"{ratio_inf_b:.2f}, fit model: " + model_label) # +- {ratio_inf_b_var**.5:.2f}, fit model: " + model_label)
+            #ax.fill_between(brange, ratio_inf_b-ratio_inf_b_var**.5, ratio_inf_b+ratio_inf_b_var**.5, alpha=0.5, color="C2")
             # optics
             ax.grid()
             ax.legend(loc="upper left")
@@ -110,4 +136,4 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
             ax.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
-    return ratio_inf_b, ratio_inf_b_var
+    return ratio_inf_b #, ratio_inf_b_var
