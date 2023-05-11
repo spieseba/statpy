@@ -283,7 +283,7 @@ class JKS_DB:
 
     def effective_mass_curve_fit(self, t0_min, t0_max, nt, tag, cov, p0, bc, method, minimizer_params, binsize, dst_tag, verbosity=0):
         assert bc in ["pbc", "obc"]
-        model = {"pbc": sp.qcd.spectroscopy.symmetric_exp_model(len(self.database[tag].mean)), "obc": sp.qcd.spectroscopy.exp_model()}[bc]
+        model = {"pbc": sp.qcd.correlator.cosh_model(len(self.database[tag].mean)), "obc": sp.qcd.correlator.exp_model()}[bc]
         for t0 in range(t0_min, t0_max):
             t = np.arange(nt) + t0
             if verbosity >=0: self.message(f"fit window: {t}")
@@ -391,7 +391,7 @@ class Sample_DB(JKS_DB):
     
     ################################## SPECTROSCOPY ######################################
 
-    def lattice_charm_fit_range(self, tag, binsize, ds, p0s, fit_method="Levenberg-Marquardt", fit_params=None, verbosity=0):
+    def lattice_charm_fit_range(self, tag, binsize, ds, p0, model_type, fit_method="Levenberg-Marquardt", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0):
         """
         * perform uncorrelated fits at binsize b=20 using double symmetric double exponential fit model for different fit ranges $[d,N_t -d]$
         * ground state captured in one exponential and excited states in the other
@@ -401,21 +401,23 @@ class Sample_DB(JKS_DB):
         """
         if fit_params == None:
             fit_params = {"maxiter":5000, "tol":1e-8, "eps1":1e-11, "eps2":1e-11, "eps3":1e-9}
+        if jks_fit_method == None:
+            jks_fit_method = fit_method; jks_fit_params = fit_params
         jks = self.compute_sample_jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         var = sp.statistics.jackknife.variance_jks(mean, jks)
         Nt = len(mean)
         fit_range = np.arange(Nt)
-        for d,p0 in zip(ds,p0s):
+        for d in ds:
             t = np.arange(d, Nt-d)
             self.message(f"fit range: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
-            model = sp.qcd.spectroscopy.symmetric_double_exp_model(Nt)
-            best_parameter, best_parameter_cov = sp.qcd.spectroscopy.correlator_fit(t, y, y_jks, cov, p0, model, 
-                                                    fit_method, fit_params, jks_fit_method="Migrad", jks_fit_params={}, verbosity=verbosity)
+            model = {"cosh": sp.qcd.correlator.double_cosh_model(Nt), "sinh": sp.qcd.correlator.double_sinh_model(Nt)}[model_type]
+            best_parameter, best_parameter_cov = sp.qcd.correlator.fit(t, y, y_jks, cov, p0, model, 
+                                                    fit_method, fit_params, jks_fit_method, jks_fit_params, verbosity=verbosity)
             # sort parameters
-            if best_parameter[0] <  best_parameter[2]: sorted_bp = [best_parameter[0], best_parameter[1], 0, 0]
-            else: sorted_bp = [best_parameter[2], best_parameter[3], 0, 0]
+            if best_parameter[1] <  best_parameter[3]: sorted_bp = [best_parameter[2], best_parameter[3], 0, 0]
+            else: sorted_bp = [best_parameter[0], best_parameter[1], 0, 0]
             criterion = np.array([model(t, sorted_bp) for t in range(Nt)]) < var**.5/4
             t_reduced = np.arange(Nt)[criterion]
             if len(t_reduced) < len(fit_range):
@@ -427,7 +429,7 @@ class Sample_DB(JKS_DB):
         self.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
         return fit_range
     
-    def lattice_charm_spectroscopy(self, tag, B, fit_range, p0, fit_method="Migrad", fit_params=None, make_plot=True, verbosity=0):
+    def lattice_charm_spectroscopy(self, tag, B, fit_range, p0, model_type="cosh", fit_method="Migrad", fit_params=None, make_plot=True, verbosity=0):
         """
         * perform correlated fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
         * covariance of correlators is estimated on unbinned dataset
@@ -442,8 +444,8 @@ class Sample_DB(JKS_DB):
             mean = np.mean(jks, axis=0)
             t = fit_range
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
-            model = sp.qcd.spectroscopy.symmetric_exp_model(len(mean))
-            best_parameter, best_parameter_cov = sp.qcd.spectroscopy.correlator_fit(t, y, y_jks, cov[t][:,t], 
+            model = {"cosh": sp.qcd.correlator.cosh_model(len(mean)), "sinh": sp.qcd.correlator.sinh_model(len(mean))}[model_type]
+            best_parameter, best_parameter_cov = sp.qcd.correlator.fit(t, y, y_jks, cov[t][:,t], 
                                                     p0, model, fit_method, fit_params, verbosity=verbosity)
             A_dict[b] = best_parameter[0]; A_var_dict[b] = best_parameter_cov[0][0]
             m_dict[b] = best_parameter[1]; m_var_dict[b] = best_parameter_cov[1][1]
@@ -464,19 +466,20 @@ class Sample_DB(JKS_DB):
                     # correlator fit
                     trange = np.arange(t[0], t[-1], 0.1)
                     color = "C2"
-                    model = sp.qcd.spectroscopy.symmetric_exp_model(len(mean))
+                    #model = sp.qcd.correlator.cosh_model(len(mean))
                     fy = np.array([model(t, best_parameter) for t in trange])
                     fy_err = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
-                    ax0.plot(trange, fy, color=color, lw=.5, label=r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit")
+                    model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit"}[model_type]
+                    ax0.plot(trange, fy, color=color, lw=.5, label=model_label)
                     ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
-                    ax0.set_ylim(0.0, mean[fit_range[0]]*2.)
+                    #ax0.set_ylim(0.0, mean[fit_range[0]]*2.)
                     ax0.legend(loc="upper left")
                     # fit range marker
                     ax0.axvline(t[0], color="gray", linestyle="--")
                     ax0.axvline(t[-1], color="gray", linestyle="--")
                     # effective mass curve
-                    mt = sp.qcd.spectroscopy.effective_mass_acosh(mean, tmax=63)
-                    mt_var = self.sample_jackknife_variance(tag, B, lambda Ct: sp.qcd.spectroscopy.effective_mass_acosh(Ct, tmax=63))
+                    mt = sp.qcd.correlator.effective_mass_acosh(mean, tmax=63)
+                    mt_var = self.sample_jackknife_variance(tag, B, lambda Ct: sp.qcd.correlator.effective_mass_acosh(Ct, tmax=63))
                     ax1 = ax0.twinx()
                     color = "C3"
                     ax1.set_ylabel("$m(t)$", color=color)
