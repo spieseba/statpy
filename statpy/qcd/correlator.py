@@ -5,17 +5,18 @@ from scipy.linalg import block_diag
 ########################################### EFFECTIVE MASS CURVES ###########################################
 
 # open boundary conditions
-def effective_mass_log(Ct, tmax, shift=0):
-    Ct = np.roll(Ct, shift).real
-    return np.array([np.log(Ct[t] / Ct[t+1]) for t in range(tmax)])
+def effective_mass_log(Ct, tmax, tmin=0):
+    Ct = Ct.real
+    return np.array([np.log(Ct[t] / Ct[t+1]) for t in range(tmin,tmax)])
 
 # periodic boundary conditions
-def effective_mass_acosh(Ct, tmax, shift=0):
-    Ct = np.roll(Ct, shift).real
-    return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(1,tmax)])
+def effective_mass_acosh(Ct, tmax, tmin=1):
+    Ct = Ct.real
+    return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(tmin,tmax)])
 
+################################################## FITTING #################################################
 
-################################################ FIT MODELS #################################################
+#################################### FIT MODELS ############################################
 
 ################ open boundary conditions ###############
 
@@ -72,20 +73,6 @@ class double_sinh_model():
                     np.exp(-p[3]*t) + np.exp(-p[3]*(self.T-t)), 
                     p[2] * (np.exp(-p[3]*t) * (-t) - np.exp(-p[3]*(self.T-t)) * (t-self.T))], dtype=object) 
     
-# C0(t) = A0 * [exp(-mt) + exp(-m(T-t))]; A0 = p[0]; m = p[2]
-# C1(t) = A1 * [exp(-mt) - exp(-m(T-t))]; A1 = p[1]; m = p[2]  
-class combined_cosh_sinh_model:
-    def __init__(self, T):
-        self.T = T 
-    def __call__(self, t, p):
-        f = p[0] * ( np.exp(-p[2]*t) + np.exp(-p[2]*(self.T-t)) ) 
-        g = p[1] * ( np.exp(-p[2]*t) - np.exp(-p[2]*(self.T-t)) ) 
-        return np.hstack((f,g)) 
-    #def parameter_gradient(self, t, p):
-    #    df = np.array([np.exp(-p[2]*t) + np.exp(-p[2]*(self.T-t)), 0, p[0] * (np.exp(-p[2]*t) * (-t) + np.exp(-p[2]*(self.T-t)) * (t-self.T))], dtype=object)  
-    #    dg = np.array([0, np.exp(-p[2]*t) - np.exp(-p[2]*(self.T-t)), p[1] * (np.exp(-p[2]*t) * (-t) - np.exp(-p[2]*(self.T-t)) * (t-self.T))], dtype=object)  
-    #    return np.array([df, dg]) 
-
 ######### model to fit effective mass plateau #########
 class const_model:
         def __init__(self):
@@ -116,10 +103,22 @@ def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
-    return best_parameter, best_parameter_cov 
+    return best_parameter, best_parameter_cov, best_parameter_jks 
 
-def combined_fit(t, Ct0, Ct0_jks, Ct0_cov, Ct1, Ct1_jks, Ct1_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None, verbosity=0):
-    Ct = np.hstack((Ct0, Ct1))
-    Ct_cov = block_diag(Ct0_cov, Ct1_cov)
-    Ct_jks = {cfg:np.hstack((Ct0_jks[cfg], Ct1_jks[cfg])) for cfg in Ct0_jks} 
-    return fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, verbosity)
+############################################## COMBINED FITTING ############################################
+
+#################################### FIT MODELS ############################################
+
+# C0(t) = A0 * [exp(-mt) + exp(-m(T-t))]; A0 = p[0]; m = p[2]
+# C1(t) = A1 * [exp(-mt) - exp(-m(T-t))]; A1 = p[1]; m = p[2]  
+class combined_cosh_sinh_model:
+    def __init__(self, T):
+        self.T = T 
+    def __call__(self, t, p):
+        f = p[0] * ( np.exp(-p[2]*t) + np.exp(-p[2]*(self.T-t)) ) 
+        g = p[1] * ( np.exp(-p[2]*t) - np.exp(-p[2]*(self.T-t)) ) 
+        return np.hstack((f,g)) 
+    def parameter_gradient(self, t, p):
+        df = np.array([np.exp(-p[2]*t) + np.exp(-p[2]*(self.T-t)), 0, p[0] * (np.exp(-p[2]*t) * (-t) + np.exp(-p[2]*(self.T-t)) * (t-self.T))], dtype=object)  
+        dg = np.array([0, np.exp(-p[2]*t) - np.exp(-p[2]*(self.T-t)), p[1] * (np.exp(-p[2]*t) * (-t) - np.exp(-p[2]*(self.T-t)) * (t-self.T))], dtype=object)  
+        return np.array([df, dg]) 
