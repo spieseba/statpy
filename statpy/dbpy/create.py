@@ -5,7 +5,7 @@ import numpy as np
 from statpy.dbpy import custom_json as json
 from statpy.dbpy.leafs import Leaf
 
-def create_sample_db(src_dir, meas_tag, src_tags, dst, dst_tags, ensemble_label):
+def create_sample_db(src_dir, meas_tag, src_tags, dst, dst_tags, branch_tag, leaf_prefix):
     if os.path.isfile(dst):
         if query_yes_no(f"file {dst} already exists. Overwrite?"):
             os.remove(dst)
@@ -13,7 +13,7 @@ def create_sample_db(src_dir, meas_tag, src_tags, dst, dst_tags, ensemble_label)
             exit()
     # get filenames and cfgs
     filenames = sorted([os.path.join(src_dir, f) for f in os.listdir(src_dir) if (os.path.isfile(os.path.join(src_dir, f)) and meas_tag in f.split("."))], key=lambda x: int(x.split("ckpoint_lat.")[-1].split(".")[0]))
-    cfgs = [ensemble_label + "-" + x.split("ckpoint_lat.")[-1].split(".")[0] for x in filenames]
+    cfgs = [branch_tag + "-" + x.split("ckpoint_lat.")[-1].split(".")[0] for x in filenames]
     # create db
     database = {}
     for src_tag, dst_tag in zip(src_tags, dst_tags):
@@ -22,7 +22,7 @@ def create_sample_db(src_dir, meas_tag, src_tags, dst, dst_tags, ensemble_label)
         for cfg, f in zip(cfgs, filenames):
             print(f"\tcfg={cfg}")
             sample[cfg] = load(f, src_tag)
-        database[ensemble_label + "/" + dst_tag] = Leaf(mean=None, jks=None, sample=sample)
+        database[leaf_prefix + "/" + dst_tag] = Leaf(mean=None, jks=None, sample=sample)
     with open(dst, "w") as f:
         json.dump(database, f)
 

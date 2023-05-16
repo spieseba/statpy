@@ -2,7 +2,7 @@
 
 import numpy as np
 import json, base64
-from statpy.dbpy.leafs import Leaf #, SampleLeaf
+from statpy.dbpy.leafs import Leaf 
 
 def to_json(obj):
     if isinstance(obj, (np.ndarray, np.generic)):

@@ -175,40 +175,38 @@ class JKS_DB:
 
     ############################### SCALE SETTING ###################################
 
-    def gradient_flow_scale(self, ensemble_label, binsize, verbose=True):
-        tau = self.database[ensemble_label + "/tau"].mean
+    def gradient_flow_scale(self, leaf_prefix, binsize, verbose=True):
+        tau = self.database[leaf_prefix + "/tau"].mean
         scale = sp.qcd.scale_setting.gradient_flow_scale()
         # tau0
-        self.combine(ensemble_label + "/E", f=lambda x: scale.set_sqrt_tau0(tau, x), dst_tag=ensemble_label + "/sqrt_tau0")
-        sqrt_tau0_var = self.jackknife_variance(ensemble_label + "/sqrt_tau0", binsize)
+        self.combine(leaf_prefix + "/E", f=lambda x: scale.set_sqrt_tau0(tau, x), dst_tag=leaf_prefix + "/sqrt_tau0")
+        sqrt_tau0_var = self.jackknife_variance(leaf_prefix + "/sqrt_tau0", binsize)
         # t0
-        self.combine(ensemble_label + "/sqrt_tau0", f=lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), dst_tag=ensemble_label + "/sqrt_t0") 
-        sqrt_t0_stat_var = self.jackknife_variance(ensemble_label + "/sqrt_t0", binsize)
+        self.combine(leaf_prefix + "/sqrt_tau0", f=lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), dst_tag=leaf_prefix + "/sqrt_t0") 
+        sqrt_t0_stat_var = self.jackknife_variance(leaf_prefix + "/sqrt_t0", binsize)
         # propagate systematic error of t0
-        sqrt_t0_mean_shifted = scale.comp_sqrt_t0(self.database[ensemble_label + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
-        sqrt_t0_sys_var = (self.database[ensemble_label + "/sqrt_t0"].mean - sqrt_t0_mean_shifted)**2.0
-        if self.database[ensemble_label + "/sqrt_t0"].info == None: self.database[ensemble_label + "/sqrt_t0"].info = {} 
-        self.database[ensemble_label + "/sqrt_t0"].info = {"sqrt_t0_stat_var": sqrt_t0_stat_var,
-            "sqrt_t0_mean_shifted": sqrt_t0_mean_shifted, "sqrt_t0_sys_var": sqrt_t0_sys_var, "sqrt_t0_var": sqrt_t0_stat_var + sqrt_t0_sys_var}
-        print("sqrt_t0_mean_shifted = ", sqrt_t0_mean_shifted)
-        print("sqrt_t0_sys_var = ", sqrt_t0_sys_var)
+        sqrt_t0_mean_shifted = scale.comp_sqrt_t0(self.database[leaf_prefix + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
+        sqrt_t0_sys_var = (self.database[leaf_prefix + "/sqrt_t0"].mean - sqrt_t0_mean_shifted)**2.0
+        if self.database[leaf_prefix + "/sqrt_t0"].info == None: self.database[leaf_prefix + "/sqrt_t0"].info = {} 
+        self.database[leaf_prefix + "/sqrt_t0"].info = {"STAT_VAR": sqrt_t0_stat_var,
+            "MEAN_SHIFTED": sqrt_t0_mean_shifted, "SYS_VAR": sqrt_t0_sys_var, "TOT_VAR": sqrt_t0_stat_var + sqrt_t0_sys_var}
         # omega0
-        self.combine(ensemble_label + "/E", f=lambda x: scale.set_omega0(tau, x), dst_tag=ensemble_label + "/omega0")
-        omega0_var = self.jackknife_variance(ensemble_label + "/omega0", binsize)
+        self.combine(leaf_prefix + "/E", f=lambda x: scale.set_omega0(tau, x), dst_tag=leaf_prefix + "/omega0")
+        omega0_var = self.jackknife_variance(leaf_prefix + "/omega0", binsize)
         # w0
-        self.combine(ensemble_label + "/omega0", f=lambda x: scale.comp_w0(x, scale.w0_fm), dst_tag=ensemble_label + "/w0") 
-        w0_stat_var = self.jackknife_variance(ensemble_label + "/w0", binsize)
+        self.combine(leaf_prefix + "/omega0", f=lambda x: scale.comp_w0(x, scale.w0_fm), dst_tag=leaf_prefix + "/w0") 
+        w0_stat_var = self.jackknife_variance(leaf_prefix + "/w0", binsize)
         # propagate systematic error of w0
-        w0_mean_shifted = scale.comp_w0(self.database[ensemble_label + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
-        w0_sys_var = (self.database[ensemble_label + "/w0"].mean - w0_mean_shifted)**2.0
-        if self.database[ensemble_label + "/w0"].info == None: self.database[ensemble_label + "/w0"].info = {} 
-        self.database[ensemble_label + "/w0"].info = {"w0_stat_var": w0_stat_var, 
-            "w0_mean_shifted": w0_mean_shifted, "w0_sys_var": w0_sys_var, "w0_var": w0_stat_var + w0_sys_var}
+        w0_mean_shifted = scale.comp_w0(self.database[leaf_prefix + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
+        w0_sys_var = (self.database[leaf_prefix + "/w0"].mean - w0_mean_shifted)**2.0
+        if self.database[leaf_prefix + "/w0"].info == None: self.database[leaf_prefix + "/w0"].info = {} 
+        self.database[leaf_prefix + "/w0"].info = {"STAT_VAR": w0_stat_var, 
+            "MEAN_SHIFTED": w0_mean_shifted, "SYS_VAR": w0_sys_var, "TOT_VAR": w0_stat_var + w0_sys_var}
         if verbose:
-            self.message(f"sqrt(tau0) = {self.database[ensemble_label + '/sqrt_tau0'].mean:.4f} +- {sqrt_tau0_var**.5:.4f}")
-            self.message(f"omega0 = {self.database[ensemble_label + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
-            self.message(f"t0/GeV (cutoff) = {self.database[ensemble_label + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_stat_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_stat_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
-            self.message(f"w0/GeV (cutoff) = {self.database[ensemble_label + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
+            self.message(f"sqrt(tau0) = {self.database[leaf_prefix + '/sqrt_tau0'].mean:.4f} +- {sqrt_tau0_var**.5:.4f}")
+            self.message(f"omega0 = {self.database[leaf_prefix + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
+            self.message(f"t0/GeV (cutoff) = {self.database[leaf_prefix + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_stat_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_stat_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
+            self.message(f"w0/GeV (cutoff) = {self.database[leaf_prefix + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
     ################################## FITTING ######################################
 
