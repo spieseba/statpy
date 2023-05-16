@@ -288,7 +288,7 @@ class JKS_DB:
             self.fit(t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag=dst_tag + f"={t0}", verbosity=verbosity)
             self.database[dst_tag + f"={t0}"].mean = self.database[dst_tag + f"={t0}"].mean[1]
             self.database[dst_tag + f"={t0}"].jks = {cfg:val[1] for cfg, val in self.database[dst_tag + f"={t0}"].jks.items()} 
-            self.database[dst_tag + f"={t0}"].info["best_parameter_cov"] = self.database[dst_tag + f"={t0}"].info["best_parameter_cov"][1]
+            self.database[dst_tag + f"={t0}"].info["best_parameter_cov"] = self.database[dst_tag + f"={t0}"].info["best_parameter_cov"][1][1]
 
 ################################# DATABASE SYSTEM USING LEAFS CONTAINING SAMPLE, RWF, MEAN AND JKS (PRIMARY and SECONDARY OBSERVABLES) #####################################
 
