@@ -411,7 +411,7 @@ class Sample_DB(JKS_DB):
             self.message(f"fit range: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
             model = {"cosh": sp.qcd.correlator.double_cosh_model(Nt), "sinh": sp.qcd.correlator.double_sinh_model(Nt)}[model_type]
-            best_parameter, best_parameter_cov = sp.qcd.correlator.fit(t, y, y_jks, cov, p0, model, 
+            best_parameter, best_parameter_jks = sp.qcd.correlator.fit(t, y, y_jks, cov, p0, model, 
                                                     fit_method, fit_params, jks_fit_method, jks_fit_params, verbosity=verbosity)
             # sort parameters
             if best_parameter[1] <  best_parameter[3]: sorted_bp = [best_parameter[2], best_parameter[3], 0, 0]
@@ -443,8 +443,9 @@ class Sample_DB(JKS_DB):
             t = fit_range
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
             model = {"cosh": sp.qcd.correlator.cosh_model(len(mean)), "sinh": sp.qcd.correlator.sinh_model(len(mean))}[model_type]
-            best_parameter, best_parameter_cov, best_parameter_jks = sp.qcd.correlator.fit(t, y, y_jks, cov[t][:,t], 
+            best_parameter, best_parameter_jks = sp.qcd.correlator.fit(t, y, y_jks, cov[t][:,t], 
                                                     p0, model, fit_method, fit_params, verbosity=verbosity)
+            best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
             A_dict[b] = best_parameter[0]; A_var_dict[b] = best_parameter_cov[0][0]
             m_dict[b] = best_parameter[1]; m_var_dict[b] = best_parameter_cov[1][1]
             if verbosity >=0:
@@ -467,7 +468,8 @@ class Sample_DB(JKS_DB):
                     #model = sp.qcd.correlator.cosh_model(len(mean))
                     fy = np.array([model(t, best_parameter) for t in trange])
                     fy_err = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
-                    model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit"}[model_type]
+                    model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", 
+                                   "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit"}[model_type]
                     ax0.plot(trange, fy, color=color, lw=.5, label=model_label)
                     ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
                     #ax0.set_ylim(0.0, mean[fit_range[0]]*2.)
@@ -477,12 +479,13 @@ class Sample_DB(JKS_DB):
                     ax0.axvline(t[-1], color="gray", linestyle="--")
                     # effective mass curve
                     d = 5
-                    mt = sp.qcd.correlator.effective_mass_acosh(mean, tmax=len(mean)-d, tmin=d)
-                    mt_var = self.sample_jackknife_variance(tag, B, lambda Ct: sp.qcd.correlator.effective_mass_acosh(Ct, tmax=len(mean)-d, tmin=d))
+                    effective_mass_curve = lambda x: sp.qcd.correlator.effective_mass_acosh(x, tmax=len(x)-d, tmin=d)
+                    mt = effective_mass_curve(mean)
+                    mt_var = self.sample_jackknife_variance(tag, B, effective_mass_curve)
                     ax1 = ax0.twinx()
                     color = "C3"
                     ax1.set_ylabel("$m(t)$", color=color)
-                    ax1.errorbar(np.arange(d, d+len(mt)), mt, mt_var**.5, linestyle="", capsize=3, color=color)
+                    ax1.errorbar(np.arange(d, d+len(mt)), mt, mt_var**.5, linestyle="", capsize=3, color=color, label=r"$cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{C(t)} \right)$")
                     ax1.tick_params(axis='y', labelcolor=color)
                     ax1.grid(axis="y")
                     # effective mass from fit
@@ -503,9 +506,9 @@ class Sample_DB(JKS_DB):
         * perform combined fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
         * covariance of correlators is estimated on unbinned dataset
         """
-        A_PS_dict = {}; A_PS_var_dict = {}
-        A_A4_dict = {}; A_A4_var_dict = {}
-        m_dict = {}; m_var_dict = {}
+        A_PS_dict = {}; A_PS_var_dict = {}; A_PS_jks_dict = {}
+        A_A4_dict = {}; A_A4_var_dict = {}; A_A4_jks_dict = {}
+        m_dict = {}; m_var_dict = {}; m_jks_dict = {}
         t = fit_range
         # estimate cov using unbinned sample
         jks0_ub = self.compute_sample_jks(tag0, 1); jks1_ub = self.compute_sample_jks(tag1, 1)
@@ -514,7 +517,6 @@ class Sample_DB(JKS_DB):
         if not correlated:
             cov = np.diag(np.diag(cov))
         for b in range(1, B+1):
-            #self.message(f"BINSIZE = {b}\n", verbosity)
             print(f"BINSIZE = {b}\n")
             jks0 = self.compute_sample_jks(tag0, binsize=b); jks1 = self.compute_sample_jks(tag1, binsize=b)
             mean0 = np.mean(jks0, axis=0); mean1 = np.mean(jks1, axis=0)
@@ -522,10 +524,14 @@ class Sample_DB(JKS_DB):
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
             model = sp.qcd.correlator.combined_cosh_sinh_model(len(jks0[0]))
-            best_parameter, best_parameter_cov, best_parameter_jks = sp.qcd.correlator.fit(t, mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, verbosity)
+            best_parameter, best_parameter_jks = sp.qcd.correlator.fit(t, mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, verbosity)
+            best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, self.as_array(best_parameter_jks))
             A_PS_dict[b] = best_parameter[0]; A_PS_var_dict[b] = best_parameter_cov[0][0]
+            A_PS_jks_dict[b] = {cfg:p[0] for cfg,p in best_parameter_jks.items()}
             A_A4_dict[b] = best_parameter[1]; A_A4_var_dict[b] = best_parameter_cov[1][1]
+            A_A4_jks_dict[b] = {cfg:p[1] for cfg,p in best_parameter_jks.items()}
             m_dict[b] = best_parameter[2]; m_var_dict[b] = best_parameter_cov[2][2]
+            m_jks_dict[b] = {cfg:p[2] for cfg,p in best_parameter_jks.items()}
             if verbosity >=0:
                 print("\n-----------------------------------------------------------------------------------------")
                 print("-----------------------------------------------------------------------------------------\n")
@@ -570,4 +576,4 @@ class Sample_DB(JKS_DB):
                     ax0.axvline(t[-1], color="gray", linestyle="--")
                     plt.tight_layout()
                     plt.plot()
-        return A_PS_dict, A_PS_var_dict, A_A4_dict, A_A4_var_dict, m_dict, m_var_dict 
+        return A_PS_dict, A_PS_var_dict, A_PS_jks_dict, A_A4_dict, A_A4_var_dict, A_A4_jks_dict, m_dict, m_var_dict, m_jks_dict 

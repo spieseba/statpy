@@ -103,7 +103,7 @@ def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
-    return best_parameter, best_parameter_cov, best_parameter_jks 
+    return best_parameter, best_parameter_jks 
 
 ############################################## COMBINED FITTING ############################################
 
