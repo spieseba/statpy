@@ -91,13 +91,13 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
     try:
         fitter.fit(np.array([var_ratio[b] for b in binsizes_to_be_fitted]), p0)
         if fit_model == "singlemode": 
-            ratio_inf_b = 2. * fitter.best_parameter[0] #; ratio_inf_b_var = np.array([2.0]) @ fitter.best_parameter_cov @ np.array([2.0])
+            ratio_inf_b = 2. * fitter.best_parameter[0]; ratio_inf_b_var = np.array([2.0]) @ fitter.best_parameter_cov @ np.array([2.0])
             model_label = r"$2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]$"
         if fit_model == "twoparam":
             ratio_inf_b = 2. * fitter.best_parameter[0] 
-            model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S}\right)$"
+            model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S}\right)$"; ratio_inf_b_var = np.array([2.0, 0]) @ fitter.best_parameter_cov @ np.array([2.0, 0])
         if fit_model == "threeparam":
-            ratio_inf_b = 2. * fitter.best_parameter[0] #; ratio_inf_b_var = np.array([2.0, 0, 0]) @ fitter.best_parameter_cov @ np.array([2.0, 0, 0])
+            ratio_inf_b = 2. * fitter.best_parameter[0]; ratio_inf_b_var = np.array([2.0, 0, 0]) @ fitter.best_parameter_cov @ np.array([2.0, 0, 0])
             model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)$"
         if make_plot:
             # figure
@@ -110,13 +110,13 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
             # fit
             brange = np.arange(binsizes_to_be_fitted[0], binsizes_to_be_fitted[-1], 0.01)
             fb = np.array([model(b, fitter.best_parameter) for b in brange])
-            #fb_std = np.array([fitter.fit_var(b)**.5 for b in brange])
+            fb_std = np.array([fitter.fit_var(b)**.5 for b in brange])
             ax.plot(brange, fb, color="C1") 
-            #ax.fill_between(brange, fb-fb_std, fb+fb_std, alpha=0.5, color="C1")
+            ax.fill_between(brange, fb-fb_std, fb+fb_std, alpha=0.5, color="C1")
             # infinite binsize extrapolation
             ax.plot(brange, [ratio_inf_b for b in brange], color="C2", 
-                    label=r"$2\tau = $" + f"{ratio_inf_b:.2f}, fit model: " + model_label) # +- {ratio_inf_b_var**.5:.2f}, fit model: " + model_label)
-            #ax.fill_between(brange, ratio_inf_b-ratio_inf_b_var**.5, ratio_inf_b+ratio_inf_b_var**.5, alpha=0.5, color="C2")
+                    label=r"$2\tau = $" + f"{ratio_inf_b:.2f} +- {ratio_inf_b_var**.5:.2f}, fit model: " + model_label)
+            ax.fill_between(brange, ratio_inf_b-ratio_inf_b_var**.5, ratio_inf_b+ratio_inf_b_var**.5, alpha=0.5, color="C2")
             # optics
             ax.grid()
             ax.legend(loc="upper left")
@@ -136,4 +136,4 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
             ax.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
-    return ratio_inf_b #, ratio_inf_b_var
+    #return ratio_inf_b #, ratio_inf_b_var

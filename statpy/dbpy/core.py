@@ -387,9 +387,54 @@ class Sample_DB(JKS_DB):
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
     
-    ################################## SPECTROSCOPY ######################################
+    ################################## LATTICE CHARM SPECTROSCOPY ######################################
 
-    def lattice_charm_fit_range(self, tag, binsize, ds, p0, model_type, fit_method="Levenberg-Marquardt", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0):
+    def lc_make_plot(self, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_cov):
+        fig, ax0 = plt.subplots(figsize=(12,8))
+        # correlator
+        color = "C0"
+        ax0.set_xlabel(r"source-sink separation $t$")
+        ax0.set_ylabel(r"$C(t)$", color=color)     
+        ax0.errorbar(np.arange(len(Ct_mean)), Ct_mean, sp.statistics.jackknife.variance_jks(Ct_mean, Ct_jks)**0.5, linestyle="", capsize=3, color=color)
+        ax0.tick_params(axis='y', labelcolor=color)
+        ax0.grid(axis="x")
+        ax0.set_title(f"{Ct_tag} - binsize = {binsize}")
+        # correlator fit
+        trange = np.arange(fit_range[0], fit_range[-1], 0.1)
+        color = "C2"
+        fy = np.array([model(t, best_parameter) for t in trange])
+        fy_err = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
+        model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit",
+                       "double-cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} + e^{-m_1 (T-t)})$ - fit",
+                       "double-sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} - e^{-m_1 (T-t)})$ - fit"}[model_type] 
+        ax0.plot(trange, fy, color=color, lw=.5, label=model_label)
+        ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
+        ax0.legend(loc="upper left")
+        # fit range marker
+        ax0.axvline(fit_range[0], color="gray", linestyle="--")
+        ax0.axvline(fit_range[-1], color="gray", linestyle="--")
+        # effective mass curve
+        d = 5
+        effective_mass_curve = lambda x: sp.qcd.correlator.effective_mass_acosh(x, tmax=len(x)-d, tmin=d)
+        mt = effective_mass_curve(Ct_mean)
+        mt_var = self.sample_jackknife_variance(Ct_tag, binsize, effective_mass_curve)
+        ax1 = ax0.twinx()
+        color = "C3"
+        ax1.set_ylabel("$m(t)$", color=color)
+        ax1.errorbar(np.arange(d, d+len(mt)), mt, mt_var**.5, linestyle="", capsize=3, color=color, label=r"$cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{C(t)} \right)$")
+        ax1.tick_params(axis='y', labelcolor=color)
+        ax1.grid(axis="y")
+        # effective mass from fit
+        color = "C4"
+        meff_arr = np.array([best_parameter[1] for t in trange])
+        ax1.plot(trange, meff_arr, color=color, lw=.5, label=r"$m_{eff} = $" + f"{best_parameter[1]:.4f} +- {best_parameter_cov[1][1]**.5:.4f}")
+        ax1.fill_between(trange, meff_arr-best_parameter_cov[1][1]**.5, meff_arr+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
+        ax1.set_ylim(best_parameter[1]*0.7, best_parameter[1]*1.3)
+        ax1.legend(loc="upper right")
+        plt.tight_layout()
+        plt.plot()
+
+    def lc_fit_range(self, Ct_tag, binsize, ds, p0, model_type, fit_method="Levenberg-Marquardt", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plots=True):
         """
         * perform uncorrelated fits at binsize b=20 using double symmetric double exponential fit model for different fit ranges $[d,N_t -d]$
         * ground state captured in one exponential and excited states in the other
@@ -401,22 +446,35 @@ class Sample_DB(JKS_DB):
             fit_params = {"maxiter":5000, "tol":1e-8, "eps1":1e-11, "eps2":1e-11, "eps3":1e-9}
         if jks_fit_method == None:
             jks_fit_method = fit_method; jks_fit_params = fit_params
-        jks = self.compute_sample_jks(tag, binsize)
+        jks = self.compute_sample_jks(Ct_tag, binsize)
         mean = np.mean(jks, axis=0)
         var = sp.statistics.jackknife.variance_jks(mean, jks)
         Nt = len(mean)
+        model = {"double-cosh": sp.qcd.correlator.double_cosh_model(Nt), "double-sinh": sp.qcd.correlator.double_sinh_model(Nt)}[model_type]
         fit_range = np.arange(Nt)
         for d in ds:
             t = np.arange(d, Nt-d)
             self.message(f"fit range: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
-            model = {"cosh": sp.qcd.correlator.double_cosh_model(Nt), "sinh": sp.qcd.correlator.double_sinh_model(Nt)}[model_type]
-            best_parameter, best_parameter_jks = sp.qcd.correlator.fit(t, y, y_jks, cov, p0, model, 
-                                                    fit_method, fit_params, jks_fit_method, jks_fit_params, verbosity=verbosity)
-            # sort parameters
-            if best_parameter[1] <  best_parameter[3]: sorted_bp = [best_parameter[2], best_parameter[3], 0, 0]
-            else: sorted_bp = [best_parameter[0], best_parameter[1], 0, 0]
-            criterion = np.array([model(t, sorted_bp) for t in range(Nt)]) < var**.5/4
+            best_parameter, best_parameter_jks, chi2, dof, pval = sp.qcd.correlator.fit(t, y, y_jks, cov, p0, model, 
+                                                    fit_method, fit_params, jks_fit_method, jks_fit_params)
+            # sort parameters s.t. first two parameters correspond to ground state
+            def sort_params(p):
+                if p[3] <  p[1]: 
+                    return [p[2], p[3], p[0], p[1]]
+                else:
+                    return p
+            best_parameter = sort_params(best_parameter)
+            for cfg in best_parameter_jks:
+                best_parameter_jks[cfg] = sort_params(best_parameter_jks[cfg])   
+            best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, self.as_array(best_parameter_jks)) 
+            for i in range(len(best_parameter)):
+                self.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
+            self.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
+            criterion = np.array([model(t, [0, 0, best_parameter[2], best_parameter[3]]) for t in range(Nt)]) < var**.5/4
+            for i in np.arange(Nt):
+                if i not in t:
+                    criterion[i] = False
             t_reduced = np.arange(Nt)[criterion]
             if len(t_reduced) < len(fit_range):
                 fit_range = t_reduced
@@ -424,10 +482,12 @@ class Sample_DB(JKS_DB):
             if verbosity >= 0:     
                 print("----------------------------------------------------------------------------------------------------------------------------------")
                 print("----------------------------------------------------------------------------------------------------------------------------------")
+            if make_plots:
+                self.lc_make_plot(Ct_tag, mean, jks, binsize, t, model_type, model, best_parameter, best_parameter_cov)
         self.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
         return fit_range
     
-    def lattice_charm_spectroscopy(self, tag, B, fit_range, p0, model_type="cosh", fit_method="Migrad", fit_params=None, make_plot=True, verbosity=0):
+    def lc_spectroscopy(self, Ct_tag, b_max, fit_range, p0, model_type, fit_method, fit_params=None, jks_fit_method=None, jks_fit_params=None, make_plot=True, verbosity=0):
         """
         * perform correlated fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
         * covariance of correlators is estimated on unbinned dataset
@@ -435,73 +495,29 @@ class Sample_DB(JKS_DB):
         A_dict = {}; A_var_dict = {}
         m_dict = {}; m_var_dict = {}
         # estimate cov using unbinned sample
-        cov = self.sample_jackknife_covariance(tag, binsize=1)
-        for b in range(1,B+1):
+        cov = self.sample_jackknife_covariance(Ct_tag, binsize=1)
+        for b in range(1,b_max+1):
             self.message(f"BINSIZE = {b}\n", verbosity)
-            jks = self.compute_sample_jks(tag, binsize=b)
+            jks = self.compute_sample_jks(Ct_tag, binsize=b)
             mean = np.mean(jks, axis=0)
             t = fit_range
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
             model = {"cosh": sp.qcd.correlator.cosh_model(len(mean)), "sinh": sp.qcd.correlator.sinh_model(len(mean))}[model_type]
-            best_parameter, best_parameter_jks = sp.qcd.correlator.fit(t, y, y_jks, cov[t][:,t], 
-                                                    p0, model, fit_method, fit_params, verbosity=verbosity)
+            best_parameter, best_parameter_jks, chi2, dof, pval = sp.qcd.correlator.fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
             best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
+            for i in range(len(best_parameter)):
+                self.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
+            self.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             A_dict[b] = best_parameter[0]; A_var_dict[b] = best_parameter_cov[0][0]
             m_dict[b] = best_parameter[1]; m_var_dict[b] = best_parameter_cov[1][1]
             if verbosity >=0:
                 print("\n-----------------------------------------------------------------------------------------")
                 print("-----------------------------------------------------------------------------------------\n")
-            if b == B:
-                if make_plot:
-                    fig, ax0 = plt.subplots(figsize=(12,8))
-                    # correlator
-                    color = "C0"
-                    ax0.set_xlabel(r"source-sink separation $t$")
-                    ax0.set_ylabel(r"$C(t)$", color=color)     
-                    ax0.errorbar(np.arange(len(mean)), mean, sp.statistics.jackknife.variance_jks(mean, jks)**0.5, linestyle="", capsize=3, color=color)
-                    ax0.tick_params(axis='y', labelcolor=color)
-                    ax0.grid(axis="x")
-                    ax0.set_title(f"{tag} - binsize = {B}")
-                    # correlator fit
-                    trange = np.arange(t[0], t[-1], 0.1)
-                    color = "C2"
-                    #model = sp.qcd.correlator.cosh_model(len(mean))
-                    fy = np.array([model(t, best_parameter) for t in trange])
-                    fy_err = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
-                    model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", 
-                                   "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit"}[model_type]
-                    ax0.plot(trange, fy, color=color, lw=.5, label=model_label)
-                    ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
-                    #ax0.set_ylim(0.0, mean[fit_range[0]]*2.)
-                    ax0.legend(loc="upper left")
-                    # fit range marker
-                    ax0.axvline(t[0], color="gray", linestyle="--")
-                    ax0.axvline(t[-1], color="gray", linestyle="--")
-                    # effective mass curve
-                    d = 5
-                    effective_mass_curve = lambda x: sp.qcd.correlator.effective_mass_acosh(x, tmax=len(x)-d, tmin=d)
-                    mt = effective_mass_curve(mean)
-                    mt_var = self.sample_jackknife_variance(tag, B, effective_mass_curve)
-                    ax1 = ax0.twinx()
-                    color = "C3"
-                    ax1.set_ylabel("$m(t)$", color=color)
-                    ax1.errorbar(np.arange(d, d+len(mt)), mt, mt_var**.5, linestyle="", capsize=3, color=color, label=r"$cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{C(t)} \right)$")
-                    ax1.tick_params(axis='y', labelcolor=color)
-                    ax1.grid(axis="y")
-                    # effective mass from fit
-                    color = "C4"
-                    meff_arr = np.array([best_parameter[1] for t in trange])
-                    ax1.plot(trange, meff_arr, color=color, lw=.5, label=r"$m_{eff} = $" + f"{best_parameter[1]:.4f} +- {best_parameter_cov[1][1]**.5:.4f}")
-                    ax1.fill_between(trange, meff_arr-best_parameter_cov[1][1]**.5, meff_arr+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
-                    ax1.set_ylim(0.0, best_parameter[1]*3.)
-                    ax1.legend(loc="upper right")
-                    plt.tight_layout()
-                    plt.plot()
-        return A_dict, A_var_dict, m_dict, m_var_dict
-    
+            if b == b_max:
+                self.lc_make_plot(Ct_tag, mean, jks, b_max, t, model_type, model, best_parameter, best_parameter_cov)
+        return A_dict, A_var_dict, m_dict, m_var_dict  
 
-    def lattice_charm_combined_cosh_sinh_fit(self, tag0, tag1, B, fit_range, p0, correlated=False, fit_method="Migrad", fit_params=None, jks_fit_method=None, jks_fit_params=None, 
-                                             verbosity=0, make_plot=False):
+    def lc_combined_cosh_sinh_fit(self, tag0, tag1, B, fit_range, p0, correlated=False, fit_method="Migrad", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plot=True):
         """
         * perform combined fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
         * covariance of correlators is estimated on unbinned dataset
@@ -524,8 +540,11 @@ class Sample_DB(JKS_DB):
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
             model = sp.qcd.correlator.combined_cosh_sinh_model(len(jks0[0]))
-            best_parameter, best_parameter_jks = sp.qcd.correlator.fit(t, mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, verbosity)
-            best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, self.as_array(best_parameter_jks))
+            best_parameter, best_parameter_jks, chi2, dof, pval = sp.qcd.correlator.fit(t, mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
+            best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
+            for i in range(len(best_parameter)):
+                self.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
+            self.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             A_PS_dict[b] = best_parameter[0]; A_PS_var_dict[b] = best_parameter_cov[0][0]
             A_PS_jks_dict[b] = {cfg:p[0] for cfg,p in best_parameter_jks.items()}
             A_A4_dict[b] = best_parameter[1]; A_A4_var_dict[b] = best_parameter_cov[1][1]

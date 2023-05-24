@@ -84,7 +84,7 @@ class const_model:
 
 ##############################################################################################
 
-def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None, verbosity=0):
+def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None):
     # mean fit
     fitter = sp.fitting.Fitter(t, Ct_cov, model, lambda x: x, fit_method, fit_params)
     best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
@@ -94,16 +94,9 @@ def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method
     best_parameter_jks = {}
     for cfg in  Ct_jks:
         best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(fitter.chi_squared, Ct_jks[cfg], best_parameter)
-    best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
-    if verbosity >=1: 
-        print(f"jackknife parameter covariance is ", best_parameter_cov) 
     dof = len(t) - len(best_parameter)
-    p = fitter.get_pvalue(chi2, dof)
-    if verbosity >= 0:
-        for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {p}")
-    return best_parameter, best_parameter_jks 
+    pval = fitter.get_pvalue(chi2, dof) 
+    return best_parameter, best_parameter_jks, chi2, dof, pval
 
 ############################################## COMBINED FITTING ############################################
 
