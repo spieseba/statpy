@@ -163,7 +163,7 @@ class JKS_DB:
         return np.mean(cov, axis=0)
 
     def binning_study(self, tag, binsizes, pavg=False):
-        self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
+        self.message(f"Unbinned sample size: {len(self.database[tag].jks)}")
         var = {}
         for b in binsizes:
             var[b] = self.jackknife_variance(tag, b, pavg)
