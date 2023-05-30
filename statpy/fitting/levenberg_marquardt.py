@@ -205,7 +205,7 @@ class Jacobian:
 
     def __call__(self, method="central difference"):
         if method == "central difference":
-            return np.array([[self.central_diff(ti, j) for j in range(len(self.p))] for ti in self.t])
+            return np.array([self.central_diff(self.t, j) for j in range(len(self.p))]).T
         else:
             raise Exception("Method not implemented")
     
