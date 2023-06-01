@@ -124,6 +124,13 @@ class JKS_DB:
             return Leaf(mean, jks, None)
         self.database[dst_tag] = Leaf(mean, jks, None)
 
+    def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag):
+        sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
+        if self.database[dst_tag].info == None:
+            self.database[dst_tag].info = {}
+        self.database[dst_tag].info[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
+        self.database[dst_tag].info[f"SYS_VAR_{sys_tag}"] = sys_var
+
     ################################## STATISTICS ######################################
 
     def compute_jks(self, tag, binsize, shift=0, verbose=False):
@@ -429,7 +436,7 @@ class Sample_DB(JKS_DB):
         meff_arr = np.array([best_parameter[1] for t in trange])
         ax1.plot(trange, meff_arr, color=color, lw=.5, label=r"$m_{eff} = $" + f"{best_parameter[1]:.4f} +- {best_parameter_cov[1][1]**.5:.4f}")
         ax1.fill_between(trange, meff_arr-best_parameter_cov[1][1]**.5, meff_arr+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
-        ax1.set_ylim(best_parameter[1]*0.7, best_parameter[1]*1.3)
+        ax1.set_ylim(mt[d]*0.95, mt[d]*1.05)
         ax1.legend(loc="upper right")
         plt.tight_layout()
         plt.plot()
@@ -451,7 +458,8 @@ class Sample_DB(JKS_DB):
         var = sp.statistics.jackknife.variance_jks(mean, jks)
         Nt = len(mean)
         model = {"double-cosh": sp.qcd.correlator.double_cosh_model(Nt), "double-sinh": sp.qcd.correlator.double_sinh_model(Nt)}[model_type]
-        fit_range = np.arange(Nt)
+        #fit_range = np.arange(Nt)
+        tmin = 0; tmax = Nt
         for d in ds:
             t = np.arange(d, Nt-d)
             self.message(f"fit range: {t}", verbosity)
@@ -476,14 +484,17 @@ class Sample_DB(JKS_DB):
                 if i not in t:
                     criterion[i] = False
             t_reduced = np.arange(Nt)[criterion]
-            if len(t_reduced) < len(fit_range):
-                fit_range = t_reduced
-            self.message(f"reduced fit range {t_reduced}", verbosity)
+            if t_reduced[0] > tmin: tmin = t_reduced[0]
+            if t_reduced[-1] < tmax: tmax = t_reduced[-1]
+            if d > tmin: tmin = d
+            if Nt-d < tmax: tmax = Nt-d
+            fit_range = np.arange(tmin, tmax)
+            self.message(f"reduced fit range {fit_range}", verbosity)
             if verbosity >= 0:     
                 print("----------------------------------------------------------------------------------------------------------------------------------")
                 print("----------------------------------------------------------------------------------------------------------------------------------")
             if make_plots:
-                self.lc_make_plot(Ct_tag, mean, jks, binsize, t, model_type, model, best_parameter, best_parameter_cov)
+                self.lc_make_plot(Ct_tag, mean, jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_cov)
         self.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
         return fit_range
     
@@ -581,6 +592,8 @@ class Sample_DB(JKS_DB):
                     model_label = {"cosh": r"$A_{PS} (e^{-m t} + e^{-m (T-t)})$ - fit", "sinh": r"$A_{A4} (e^{-m t} - e^{-m (T-t)})$ - fit"}
                     ax0.plot(trange, fy_PS, color=color, lw=.5, label=model_label["cosh"])
                     ax0.fill_between(trange, fy_PS-fy_err_PS, fy_PS+fy_err_PS, alpha=0.5, color=color)
+                    #ax0.set_ylim(0.0, mean0[t[0]])
+                    #ax0.set_yscale("log")
                     ax0.legend(loc="upper left")
                     # PSA4 fit
                     color = "C3"
@@ -588,7 +601,8 @@ class Sample_DB(JKS_DB):
                     fy_err_A4 = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model.parameter_gradient(x,y)[1]) for t in trange])**.5
                     ax1.plot(trange, fy_A4, color=color, lw=.5, label=model_label["sinh"])
                     ax1.fill_between(trange, fy_A4-fy_err_A4, fy_A4+fy_err_A4, alpha=0.5, color=color)
-                    ax1.set_ylim(mean1[2], mean1[-2])
+                    #ax1.set_ylim(mean1[t[0]], mean1[t[-1]])
+                    #ax1.set_yscale("log")
                     ax1.legend(loc="upper right")
                     # fit range marker
                     ax0.axvline(t[0], color="gray", linestyle="--")
