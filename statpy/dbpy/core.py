@@ -396,16 +396,14 @@ class Sample_DB(JKS_DB):
     
     ################################## LATTICE CHARM SPECTROSCOPY ######################################
 
-    def lc_make_plot(self, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_cov):
-        fig, ax0 = plt.subplots(figsize=(12,8))
+    def lc_make_plot(self, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov):
+        fig, (ax0, ax1) = plt.subplots(ncols=2)
         # correlator
         color = "C0"
-        ax0.set_xlabel(r"source-sink separation $t$")
+        ax0.set_xlabel(r"source-sink separation $t/a$")
         ax0.set_ylabel(r"$C(t)$", color=color)     
-        ax0.errorbar(np.arange(len(Ct_mean)), Ct_mean, sp.statistics.jackknife.variance_jks(Ct_mean, Ct_jks)**0.5, linestyle="", capsize=3, color=color)
+        ax0.errorbar(np.arange(1,len(Ct_mean)-1), Ct_mean[1:-1], sp.statistics.jackknife.variance_jks(Ct_mean, Ct_jks)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
         ax0.tick_params(axis='y', labelcolor=color)
-        ax0.grid(axis="x")
-        ax0.set_title(f"{Ct_tag} - binsize = {binsize}")
         # correlator fit
         trange = np.arange(fit_range[0], fit_range[-1], 0.1)
         color = "C2"
@@ -414,30 +412,37 @@ class Sample_DB(JKS_DB):
         model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit",
                        "double-cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} + e^{-m_1 (T-t)})$ - fit",
                        "double-sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} - e^{-m_1 (T-t)})$ - fit"}[model_type] 
-        ax0.plot(trange, fy, color=color, lw=.5, label=model_label)
+        ax0.plot(trange, fy, color=color, lw=.5, label=r"$C(t) = $" + model_label)
         ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
         ax0.legend(loc="upper left")
         # fit range marker
         ax0.axvline(fit_range[0], color="gray", linestyle="--")
         ax0.axvline(fit_range[-1], color="gray", linestyle="--")
         # effective mass curve
-        d = 5
-        effective_mass_curve = lambda x: sp.qcd.correlator.effective_mass_acosh(x, tmax=len(x)-d, tmin=d)
-        mt = effective_mass_curve(Ct_mean)
-        mt_var = self.sample_jackknife_variance(Ct_tag, binsize, effective_mass_curve)
-        ax1 = ax0.twinx()
+        Nt = len(Ct_mean)
+        Ct_fit = np.array([model(t, best_parameter) for t in range(Nt)]) 
+        mt = sp.qcd.correlator.effective_mass_acosh(Ct_fit, tmax=Nt-1, tmin=1) 
+        mt_jks = {}
+        for j in best_parameter_jks:
+            Ct_fit_jks = np.array([model(t, best_parameter) for t in range(Nt)])
+            mt_jks[j] = sp.qcd.correlator.effective_mass_acosh(Ct_fit_jks, tmax=Nt-1, tmin=1)
+        mt_var = sp.statistics.jackknife.variance_jks(Ct_fit[1:Nt-1], self.as_array(Ct_fit_jks))
         color = "C3"
-        ax1.set_ylabel("$m(t)$", color=color)
-        ax1.errorbar(np.arange(d, d+len(mt)), mt, mt_var**.5, linestyle="", capsize=3, color=color, label=r"$cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{C(t)} \right)$")
+        ax1.set_xlabel(r"source-sink separation $t/a$")
+        ax1.set_ylabel("$m/GeV$", color=color)
+        ax1.errorbar(np.arange(1, Nt-1), mt, mt_var**.5, linestyle="", capsize=3, color=color, label=r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{C(t)} \right)$")
         ax1.tick_params(axis='y', labelcolor=color)
-        ax1.grid(axis="y")
         # effective mass from fit
         color = "C4"
         meff_arr = np.array([best_parameter[1] for t in trange])
-        ax1.plot(trange, meff_arr, color=color, lw=.5, label=r"$m_{eff} = $" + f"{best_parameter[1]:.4f} +- {best_parameter_cov[1][1]**.5:.4f}")
+        ax1.plot(trange, meff_arr, color=color, lw=.5, label=r"$m_0 = $" + f"{best_parameter[1]:.4f} +- {best_parameter_cov[1][1]**.5:.4f}")
         ax1.fill_between(trange, meff_arr-best_parameter_cov[1][1]**.5, meff_arr+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
-        ax1.set_ylim(mt[d]*0.95, mt[d]*1.05)
         ax1.legend(loc="upper right")
+        # fit range marker
+        ax1.axvline(fit_range[0], color="gray", linestyle="--")
+        ax1.axvline(fit_range[-1], color="gray", linestyle="--")
+        ### 
+        plt.suptitle(f"{Ct_tag} - binsize = {binsize}")
         plt.tight_layout()
         plt.plot()
 
@@ -479,7 +484,7 @@ class Sample_DB(JKS_DB):
             for i in range(len(best_parameter)):
                 self.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
             self.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            criterion = np.array([model(t, [0, 0, best_parameter[2], best_parameter[3]]) for t in range(Nt)]) < var**.5/4
+            criterion = np.abs([model(t, [0, 0, best_parameter[2], best_parameter[3]]) for t in range(Nt)]) < var**.5/4.
             for i in np.arange(Nt):
                 if i not in t:
                     criterion[i] = False
@@ -494,7 +499,7 @@ class Sample_DB(JKS_DB):
                 print("----------------------------------------------------------------------------------------------------------------------------------")
                 print("----------------------------------------------------------------------------------------------------------------------------------")
             if make_plots:
-                self.lc_make_plot(Ct_tag, mean, jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_cov)
+                self.lc_make_plot(Ct_tag, mean, jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov)
         self.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
         return fit_range
     
@@ -525,10 +530,10 @@ class Sample_DB(JKS_DB):
                 print("\n-----------------------------------------------------------------------------------------")
                 print("-----------------------------------------------------------------------------------------\n")
             if b == b_max:
-                self.lc_make_plot(Ct_tag, mean, jks, b_max, t, model_type, model, best_parameter, best_parameter_cov)
+                self.lc_make_plot(Ct_tag, mean, jks, b_max, t, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov)
         return A_dict, A_var_dict, m_dict, m_var_dict  
 
-    def lc_combined_cosh_sinh_fit(self, tag0, tag1, B, fit_range, p0, correlated=False, fit_method="Migrad", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plot=True):
+    def lc_combined_cosh_sinh_fit(self, tag0, tag1, B, fit_range0, fit_range1, p0, correlated=False, fit_method="Migrad", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plot=True):
         """
         * perform combined fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
         * covariance of correlators is estimated on unbinned dataset
@@ -536,10 +541,11 @@ class Sample_DB(JKS_DB):
         A_PS_dict = {}; A_PS_var_dict = {}; A_PS_jks_dict = {}
         A_A4_dict = {}; A_A4_var_dict = {}; A_A4_jks_dict = {}
         m_dict = {}; m_var_dict = {}; m_jks_dict = {}
-        t = fit_range
+        t0 = fit_range0
+        t1 = fit_range1
         # estimate cov using unbinned sample
         jks0_ub = self.compute_sample_jks(tag0, 1); jks1_ub = self.compute_sample_jks(tag1, 1)
-        jks_ub = np.array([np.hstack((jks0_ub[cfg][t],jks1_ub[cfg][t])) for cfg in range(len(jks0_ub))])
+        jks_ub = np.array([np.hstack((jks0_ub[cfg][t0],jks1_ub[cfg][t1])) for cfg in range(len(jks0_ub))])
         cov = sp.statistics.jackknife.covariance_jks(np.mean(jks_ub, axis=0), jks_ub)
         if not correlated:
             cov = np.diag(np.diag(cov))
@@ -547,11 +553,11 @@ class Sample_DB(JKS_DB):
             print(f"BINSIZE = {b}\n")
             jks0 = self.compute_sample_jks(tag0, binsize=b); jks1 = self.compute_sample_jks(tag1, binsize=b)
             mean0 = np.mean(jks0, axis=0); mean1 = np.mean(jks1, axis=0)
-            jks_arr = np.array([np.hstack((jks0[cfg][t],jks1[cfg][t])) for cfg in range(len(jks0))])
+            jks_arr = np.array([np.hstack((jks0[cfg][t0],jks1[cfg][t1])) for cfg in range(len(jks0))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
-            model = sp.qcd.correlator.combined_cosh_sinh_model(len(jks0[0]))
-            best_parameter, best_parameter_jks, chi2, dof, pval = sp.qcd.correlator.fit(t, mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
+            model = sp.qcd.correlator.combined_cosh_sinh_model(len(jks0[0]), len(t0))
+            best_parameter, best_parameter_jks, chi2, dof, pval = sp.qcd.correlator.fit(np.hstack((t0, t1)), mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
             best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
             for i in range(len(best_parameter)):
                 self.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
@@ -567,46 +573,48 @@ class Sample_DB(JKS_DB):
                 print("-----------------------------------------------------------------------------------------\n")
             if b == B:
                 if make_plot:
-                    fig, ax0 = plt.subplots(figsize=(12,8))
+                    fig, (ax0, ax1) = plt.subplots(ncols=2)
                     # PSPS correlator
                     color = "C0"
-                    ax0.set_xlabel(r"source-sink separation $t$")
-                    ax0.set_ylabel(r"$C_{PSPS}(t)$", color=color)     
-                    ax0.errorbar(np.arange(len(mean0)), mean0, sp.statistics.jackknife.variance_jks(mean0, jks0)**0.5, linestyle="", capsize=3, 
+                    ax0.set_xlabel(r"source-sink separation $t/a$")
+                    ax0.set_ylabel(r"$C(t)$", color=color)     
+                    ax0.errorbar(np.arange(len(mean0))[1:-1], mean0[1:-1], sp.statistics.jackknife.variance_jks(mean0, jks0)[1:-1]**0.5, linestyle="", capsize=3, 
                                  color=color, label=f"PSPS data")
                     ax0.tick_params(axis='y', labelcolor=color)
-                    ax0.grid()
-                    ax0.set_title(f"combined fit {tag0} + {tag1}  - binsize = {B}")            
+                    # PSPS fit
+                    trange0 = np.arange(t0[0], t0[-1], 0.1)
+                    color = "C2"
+                    fy_PS = np.array([model(t, best_parameter)[0] for t in trange0])
+                    fy_err_PS = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model.parameter_gradient(x,y)[0]) for t in trange0])**.5
+                    model_label = {"cosh": r"$A_{PS} (e^{-m t} + e^{-m (T-t)})$ - fit", "sinh": r"$A_{A4} (e^{-m t} - e^{-m (T-t)})$ - fit"}
+                    ax0.plot(trange0, fy_PS, color=color, lw=.5, label=r"$C(t) = $" + model_label["cosh"])
+                    ax0.fill_between(trange0, fy_PS-fy_err_PS, fy_PS+fy_err_PS, alpha=0.5, color=color)
+                    ax0.legend(loc="upper left")
+                    ax0.set_title(f"{tag0}")
+                    # fit range marker
+                    ax0.axvline(t0[0], color="gray", linestyle="--")
+                    ax0.axvline(t0[-1], color="gray", linestyle="--")
                     # PSA4 correlator
                     color = "C1"
-                    ax1 = ax0.twinx()
-                    ax1.set_ylabel(r"$C_{PSA4}(t)$", color=color) 
-                    ax1.errorbar(np.arange(len(mean1)), mean1, sp.statistics.jackknife.variance_jks(mean1, jks1)**0.5, linestyle="", capsize=3, 
+                    ax1.set_xlabel(r"source-sink separation $t/a$")
+                    ax1.set_ylabel(r"$C(t)$", color=color) 
+                    ax1.errorbar(np.arange(len(mean1))[1:-1], mean1[1:-1], sp.statistics.jackknife.variance_jks(mean1, jks1)[1:-1]**0.5, linestyle="", capsize=3, 
                                  color=color, label=f"PSA4 data")
                     ax1.tick_params(axis='y', labelcolor=color)
-                    # PSPS fit
-                    trange = np.arange(t[0], t[-1], 0.1)
-                    color = "C2"
-                    fy_PS = np.array([model(t, best_parameter)[0] for t in trange])
-                    fy_err_PS = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model.parameter_gradient(x,y)[0]) for t in trange])**.5
-                    model_label = {"cosh": r"$A_{PS} (e^{-m t} + e^{-m (T-t)})$ - fit", "sinh": r"$A_{A4} (e^{-m t} - e^{-m (T-t)})$ - fit"}
-                    ax0.plot(trange, fy_PS, color=color, lw=.5, label=model_label["cosh"])
-                    ax0.fill_between(trange, fy_PS-fy_err_PS, fy_PS+fy_err_PS, alpha=0.5, color=color)
-                    #ax0.set_ylim(0.0, mean0[t[0]])
-                    #ax0.set_yscale("log")
-                    ax0.legend(loc="upper left")
                     # PSA4 fit
+                    trange1 = np.arange(t1[0], t1[-1], 0.1)
                     color = "C3"
-                    fy_A4 = np.array([model(t, best_parameter)[1] for t in trange])
-                    fy_err_A4 = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model.parameter_gradient(x,y)[1]) for t in trange])**.5
-                    ax1.plot(trange, fy_A4, color=color, lw=.5, label=model_label["sinh"])
-                    ax1.fill_between(trange, fy_A4-fy_err_A4, fy_A4+fy_err_A4, alpha=0.5, color=color)
-                    #ax1.set_ylim(mean1[t[0]], mean1[t[-1]])
-                    #ax1.set_yscale("log")
+                    fy_A4 = np.array([model(t, best_parameter)[1] for t in trange1])
+                    fy_err_A4 = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model.parameter_gradient(x,y)[1]) for t in trange1])**.5
+                    ax1.plot(trange1, fy_A4, color=color, lw=.5, label=r"$C(t) = $" + model_label["sinh"])
+                    ax1.fill_between(trange1, fy_A4-fy_err_A4, fy_A4+fy_err_A4, alpha=0.5, color=color)
                     ax1.legend(loc="upper right")
+                    ax1.set_title(f"{tag1}")
                     # fit range marker
-                    ax0.axvline(t[0], color="gray", linestyle="--")
-                    ax0.axvline(t[-1], color="gray", linestyle="--")
+                    ax1.axvline(t1[0], color="gray", linestyle="--")
+                    ax1.axvline(t1[-1], color="gray", linestyle="--")
+                    ###
+                    plt.suptitle(f"combined fit - binsize = {B}")            
                     plt.tight_layout()
                     plt.plot()
         return A_PS_dict, A_PS_var_dict, A_PS_jks_dict, A_A4_dict, A_A4_var_dict, A_A4_jks_dict, m_dict, m_var_dict, m_jks_dict 

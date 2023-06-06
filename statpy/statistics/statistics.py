@@ -101,7 +101,7 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
             model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)$"
         if make_plot:
             # figure
-            fig, ax = plt.subplots(figsize=(16,5))
+            fig, ax = plt.subplots(figsize=(12,5))
             ax.set_ylabel(r"$\sigma^2[S]\,/\,\sigma^2[1]$")
             ax.set_xlabel(r"binsize S")
             # data
@@ -117,8 +117,6 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
             ax.plot(brange, [ratio_inf_b for b in brange], color="C2", 
                     label=r"$2\tau = $" + f"{ratio_inf_b:.2f} +- {ratio_inf_b_var**.5:.2f}, fit model: " + model_label)
             ax.fill_between(brange, ratio_inf_b-ratio_inf_b_var**.5, ratio_inf_b+ratio_inf_b_var**.5, alpha=0.5, color="C2")
-            # optics
-            ax.grid()
             ax.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
@@ -126,13 +124,12 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
         print("Fitter did not converge")
         ratio_inf_b = []; ratio_inf_b_var = []
         if make_plot:
-            fig, ax = plt.subplots(figsize=(16,5))
+            fig, ax = plt.subplots()
             color = "C0"
             ax.set_ylabel(r"$\sigma^2[S]\,/\,\sigma^2[1]$")
             ax.set_xlabel(r"binsize S")
             ax.errorbar(var_ratio.keys(), var_ratio.values(), np.array(list(var_ratio_var.values()))**.5, 
                         linestyle="", marker="+", capsize=5, color="C0", label="data")
-            ax.grid()
             ax.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
