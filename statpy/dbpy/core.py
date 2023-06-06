@@ -424,9 +424,9 @@ class Sample_DB(JKS_DB):
         mt = sp.qcd.correlator.effective_mass_acosh(Ct_fit, tmax=Nt-1, tmin=1) 
         mt_jks = {}
         for j in best_parameter_jks:
-            Ct_fit_jks = np.array([model(t, best_parameter) for t in range(Nt)])
+            Ct_fit_jks = np.array([model(t, best_parameter_jks[j]) for t in range(Nt)])
             mt_jks[j] = sp.qcd.correlator.effective_mass_acosh(Ct_fit_jks, tmax=Nt-1, tmin=1)
-        mt_var = sp.statistics.jackknife.variance_jks(Ct_fit[1:Nt-1], self.as_array(Ct_fit_jks))
+        mt_var = sp.statistics.jackknife.variance_jks(mt, self.as_array(mt_jks))
         color = "C3"
         ax1.set_xlabel(r"source-sink separation $t/a$")
         ax1.set_ylabel("$m/GeV$", color=color)
@@ -446,7 +446,7 @@ class Sample_DB(JKS_DB):
         plt.tight_layout()
         plt.plot()
 
-    def lc_fit_range(self, Ct_tag, binsize, ds, p0, model_type, fit_method="Levenberg-Marquardt", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plots=True):
+    def lc_fit_range(self, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plots=True):
         """
         * perform uncorrelated fits at binsize b=20 using double symmetric double exponential fit model for different fit ranges $[d,N_t -d]$
         * ground state captured in one exponential and excited states in the other
@@ -454,8 +454,6 @@ class Sample_DB(JKS_DB):
         * cut off time values from fit range for which excited state contribution is smaller than $\frac{\text{std}\left(C(t)\right)}{4}$
         * final fit range is the smallest of the reduced fit windows
         """
-        if fit_params == None:
-            fit_params = {"maxiter":5000, "tol":1e-8, "eps1":1e-11, "eps2":1e-11, "eps3":1e-9}
         if jks_fit_method == None:
             jks_fit_method = fit_method; jks_fit_params = fit_params
         jks = self.compute_sample_jks(Ct_tag, binsize)
@@ -463,15 +461,13 @@ class Sample_DB(JKS_DB):
         var = sp.statistics.jackknife.variance_jks(mean, jks)
         Nt = len(mean)
         model = {"double-cosh": sp.qcd.correlator.double_cosh_model(Nt), "double-sinh": sp.qcd.correlator.double_sinh_model(Nt)}[model_type]
-        #fit_range = np.arange(Nt)
-        tmin = 0; tmax = Nt
+        fit_range = np.arange(Nt)
         for d in ds:
             t = np.arange(d, Nt-d)
             self.message(f"fit range: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
             best_parameter, best_parameter_jks, chi2, dof, pval = sp.qcd.correlator.fit(t, y, y_jks, cov, p0, model, 
                                                     fit_method, fit_params, jks_fit_method, jks_fit_params)
-            # sort parameters s.t. first two parameters correspond to ground state
             def sort_params(p):
                 if p[3] <  p[1]: 
                     return [p[2], p[3], p[0], p[1]]
@@ -489,11 +485,11 @@ class Sample_DB(JKS_DB):
                 if i not in t:
                     criterion[i] = False
             t_reduced = np.arange(Nt)[criterion]
-            if t_reduced[0] > tmin: tmin = t_reduced[0]
-            if t_reduced[-1] < tmax: tmax = t_reduced[-1]
-            if d > tmin: tmin = d
-            if Nt-d < tmax: tmax = Nt-d
-            fit_range = np.arange(tmin, tmax)
+            if len(t_reduced) < len(fit_range): 
+                fit_range = t_reduced
+            # assure that fit_range starts at least at d and ends at Nt-d
+            if fit_range[0] < d: fit_range = np.arange(2, fit_range[-1])
+            if fit_range[-1] > Nt-d: fit_range = np.arange(fit_range[0], Nt-d) 
             self.message(f"reduced fit range {fit_range}", verbosity)
             if verbosity >= 0:     
                 print("----------------------------------------------------------------------------------------------------------------------------------")
@@ -533,7 +529,7 @@ class Sample_DB(JKS_DB):
                 self.lc_make_plot(Ct_tag, mean, jks, b_max, t, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov)
         return A_dict, A_var_dict, m_dict, m_var_dict  
 
-    def lc_combined_cosh_sinh_fit(self, tag0, tag1, B, fit_range0, fit_range1, p0, correlated=False, fit_method="Migrad", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plot=True):
+    def lc_combined_cosh_sinh_fit(self, tag0, tag1, B, t0, t1, p0, correlated=False, fit_method="Migrad", fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plot=True):
         """
         * perform combined fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
         * covariance of correlators is estimated on unbinned dataset
@@ -541,8 +537,6 @@ class Sample_DB(JKS_DB):
         A_PS_dict = {}; A_PS_var_dict = {}; A_PS_jks_dict = {}
         A_A4_dict = {}; A_A4_var_dict = {}; A_A4_jks_dict = {}
         m_dict = {}; m_var_dict = {}; m_jks_dict = {}
-        t0 = fit_range0
-        t1 = fit_range1
         # estimate cov using unbinned sample
         jks0_ub = self.compute_sample_jks(tag0, 1); jks1_ub = self.compute_sample_jks(tag1, 1)
         jks_ub = np.array([np.hstack((jks0_ub[cfg][t0],jks1_ub[cfg][t1])) for cfg in range(len(jks0_ub))])
@@ -556,7 +550,7 @@ class Sample_DB(JKS_DB):
             jks_arr = np.array([np.hstack((jks0[cfg][t0],jks1[cfg][t1])) for cfg in range(len(jks0))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
-            model = sp.qcd.correlator.combined_cosh_sinh_model(len(jks0[0]), len(t0))
+            model = sp.qcd.correlator.combined_cosh_sinh_model(len(mean0), t0, t1)
             best_parameter, best_parameter_jks, chi2, dof, pval = sp.qcd.correlator.fit(np.hstack((t0, t1)), mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
             best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
             for i in range(len(best_parameter)):
@@ -584,7 +578,7 @@ class Sample_DB(JKS_DB):
                     # PSPS fit
                     trange0 = np.arange(t0[0], t0[-1], 0.1)
                     color = "C2"
-                    fy_PS = np.array([model(t, best_parameter)[0] for t in trange0])
+                    fy_PS = np.array([model.cosh(t, best_parameter) for t in trange0])
                     fy_err_PS = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model.parameter_gradient(x,y)[0]) for t in trange0])**.5
                     model_label = {"cosh": r"$A_{PS} (e^{-m t} + e^{-m (T-t)})$ - fit", "sinh": r"$A_{A4} (e^{-m t} - e^{-m (T-t)})$ - fit"}
                     ax0.plot(trange0, fy_PS, color=color, lw=.5, label=r"$C(t) = $" + model_label["cosh"])
@@ -604,7 +598,7 @@ class Sample_DB(JKS_DB):
                     # PSA4 fit
                     trange1 = np.arange(t1[0], t1[-1], 0.1)
                     color = "C3"
-                    fy_A4 = np.array([model(t, best_parameter)[1] for t in trange1])
+                    fy_A4 = np.array([model.sinh(t, best_parameter) for t in trange1])
                     fy_err_A4 = np.array([self.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model.parameter_gradient(x,y)[1]) for t in trange1])**.5
                     ax1.plot(trange1, fy_A4, color=color, lw=.5, label=r"$C(t) = $" + model_label["sinh"])
                     ax1.fill_between(trange1, fy_A4-fy_err_A4, fy_A4+fy_err_A4, alpha=0.5, color=color)

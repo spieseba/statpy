@@ -105,22 +105,19 @@ def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method
 # C0(t) = A0 * [exp(-mt) + exp(-m(T-t))]; A0 = p[0]; m = p[2]
 # C1(t) = A1 * [exp(-mt) - exp(-m(T-t))]; A1 = p[1]; m = p[2]  
 class combined_cosh_sinh_model:
-    def __init__(self, T, lent0):
+    def __init__(self, T, t0, t1):
         self.T = T 
-        self.lent0 = lent0
+        self.t0 = t0
+        self.t1 = t1
     def __call__(self, t, p):
-        if isinstance(t, int) or isinstance(t, float):
-            t0 = t; t1 = t
-        else:
-            t0 = t[:self.lent0]; t1 = t[self.lent0:]
-        f = p[0] * ( np.exp(-p[2]*t0) + np.exp(-p[2]*(self.T-t0)) ) 
-        g = p[1] * ( np.exp(-p[2]*t1) - np.exp(-p[2]*(self.T-t1)) ) 
-        return np.hstack((f,g)) 
+        f0 = p[0] * ( np.exp(-p[2]*self.t0) + np.exp(-p[2]*(self.T-self.t0)) ) 
+        f1 = p[1] * ( np.exp(-p[2]*self.t1) - np.exp(-p[2]*(self.T-self.t1)) ) 
+        return np.hstack((f0,f1)) 
+    def cosh(self, t, p):
+        return p[0] * ( np.exp(-p[2]*t) + np.exp(-p[2]*(self.T-t)) ) 
+    def sinh(self, t, p):
+        return p[1] * ( np.exp(-p[2]*t) - np.exp(-p[2]*(self.T-t)) )  
     def parameter_gradient(self, t, p):
-        if isinstance(t, int) or isinstance(t, float):
-            t0 = t; t1 = t
-        else:
-            t0 = t[:self.lent0]; t1 = t[self.lent0:]
-        df = np.array([np.exp(-p[2]*t0) + np.exp(-p[2]*(self.T-t0)), 0, p[0] * (np.exp(-p[2]*t0) * (-t0) + np.exp(-p[2]*(self.T-t0)) * (t0-self.T))], dtype=object)  
-        dg = np.array([0, np.exp(-p[2]*t1) - np.exp(-p[2]*(self.T-t1)), p[1] * (np.exp(-p[2]*t1) * (-t1) - np.exp(-p[2]*(self.T-t1)) * (t-self.T))], dtype=object)  
-        return np.array([df, dg]) 
+        df0 = np.array([np.exp(-p[2]*t) + np.exp(-p[2]*(self.T-t)), 0, p[0] * (np.exp(-p[2]*t) * (-t) + np.exp(-p[2]*(self.T-t)) * (t-self.T))], dtype=object)  
+        df1 = np.array([0, np.exp(-p[2]*t) - np.exp(-p[2]*(self.T-t)), p[1] * (np.exp(-p[2]*t) * (-t) - np.exp(-p[2]*(self.T-t)) * (t-self.T))], dtype=object)  
+        return np.array([df0, df1]) 
