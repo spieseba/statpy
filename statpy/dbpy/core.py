@@ -124,13 +124,6 @@ class JKS_DB:
             return Leaf(mean, jks, None)
         self.database[dst_tag] = Leaf(mean, jks, None)
 
-    def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag):
-        sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
-        if self.database[dst_tag].info == None:
-            self.database[dst_tag].info = {}
-        self.database[dst_tag].info[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
-        self.database[dst_tag].info[f"SYS_VAR_{sys_tag}"] = sys_var
-
     ################################## STATISTICS ######################################
 
     def compute_jks(self, tag, binsize, shift=0, verbose=False):
@@ -179,6 +172,22 @@ class JKS_DB:
     def AMA(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_tag):
         self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x-y, dst_tag=dst_tag+"_bias")
         self.combine(sloppy_sloppy_tag, dst_tag+"_bias", f=lambda x,y: x+y, dst_tag=dst_tag)
+ 
+    ############################# SYSTEMATICS #################################
+
+    def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag):
+        sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
+        if self.database[dst_tag].info == None:
+            self.database[dst_tag].info = {}
+        self.database[dst_tag].info[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
+        self.database[dst_tag].info[f"SYS_VAR_{sys_tag}"] = sys_var
+
+    def get_sys_var(self, tag):
+        sys_var = 0.
+        for k,v in self.database[tag].info.items():
+            if "SYS_VAR" in k:
+                sys_var += v
+        return sys_var
 
     ############################### SCALE SETTING ###################################
 
@@ -212,7 +221,7 @@ class JKS_DB:
         if verbose:
             self.message(f"sqrt(tau0) = {self.database[leaf_prefix + '/sqrt_tau0'].mean:.4f} +- {sqrt_tau0_var**.5:.4f}")
             self.message(f"omega0 = {self.database[leaf_prefix + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
-            self.message(f"t0/GeV (cutoff) = {self.database[leaf_prefix + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_stat_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_stat_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
+            self.message(f"sqrt(t0)/GeV (cutoff) = {self.database[leaf_prefix + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_stat_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_stat_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
             self.message(f"w0/GeV (cutoff) = {self.database[leaf_prefix + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")
 
     ################################## FITTING ######################################
