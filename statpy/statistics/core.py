@@ -1,7 +1,8 @@
-from typing import Any
+#!/usr/bin/env python3
+
 import numpy as np
 import matplotlib.pyplot as plt
-import statpy as sp
+from ..fitting.core import Fitter
 
 # standard error
 def ste(data, tau_int=0.5):
@@ -22,15 +23,11 @@ def bin(data, b, *argv):
     return np.array(bata) 
 
 ####################### INFINITE BINSIZE EXTRAPOLATION ########################
+# for more details see: https://arxiv.org/pdf/2211.03744.pdf
 
 # one parameter model for variance ratio var[S]/var[1]
 # assumes single dominant markov mode tau ~ tau_int
-# can fit from S0=1a
-# model = 2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]
-# gradient = 2 - \frac{4\tau}{S}\left(1 - e^{-S/\tau}\right) + 2 e^{-S/\tau}
-# infinite binsize extrapolation: 
-#   \lim_{S \rightarrow \infty} 2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right] = 2\tau
-#   \lim_{S \rightarrow \infty} \frac{\partial}{\partial\tau} 2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right] = 2
+# can fit from S0=1
 class singlemode_model:
     def __init__(self):
         pass
@@ -53,12 +50,6 @@ class twoparameter_model:
 # three paramater model for variance ratio var[S]/var[1]
 # takes exponential corrections to 2tau(1 - c/S) into account
 # start fit at S0 ~ 2tau
-# model = f(\tau_{A,int}, c_A, d_A) = 2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)
-# parameter gradient = [ 2\left(1 - \frac{c_A}{S}\right) + 2d_A\left(\frac{1}{S} + \frac{1}{\tau_{A,int}}\right) e^{-S/\tau_{A,int}},
-# - \frac{2\tau_{A,int}}{S}, \frac{e^{-S/\tau_{A,int}}}{S}]
-# infinite binsize extrapolation: 
-#   \lim_{S \rightarrow \infty} f(\tau_{A,int}, c_A, d_A) = 2\tau
-#   \lim_{S \rightarrow \infty} parameter_gradient  = [2, 0, 0]
 class threeparam_model:
     def __init__(self):
         pass
@@ -85,7 +76,7 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
     # fit model to var_ratio
     fit_models = {"singlemode": singlemode_model, "twoparam": twoparameter_model, "threeparam": threeparam_model} 
     model = fit_models[fit_model]()
-    fitter = sp.fitting.Fitter(t=binsizes_to_be_fitted,
+    fitter = Fitter(t=binsizes_to_be_fitted,
                                C=np.diag(np.array([var_ratio_var[b] for b in binsizes_to_be_fitted])), 
                                model=model, estimator=lambda x : x, method=fit_method, minimizer_params=fit_params)
     try:
@@ -133,4 +124,3 @@ def infinite_binsize_extrapolation(var_dict, N, binsizes_to_be_fitted, fit_model
             ax.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
-    #return ratio_inf_b #, ratio_inf_b_var

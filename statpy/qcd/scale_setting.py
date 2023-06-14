@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import numpy as np
 
 class gradient_flow_scale:
@@ -78,3 +80,32 @@ class gradient_flow_scale:
         omega0 = self.comp_omega0(tau, tdt2E)
         return omega0 * 0.1973 / w0_fm
     
+def db_gradient_flow_scale(db, leaf_prefix, binsize, verbose=True):
+    tau = db.database[leaf_prefix + "/tau"].mean
+    scale = gradient_flow_scale()
+    # tau0
+    db.combine(leaf_prefix + "/E", f=lambda x: scale.set_sqrt_tau0(tau, x), dst_tag=leaf_prefix + "/sqrt_tau0")
+    sqrt_tau0_var = db.jackknife_variance(leaf_prefix + "/sqrt_tau0", binsize)
+    # t0
+    db.combine(leaf_prefix + "/sqrt_tau0", f=lambda x: scale.comp_sqrt_t0(x, scale.sqrt_t0_fm), dst_tag=leaf_prefix + "/sqrt_t0") 
+    sqrt_t0_stat_var = db.jackknife_variance(leaf_prefix + "/sqrt_t0", binsize)
+    # propagate systematic error of t0
+    sqrt_t0_mean_shifted = scale.comp_sqrt_t0(db.database[leaf_prefix + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
+    db.propagate_sys_var(sqrt_t0_mean_shifted, dst_tag=leaf_prefix + "/sqrt_t0")
+    print(db.database[leaf_prefix + "/sqrt_t0"].info)
+    sqrt_t0_sys_var = db.database[leaf_prefix + "/sqrt_t0"].info["SYS_VAR"]
+    # omega0
+    db.combine(leaf_prefix + "/E", f=lambda x: scale.set_omega0(tau, x), dst_tag=leaf_prefix + "/omega0")
+    omega0_var = db.jackknife_variance(leaf_prefix + "/omega0", binsize)
+    # w0
+    db.combine(leaf_prefix + "/omega0", f=lambda x: scale.comp_w0(x, scale.w0_fm), dst_tag=leaf_prefix + "/w0") 
+    w0_stat_var = db.jackknife_variance(leaf_prefix + "/w0", binsize)
+    # propagate systematic error of w0
+    w0_mean_shifted = scale.comp_w0(db.database[leaf_prefix + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
+    db.propagate_sys_var(w0_mean_shifted, dst_tag=leaf_prefix + "/w0")
+    w0_sys_var = db.database[leaf_prefix + "/w0"].info["SYS_VAR"]
+    if verbose:
+        db.message(f"sqrt(tau0) = {db.database[leaf_prefix + '/sqrt_tau0'].mean:.4f} +- {sqrt_tau0_var**.5:.4f}")
+        db.message(f"omega0 = {db.database[leaf_prefix + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
+        db.message(f"sqrt(t0)/GeV (cutoff) = {db.database[leaf_prefix + '/sqrt_t0'].mean:.4f} +- {sqrt_t0_stat_var**.5:.4f} (STAT) +- {sqrt_t0_sys_var**.5:.4f} (SYS) [{(sqrt_t0_stat_var+sqrt_t0_sys_var)**.5:.4f} (STAT+SYS)]")
+        db.message(f"w0/GeV (cutoff) = {db.database[leaf_prefix + '/w0'].mean:.4f} +- {w0_stat_var**.5:.4f} (STAT) +- {w0_sys_var**.5:.4f} (SYS) [{(w0_stat_var+w0_sys_var)**.5:.4f} (STAT+SYS)]")

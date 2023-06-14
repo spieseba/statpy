@@ -1,11 +1,12 @@
+#!/usr/bin/env python3
+
 import numpy as np
-from iminuit import Minuit
-from .levenberg_marquardt import LevenbergMarquardt #, Jacobian, param_cov_lm, fit_std_err_lm
-from ..statistics.jackknife import samples, covariance
 import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
-import statpy as sp
+from iminuit import Minuit
+from .levenberg_marquardt import LevenbergMarquardt #, Jacobian, param_cov_lm, fit_std_err_lm
+from ..statistics.jackknife import samples, covariance
 
 # default Nelder-Mead parameter
 nm_parameter = {

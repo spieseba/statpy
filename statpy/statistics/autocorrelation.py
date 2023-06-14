@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
+
 import numpy as np
 
 # autocovariance
-def acov(sample, tmax):
+def covariance(sample, tmax):
     n = len(sample)
     y_bar = np.mean(sample, axis=0)
     Cy = np.zeros(tmax)
@@ -14,10 +16,10 @@ def acov(sample, tmax):
     return Cy
 
 # autocorrelation function
-def acfunc(sample, tmax):
-    cov = acov(sample, tmax)
+def function(sample, tmax):
+    cov = covariance(sample, tmax)
     return cov/cov[0]
 
 # integrated autocorrelation time 
-def actime(gamma, tmax):
+def integrated_time(gamma, tmax):
     return 0.5 + np.sum(gamma[1:tmax])

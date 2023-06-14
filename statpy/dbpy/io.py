@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-import os, h5py
-from typing import Any
+import os 
 import numpy as np
 from statpy.dbpy import custom_json as json
 
@@ -36,20 +35,3 @@ class IO:
             with open(self.dst, "w") as f:
                 json.dump(self.data, f)
         barrier()
-
-
-class CLS_IO:
-    def __init__(self, data_path, rwf_path, obs_tags, leaf_prefix):
-        assert os.path.isfile(data_path)
-        assert os.path.isfile(rwf_path)
-        self.lfs = []
-        for obs_tag in obs_tags:
-            tag = f"{leaf_prefix}/{obs_tag}" 
-            sample = np.array(h5py.File(data_path, "r").get(obs_tag)[:])
-            sample = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(sample)}
-            rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf)
-            nrwf = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(nrwf)} 
-            self.lfs.append((tag, None, None, sample, nrwf, None))
-
-    def __call__(self):
-        return self.lfs

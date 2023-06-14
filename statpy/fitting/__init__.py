@@ -1,2 +1,3 @@
-from statpy.fitting.fitting import *
-import statpy.fitting.levenberg_marquardt 
+#!/usr/bin/env python3
+
+import statpy.fitting.core

@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
+
 import numpy as np
-import statpy as sp
-from scipy.linalg import block_diag
 import matplotlib.pyplot as plt
+from ..fitting.core import Fitter
+from ..statistics import jackknife
 
 ########################################### EFFECTIVE MASS CURVES ###########################################
 
@@ -95,11 +97,11 @@ class const_model:
 
 def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None):
     # mean fit
-    fitter = sp.fitting.Fitter(t, Ct_cov, model, lambda x: x, fit_method, fit_params)
+    fitter = Fitter(t, Ct_cov, model, lambda x: x, fit_method, fit_params)
     best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
     # jks fits
     if jks_fit_method == None: jks_fit_method = fit_method; jks_fit_params = fit_params
-    jks_fitter = sp.fitting.Fitter(t, Ct_cov, model, lambda x: x, jks_fit_method, jks_fit_params)
+    jks_fitter = Fitter(t, Ct_cov, model, lambda x: x, jks_fit_method, jks_fit_params)
     best_parameter_jks = {}
     for cfg in  Ct_jks:
         best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(fitter.chi_squared, Ct_jks[cfg], best_parameter)
@@ -130,6 +132,27 @@ class combined_cosh_sinh_model:
         df0 = np.array([np.exp(-p[2]*t) + np.exp(-p[2]*(self.Nt-t)), 0, p[0] * (np.exp(-p[2]*t) * (-t) + np.exp(-p[2]*(self.Nt-t)) * (t-self.Nt))], dtype=object)  
         df1 = np.array([0, np.exp(-p[2]*t) - np.exp(-p[2]*(self.Nt-t)), p[1] * (np.exp(-p[2]*t) * (-t) - np.exp(-p[2]*(self.Nt-t)) * (t-self.Nt))], dtype=object)  
         return np.array([df0, df1]) 
+    
+
+
+##############################################################################################################################
+##############################################################################################################################
+####################################################### JKS SYSTEM ###########################################################
+##############################################################################################################################
+##############################################################################################################################
+
+def effective_mass_curve_fit(db, t0_min, t0_max, nt, tag, cov, p0, bc, method, minimizer_params, binsize, dst_tag, verbosity=0):
+   assert bc in ["pbc", "obc"]
+   model = {"pbc": cosh_model(len(db.database[tag].mean)), "obc": exp_model()}[bc]
+   for t0 in range(t0_min, t0_max):
+       t = np.arange(nt) + t0
+       if verbosity >=0: db.message(f"fit window: {t}")
+       db.fit(t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag=dst_tag + f"={t0}", verbosity=verbosity)
+       db.database[dst_tag + f"={t0}"].mean = db.database[dst_tag + f"={t0}"].mean[1]
+       db.database[dst_tag + f"={t0}"].jks = {cfg:val[1] for cfg, val in db.database[dst_tag + f"={t0}"].jks.items()} 
+       db.database[dst_tag + f"={t0}"].info["best_parameter_cov"] = db.database[dst_tag + f"={t0}"].info["best_parameter_cov"][1][1]
+
+
 
 ##############################################################################################################################
 ##############################################################################################################################
@@ -143,9 +166,9 @@ def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params
         else: return p
     if jks_fit_method == None:
         jks_fit_method = fit_method; jks_fit_params = fit_params
-    jks = db.compute_sample_jks(Ct_tag, binsize)
+    jks = db.sample_jks(Ct_tag, binsize)
     mean = np.mean(jks, axis=0)
-    var = sp.statistics.jackknife.variance_jks(mean, jks)
+    var = jackknife.variance_jks(mean, jks)
     Nt = len(mean)
     model = {"double-cosh": double_cosh_model(Nt), "double-sinh": double_sinh_model(Nt)}[model_type]
     fit_range = np.arange(Nt)
@@ -158,7 +181,7 @@ def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params
         best_parameter = sort_params(best_parameter)
         for cfg in best_parameter_jks:
             best_parameter_jks[cfg] = sort_params(best_parameter_jks[cfg])   
-        best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, db.as_array(best_parameter_jks)) 
+        best_parameter_cov = jackknife.covariance_jks(best_parameter, db.as_array(best_parameter_jks)) 
         for i in range(len(best_parameter)):
             db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
         db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
@@ -177,7 +200,7 @@ def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params
             print("----------------------------------------------------------------------------------------------------------------------------------")
             print("----------------------------------------------------------------------------------------------------------------------------------")
         if make_plots:
-            lc_plot(db, Ct_tag, mean, jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov)
+            lc_plot(db, Ct_tag, mean, jks, binsize, t, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov)
     db.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
     return fit_range
 
@@ -192,13 +215,13 @@ def lc_spectroscopy(db, Ct_tag, b_max, fit_range, p0, model_type, fit_method, fi
     cov = db.sample_jackknife_covariance(Ct_tag, binsize=1)
     for b in range(1,b_max+1):
         db.message(f"BINSIZE = {b}\n", verbosity)
-        jks = db.compute_sample_jks(Ct_tag, binsize=b)
+        jks = db.sample_jks(Ct_tag, binsize=b)
         mean = np.mean(jks, axis=0)
         t = fit_range
         y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
         model = {"cosh": cosh_model(len(mean)), "sinh": sinh_model(len(mean))}[model_type]
         best_parameter, best_parameter_jks, chi2, dof, pval = fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
-        best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
+        best_parameter_cov = jackknife.covariance_jks(best_parameter, best_parameter_jks)
         for i in range(len(best_parameter)):
             db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
         db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
@@ -216,21 +239,21 @@ def lc_combined_cosh_sinh_fit(db, Ct_tag_PSPS, Ct_tag_PSA4, B, fit_range_PSPS, f
     A_A4_dict = {}; A_A4_var_dict = {}; A_A4_jks_dict = {}
     m_dict = {}; m_var_dict = {}; m_jks_dict = {}
     # estimate cov using unbinned sample
-    jks_ub_PSPS = db.compute_sample_jks(Ct_tag_PSPS, 1); jks_ub_PSA4 = db.compute_sample_jks(Ct_tag_PSA4, 1)
+    jks_ub_PSPS = db.sample_jks(Ct_tag_PSPS, 1); jks_ub_PSA4 = db.sample_jks(Ct_tag_PSA4, 1)
     jks_ub = np.array([np.hstack((jks_ub_PSPS[cfg][fit_range_PSPS],jks_ub_PSA4[cfg][fit_range_PSA4])) for cfg in range(len(jks_ub_PSPS))])
-    cov = sp.statistics.jackknife.covariance_jks(np.mean(jks_ub, axis=0), jks_ub)
+    cov = jackknife.covariance_jks(np.mean(jks_ub, axis=0), jks_ub)
     if not correlated:
         cov = np.diag(np.diag(cov))
     for b in range(1, B+1):
         print(f"BINSIZE = {b}\n")
-        Ct_jks_PSPS = db.compute_sample_jks(Ct_tag_PSPS, binsize=b); Ct_jks_PSA4 = db.compute_sample_jks(Ct_tag_PSA4, binsize=b)
+        Ct_jks_PSPS = db.sample_jks(Ct_tag_PSPS, binsize=b); Ct_jks_PSA4 = db.sample_jks(Ct_tag_PSA4, binsize=b)
         Ct_mean_PSPS = np.mean(Ct_jks_PSPS, axis=0); Ct_mean_PSA4 = np.mean(Ct_jks_PSA4, axis=0)
         jks_arr = np.array([np.hstack((Ct_jks_PSPS[cfg][fit_range_PSPS], Ct_jks_PSA4[cfg][fit_range_PSA4])) for cfg in range(len(Ct_jks_PSPS))])
         jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
         mean = np.mean(jks_arr, axis=0)
         model = combined_cosh_sinh_model(len(Ct_jks_PSPS[0]), fit_range_PSPS, fit_range_PSA4)
         best_parameter, best_parameter_jks, chi2, dof, pval = fit(np.hstack((fit_range_PSPS, fit_range_PSA4)), mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
-        best_parameter_cov = sp.statistics.jackknife.covariance_jks(best_parameter, best_parameter_jks)
+        best_parameter_cov = jackknife.covariance_jks(best_parameter, best_parameter_jks)
         for i in range(len(best_parameter)):
             db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
         db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
@@ -258,18 +281,18 @@ def local_amp(trange, model, model_type, best_parameter, best_parameter_jks, Nt,
     for j in best_parameter_jks:
         Ct_fit_jks = np.array([model(t, best_parameter_jks[j]) for t in trange])
         At_jks[j] = effective_amp(Ct_fit_jks, trange, best_parameter_jks[j][mass_idx], Nt)  
-    At_var = sp.statistics.jackknife.variance_jks(At, np.array(list(At_jks.values()))) 
+    At_var = jackknife.variance_jks(At, np.array(list(At_jks.values()))) 
     return At[1:-1], At_var[1:-1]
 
 def local_mass(trange, model, best_parameter, best_parameter_jks):
     dt = trange[1] - trange[0]
     Ct_fit = np.array([model(t, best_parameter) for t in trange]) 
-    mt = sp.qcd.correlator.effective_mass_acosh(Ct_fit, tmin=1, tmax=len(trange)-1) / dt
+    mt = effective_mass_acosh(Ct_fit, tmin=1, tmax=len(trange)-1) / dt
     mt_jks = {}
     for j in best_parameter_jks:
         Ct_fit_jks = np.array([model(t, best_parameter_jks[j]) for t in trange])
-        mt_jks[j] = sp.qcd.correlator.effective_mass_acosh(Ct_fit_jks, tmin=1, tmax=len(trange)-1) / dt
-    mt_var = sp.statistics.jackknife.variance_jks(mt, np.array(list(mt_jks.values())))
+        mt_jks[j] = effective_mass_acosh(Ct_fit_jks, tmin=1, tmax=len(trange)-1) / dt
+    mt_var = jackknife.variance_jks(mt, np.array(list(mt_jks.values())))
     return mt, mt_var
 
 def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov):
@@ -280,7 +303,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     color = "C0"
     ax0.set_xlabel(r"source-sink separation $t/a$")
     ax0.set_ylabel(r"$C(t)$")     
-    ax0.errorbar(np.arange(1,Nt-1), Ct_mean[1:-1], sp.statistics.jackknife.variance_jks(Ct_mean, Ct_jks)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
+    ax0.errorbar(np.arange(1,Nt-1), Ct_mean[1:-1], jackknife.variance_jks(Ct_mean, Ct_jks)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
     # correlator fit
     d = 3
     #trange = np.arange(fit_range[0]-d, fit_range[-1]+d, 0.01)
@@ -306,7 +329,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     At_jks = {}
     for j in best_parameter_jks:
         At_jks[j] = At_func(Ct_jks[j], best_parameter_jks[j][1]) 
-    At_var_data = sp.statistics.jackknife.variance_jks(At_data, np.array(list(At_jks.values())))
+    At_var_data = jackknife.variance_jks(At_data, np.array(list(At_jks.values())))
     ax1.set_xlabel(r"source-sink separation $t/a$")
     ax1.set_ylabel("$m/GeV$")
     ax1.errorbar(np.arange(d, Nt-d), At_data, At_var_data**.5, linestyle="", capsize=3, color=color, label=r"$A(t)$ data")
@@ -331,7 +354,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     ## local mass ## 
     # data
     color = "C2"
-    mt_func = lambda x: sp.qcd.correlator.effective_mass_acosh(x, tmin=1, tmax=Nt-1)
+    mt_func = lambda x: effective_mass_acosh(x, tmin=1, tmax=Nt-1)
     mt_data = mt_func(Ct_mean)
     mt_var_data = db.sample_jackknife_variance(Ct_tag, binsize, mt_func)
     ax2.set_xlabel(r"source-sink separation $t/a$")
@@ -367,7 +390,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     color = "C0"
     ax0.set_xlabel(r"source-sink separation $t/a$")
     ax0.set_ylabel(r"$C(t)$")     
-    ax0.errorbar(np.arange(1,Nt-1), Ct_mean_PSPS[1:-1], sp.statistics.jackknife.variance_jks(Ct_mean_PSPS, Ct_jks_PSPS)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
+    ax0.errorbar(np.arange(1,Nt-1), Ct_mean_PSPS[1:-1], jackknife.variance_jks(Ct_mean_PSPS, Ct_jks_PSPS)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
     # correlator fit
     d = 3
     trange = np.arange(d, Nt-d, 0.01)
@@ -390,7 +413,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     At_jks_PSPS = {}
     for j in best_parameter_jks:
         At_jks_PSPS[j] = At_func_PSPS(Ct_jks_PSPS[j], best_parameter_jks[j][2]) 
-    At_var_data_PSPS = sp.statistics.jackknife.variance_jks(At_data_PSPS, np.array(list(At_jks_PSPS.values())))
+    At_var_data_PSPS = jackknife.variance_jks(At_data_PSPS, np.array(list(At_jks_PSPS.values())))
     ax2.set_xlabel(r"source-sink separation $t/a$")
     ax2.set_ylabel("$m/GeV$")
     ax2.errorbar(np.arange(d, Nt-d), At_data_PSPS, At_var_data_PSPS**.5, linestyle="", capsize=3, color=color, label=r"$A(t)$ data")
@@ -413,7 +436,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     ## local mass ## 
     # data
     color = "C2"
-    mt_func_PSPS = lambda x: sp.qcd.correlator.effective_mass_acosh(x, tmin=1, tmax=Nt-1)
+    mt_func_PSPS = lambda x: effective_mass_acosh(x, tmin=1, tmax=Nt-1)
     mt_data_PSPS = mt_func_PSPS(Ct_mean_PSPS)
     mt_var_data_PSPS = db.sample_jackknife_variance(Ct_tag_PSPS, binsize, mt_func_PSPS)
     ax4.set_xlabel(r"source-sink separation $t/a$")
@@ -438,7 +461,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     color = "C0"
     ax1.set_xlabel(r"source-sink separation $t/a$")
     ax1.set_ylabel(r"$C(t)$")     
-    ax1.errorbar(np.arange(1,Nt-1), Ct_mean_PSA4[1:-1], sp.statistics.jackknife.variance_jks(Ct_mean_PSA4, Ct_jks_PSA4)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
+    ax1.errorbar(np.arange(1,Nt-1), Ct_mean_PSA4[1:-1], jackknife.variance_jks(Ct_mean_PSA4, Ct_jks_PSA4)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
     # correlator fit
     d = 3
     trange = np.arange(d, Nt-d, 0.01)
@@ -461,7 +484,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     At_jks_PSA4 = {}
     for j in best_parameter_jks:
         At_jks_PSA4[j] = At_func_PSA4(Ct_jks_PSA4[j], best_parameter_jks[j][2]) 
-    At_var_data_PSA4 = sp.statistics.jackknife.variance_jks(At_data_PSA4, np.array(list(At_jks_PSA4.values())))
+    At_var_data_PSA4 = jackknife.variance_jks(At_data_PSA4, np.array(list(At_jks_PSA4.values())))
     ax3.set_xlabel(r"source-sink separation $t/a$")
     ax3.set_ylabel("$m/GeV$")
     ax3.errorbar(np.arange(d, Nt-d), At_data_PSA4, At_var_data_PSA4**.5, linestyle="", capsize=3, color=color, label=r"$A(t)$ data")
@@ -484,7 +507,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     ## local mass ## 
     # data
     color = "C2"
-    mt_func_PSA4 = lambda x: sp.qcd.correlator.effective_mass_acosh(x, tmin=1, tmax=Nt-1)
+    mt_func_PSA4 = lambda x: effective_mass_acosh(x, tmin=1, tmax=Nt-1)
     mt_data_PSA4 = mt_func_PSA4(Ct_mean_PSA4)
     mt_var_data_PSA4 = db.sample_jackknife_variance(Ct_tag_PSA4, binsize, mt_func_PSA4)
     ax5.set_xlabel(r"source-sink separation $t/a$")
