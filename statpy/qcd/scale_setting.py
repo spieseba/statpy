@@ -80,6 +80,11 @@ class gradient_flow_scale:
         omega0 = self.comp_omega0(tau, tdt2E)
         return omega0 * 0.1973 / w0_fm
     
+def db_local_gradient_flow_scale(db, leaf_prefix):
+    scale = gradient_flow_scale()
+    db.combine_sample(leaf_prefix + "/tau", leaf_prefix + "/E", f=scale.set_sqrt_tau0, dst_tag=leaf_prefix + "/local_sqrt_tau0")
+    db.combine_sample(leaf_prefix + "/tau", leaf_prefix + "/E", f=scale.set_omega0, dst_tag=leaf_prefix + "/local_omega0")
+
 def db_gradient_flow_scale(db, leaf_prefix, binsize, verbose=True):
     tau = db.database[leaf_prefix + "/tau"].mean
     scale = gradient_flow_scale()
@@ -92,7 +97,6 @@ def db_gradient_flow_scale(db, leaf_prefix, binsize, verbose=True):
     # propagate systematic error of t0
     sqrt_t0_mean_shifted = scale.comp_sqrt_t0(db.database[leaf_prefix + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
     db.propagate_sys_var(sqrt_t0_mean_shifted, dst_tag=leaf_prefix + "/sqrt_t0")
-    print(db.database[leaf_prefix + "/sqrt_t0"].info)
     sqrt_t0_sys_var = db.database[leaf_prefix + "/sqrt_t0"].info["SYS_VAR"]
     # omega0
     db.combine(leaf_prefix + "/E", f=lambda x: scale.set_omega0(tau, x), dst_tag=leaf_prefix + "/omega0")

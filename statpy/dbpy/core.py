@@ -6,7 +6,7 @@ from time import time
 from . import custom_json as json
 from .leafs import Leaf 
 from ..statistics import core as statistics
-from ..statistics import jackknife
+from ..statistics import jackknife, auto
 from ..fitting.core import Fitter
 
 ##############################################################################################################################################################
@@ -318,8 +318,8 @@ class Sample_DB(JKS_DB):
         return JKS_DB(self.database)
 
     def cfgs(self, tag):
-        return [int(x.split("-")[-1]) for x in self.database[tag].sample.keys()]
- 
+        return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
+
     ################################## STATISTICS ######################################
 
     def sample_jks(self, tag, binsize, f=lambda x: x):
@@ -351,3 +351,20 @@ class Sample_DB(JKS_DB):
         for b in binsizes:
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
+    
+    ## autocorrelations ##
+    def sample_autocovariance(self, tag, tmax, idx=None):        
+        sorted_cfgs = sorted(self.database[tag].sample, key=lambda x: int(x.split("-")[-1]))
+        if idx == None:
+            sample = np.array([self.database[tag].sample[cfg] for cfg in sorted_cfgs]) 
+        else: 
+            sample = np.array([self.database[tag].sample[cfg][idx] for cfg in sorted_cfgs]) 
+        return auto.covariance(sample, tmax)
+    
+    def sample_autocorrelation_function(self, tag, tmax, idx=None):
+        cov = self.sample_autocovariance(tag, tmax, idx)
+        return cov/cov[0]
+    
+    def sample_integrated_autocorrelation_time(self, tag, tmax, idx=None):
+        gamma = self.sample_autocorrelation_function(tag, tmax, idx)
+        return 0.5 + np.sum(gamma[1:])
