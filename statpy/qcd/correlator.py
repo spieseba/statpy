@@ -200,7 +200,7 @@ def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params
             print("----------------------------------------------------------------------------------------------------------------------------------")
             print("----------------------------------------------------------------------------------------------------------------------------------")
         if make_plots:
-            lc_plot(db, Ct_tag, mean, jks, binsize, t, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov)
+            lc_plot(db, Ct_tag, mean, jks, binsize, t, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov, fit_range)
     db.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
     return fit_range
 
@@ -212,7 +212,7 @@ def lc_spectroscopy(db, Ct_tag, b_max, fit_range, p0, model_type, fit_method, fi
     A_dict = {}; A_var_dict = {}
     m_dict = {}; m_var_dict = {}
     # estimate cov using unbinned sample
-    cov = db.sample_jackknife_covariance(Ct_tag, binsize=1)
+    cov = np.diag(db.sample_jackknife_variance(Ct_tag, binsize=1))
     for b in range(1,b_max+1):
         db.message(f"BINSIZE = {b}\n", verbosity)
         jks = db.sample_jks(Ct_tag, binsize=b)
@@ -295,7 +295,7 @@ def local_mass(trange, model, best_parameter, best_parameter_jks):
     mt_var = jackknife.variance_jks(mt, np.array(list(mt_jks.values())))
     return mt, mt_var
 
-def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov):
+def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov, reduced_fit_range=None):
     fig, ((ax0, ax_not), (ax1, ax2)) = plt.subplots(nrows=2, ncols=2)
     ax_not.set_axis_off()
     Nt = len(Ct_mean)
@@ -305,9 +305,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     ax0.set_ylabel(r"$C(t)$")     
     ax0.errorbar(np.arange(1,Nt-1), Ct_mean[1:-1], jackknife.variance_jks(Ct_mean, Ct_jks)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
     # correlator fit
-    d = 3
-    #trange = np.arange(fit_range[0]-d, fit_range[-1]+d, 0.01)
-    trange = np.arange(d, Nt-d, 0.01)
+    trange = np.arange(1, Nt-1, 0.01)
     color = "C1"
     fy = np.array([model(t, best_parameter) for t in trange])
     fy_err = np.array([db.model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
@@ -316,15 +314,19 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
                    "double-sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} - e^{-m_1 (T-t)})$ - fit"}[model_type] 
     ax0.plot(trange, fy, color=color, lw=.5, label=r"$C(t) = $" + model_label)
     ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
-    ax0.legend(loc="upper left")
     # fit range marker
-    ax0.axvline(fit_range[0], color="gray", linestyle="--")
+    ax0.axvline(fit_range[0], color="gray", linestyle="--", label="fit range")
     ax0.axvline(fit_range[-1], color="gray", linestyle="--")
+    if reduced_fit_range is not None:
+        ax0.axvline(reduced_fit_range[0], color="black", linestyle="--", label="reduced fit range")
+        ax0.axvline(reduced_fit_range[-1], color="black", linestyle="--")
+    ax0.set_xlim(0, Nt)
+    ax0.legend(loc="upper left")
     ## local Amplitude ##
     # data
     color = "C2"
     effective_amp = {"cosh": effective_amp_cosh, "sinh": effective_amp_sinh, "double-cosh": effective_amp_cosh, "double-sinh": effective_amp_sinh}[model_type]
-    At_func = lambda x, y: effective_amp(x[d:Nt-d], np.arange(d, Nt-d), y, Nt)
+    At_func = lambda x, y: effective_amp(x[1:Nt-1], np.arange(1, Nt-1), y, Nt)
     At_data = At_func(Ct_mean, best_parameter[1])
     At_jks = {}
     for j in best_parameter_jks:
@@ -332,7 +334,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     At_var_data = jackknife.variance_jks(At_data, np.array(list(At_jks.values())))
     ax1.set_xlabel(r"source-sink separation $t/a$")
     ax1.set_ylabel("$m/GeV$")
-    ax1.errorbar(np.arange(d, Nt-d), At_data, At_var_data**.5, linestyle="", capsize=3, color=color, label=r"$A(t)$ data")
+    ax1.errorbar(np.arange(1, Nt-1), At_data, At_var_data**.5, linestyle="", capsize=3, color=color, label=r"$A(t)$ data")
     # fit
     color = "C3"
     At_fit, At_var_fit = local_amp(trange, model, model_type, best_parameter, best_parameter_jks, Nt)
@@ -347,10 +349,14 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     A_arr = np.array([best_parameter[0] for t in trange])
     ax1.plot(trange, A_arr, color=color, lw=.5, label=r"$A_0 = $" + f"{best_parameter[0]:.4g} +- {best_parameter_cov[0][0]**.5:.4g}")
     ax1.fill_between(trange, A_arr-best_parameter_cov[0][0]**.5, A_arr+best_parameter_cov[0][0]**.5, alpha=0.5, color=color)
-    ax1.legend(loc="upper right")
     # fit range marker
-    ax1.axvline(fit_range[0], color="gray", linestyle="--")
+    ax1.axvline(fit_range[0], color="gray", linestyle="--", label="fit range")
     ax1.axvline(fit_range[-1], color="gray", linestyle="--")
+    if reduced_fit_range is not None:
+        ax1.axvline(reduced_fit_range[0], color="black", linestyle="--", label="reduced fit range")
+        ax1.axvline(reduced_fit_range[-1], color="black", linestyle="--")
+    ax1.set_xlim(0, Nt)
+    ax1.legend(loc="upper right")
     ## local mass ## 
     # data
     color = "C2"
@@ -370,10 +376,14 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     m_arr = np.array([best_parameter[1] for t in trange])
     ax2.plot(trange, m_arr, color=color, lw=.5, label=r"$m_0 = $" + f"{best_parameter[1]:.4g} +- {best_parameter_cov[1][1]**.5:.4g}")
     ax2.fill_between(trange, m_arr-best_parameter_cov[1][1]**.5, m_arr+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
-    ax2.legend(loc="upper right")
     # fit range marker
-    ax2.axvline(fit_range[0], color="gray", linestyle="--")
+    ax2.axvline(fit_range[0], color="gray", linestyle="--", label="fit range")
     ax2.axvline(fit_range[-1], color="gray", linestyle="--")
+    if reduced_fit_range is not None:
+        ax2.axvline(reduced_fit_range[0], color="black", linestyle="--", label="reduced fit range")
+        ax2.axvline(reduced_fit_range[-1], color="black", linestyle="--")
+    ax2.set_xlim(0, Nt)
+    ax2.legend(loc="upper right")
     ### 
     plt.suptitle(f"{Ct_tag} - binsize = {binsize}")
     plt.tight_layout()
