@@ -204,7 +204,7 @@ def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params
     db.message(f"FINAL REDUCED FIT RANGE: {fit_range}", verbosity)
     return fit_range
 
-def lc_spectroscopy(db, Ct_tag, b_max, fit_range, p0, model_type, fit_method, fit_params=None, jks_fit_method=None, jks_fit_params=None, make_plot=True, verbosity=0):
+def lc_spectroscopy(db, Ct_tag, b_max, fit_range, p0, model_type, correlated=False, fit_method="Migrad", fit_params=None, jks_fit_method=None, jks_fit_params=None, make_plot=True, verbosity=0):
     """
     * perform correlated fits for binsizes up to $b_c = 20 \approx N/100$ using symmetric exponential fit form
     * covariance of correlators is estimated on unbinned dataset
@@ -212,7 +212,10 @@ def lc_spectroscopy(db, Ct_tag, b_max, fit_range, p0, model_type, fit_method, fi
     A_dict = {}; A_var_dict = {}
     m_dict = {}; m_var_dict = {}
     # estimate cov using unbinned sample
-    cov = np.diag(db.sample_jackknife_variance(Ct_tag, binsize=1))
+    if correlated:
+        cov = db.sample_jackknife_covariance(Ct_tag, binsize=1)
+    else:
+        cov = np.diag(db.sample_jackknife_variance(Ct_tag, binsize=1))
     for b in range(1,b_max+1):
         db.message(f"BINSIZE = {b}\n", verbosity)
         jks = db.sample_jks(Ct_tag, binsize=b)
@@ -407,7 +410,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     color = "C1"
     fy_PSPS = np.array([model_combined.cosh(t, best_parameter) for t in trange])
     fy_std_PSPS = np.array([db.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model_combined.parameter_gradient(x,y)[0]) for t in trange])**.5
-    ax0.plot(trange, fy_PSPS, color=color, lw=.5, label=r"$C(t) = A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit")
+    ax0.plot(trange, fy_PSPS, color=color, lw=.5, label=r"$C_{PSPS}(t) = A_0 (e^{-m t} + e^{-m (T-t)})$ - fit")
     ax0.fill_between(trange, fy_PSPS-fy_std_PSPS, fy_PSPS+fy_std_PSPS, alpha=0.5, color=color)
     ax0.legend(loc="upper left")
     # fit range marker
@@ -426,13 +429,13 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     At_var_data_PSPS = jackknife.variance_jks(At_data_PSPS, np.array(list(At_jks_PSPS.values())))
     ax2.set_xlabel(r"source-sink separation $t/a$")
     ax2.set_ylabel("$m/GeV$")
-    ax2.errorbar(np.arange(d, Nt-d), At_data_PSPS, At_var_data_PSPS**.5, linestyle="", capsize=3, color=color, label=r"$A(t)$ data")
+    ax2.errorbar(np.arange(d, Nt-d), At_data_PSPS, At_var_data_PSPS**.5, linestyle="", capsize=3, color=color, label=r"$A_0(t)$ data")
     # fit
     color = "C3"
     At_fit_PSPS, At_var_fit_PSPS = local_amp(trange, model_combined.cosh, "cosh", best_parameter, best_parameter_jks, Nt, mass_idx=2)
     ax2.set_xlabel(r"source-sink separation $t/a$")
     ax2.set_ylabel("$A$")
-    ax2.plot(trange[1:-1], At_fit_PSPS, color=color, lw=.5, label=r"$A(t) = \frac{C(t)}{e^{-m_0 t} + e^{-m_0 (T-t)}}$")
+    ax2.plot(trange[1:-1], At_fit_PSPS, color=color, lw=.5, label=r"$A_0(t) = \frac{C_{PSPS}(t)}{e^{-m t} + e^{-m (T-t)}}$")
     ax2.fill_between(trange[1:-1], At_fit_PSPS-At_var_fit_PSPS**.5, At_fit_PSPS+At_var_fit_PSPS**.5, alpha=0.5, color=color)
     # best amplitude
     color = "C4"
@@ -455,12 +458,12 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     # fit 
     color = "C3"
     mt_fit_PSPS, mt_var_fit_PSPS = local_mass(trange, model_combined.cosh, best_parameter, best_parameter_jks)
-    ax4.plot(trange[1:-1], mt_fit_PSPS, color=color, lw=.5, label=r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$")
+    ax4.plot(trange[1:-1], mt_fit_PSPS, color=color, lw=.5, label=r"$m(t) = cosh^{-1}\left( \frac{C_{PSPS}(t+1) + C_{PSPS}(t-1)}{2 C_{PSPS}(t)} \right)$")
     ax4.fill_between(trange[1:-1], mt_fit_PSPS-mt_var_fit_PSPS**.5, mt_fit_PSPS+mt_var_fit_PSPS**.5, alpha=0.5, color=color)
     # mass from fit
     color = "C4"
     m_arr = np.array([best_parameter[2] for t in trange])
-    ax4.plot(trange, m_arr, color=color, lw=.5, label=r"$m_0 = $" + f"{best_parameter[2]:.4g} +- {best_parameter_cov[2][2]**.5:.4g}")
+    ax4.plot(trange, m_arr, color=color, lw=.5, label=r"$m = $" + f"{best_parameter[2]:.4g} +- {best_parameter_cov[2][2]**.5:.4g}")
     ax4.fill_between(trange, m_arr-best_parameter_cov[2][2]**.5, m_arr+best_parameter_cov[2][2]**.5, alpha=0.5, color=color)
     ax4.legend(loc="upper right")
     # fit range marker
@@ -470,7 +473,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     ## correlator ##
     color = "C0"
     ax1.set_xlabel(r"source-sink separation $t/a$")
-    ax1.set_ylabel(r"$C(t)$")     
+    ax1.set_ylabel(r"$C_{PSA4}(t)$")     
     ax1.errorbar(np.arange(1,Nt-1), Ct_mean_PSA4[1:-1], jackknife.variance_jks(Ct_mean_PSA4, Ct_jks_PSA4)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
     # correlator fit
     d = 3
@@ -478,7 +481,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     color = "C1"
     fy_PSA4 = np.array([model_combined.sinh(t, best_parameter) for t in trange])
     fy_std_PSA4 = np.array([db.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model_combined.parameter_gradient(x,y)[1]) for t in trange])**.5
-    ax1.plot(trange, fy_PSA4, color=color, lw=.5, label=r"$C(t) = A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit")
+    ax1.plot(trange, fy_PSA4, color=color, lw=.5, label=r"$C_{PSA4}(t) = A_1 (e^{-m t} - e^{-m (T-t)})$ - fit")
     ax1.fill_between(trange, fy_PSA4-fy_std_PSA4, fy_PSA4+fy_std_PSA4, alpha=0.5, color=color)
     ax1.legend(loc="upper left")
     # fit range marker
@@ -497,18 +500,18 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     At_var_data_PSA4 = jackknife.variance_jks(At_data_PSA4, np.array(list(At_jks_PSA4.values())))
     ax3.set_xlabel(r"source-sink separation $t/a$")
     ax3.set_ylabel("$m/GeV$")
-    ax3.errorbar(np.arange(d, Nt-d), At_data_PSA4, At_var_data_PSA4**.5, linestyle="", capsize=3, color=color, label=r"$A(t)$ data")
+    ax3.errorbar(np.arange(d, Nt-d), At_data_PSA4, At_var_data_PSA4**.5, linestyle="", capsize=3, color=color, label=r"$A_1(t)$ data")
     # fit
     color = "C3"
     At_fit_PSA4, At_var_fit_PSA4 = local_amp(trange, model_combined.sinh, "sinh", best_parameter, best_parameter_jks, Nt, mass_idx=2)
     ax3.set_xlabel(r"source-sink separation $t/a$")
     ax3.set_ylabel("$A$")
-    ax3.plot(trange[1:-1], At_fit_PSA4, color=color, lw=.5, label=r"$A(t) = \frac{C(t)}{e^{-m_0 t} - e^{-m_0 (T-t)}}$")
+    ax3.plot(trange[1:-1], At_fit_PSA4, color=color, lw=.5, label=r"$A_1(t) = \frac{C_{PSA4}(t)}{e^{-m t} - e^{-m (T-t)}}$")
     ax3.fill_between(trange[1:-1], At_fit_PSA4-At_var_fit_PSA4**.5, At_fit_PSA4+At_var_fit_PSA4**.5, alpha=0.5, color=color)
     # best amplitude
     color = "C4"
     A_arr_PSA4 = np.array([best_parameter[1] for t in trange])
-    ax3.plot(trange, A_arr_PSA4, color=color, lw=.5, label=r"$A_0 = $" + f"{best_parameter[1]:.4g} +- {best_parameter_cov[1][1]**.5:.4g}")
+    ax3.plot(trange, A_arr_PSA4, color=color, lw=.5, label=r"$A_1 = $" + f"{best_parameter[1]:.4g} +- {best_parameter_cov[1][1]**.5:.4g}")
     ax3.fill_between(trange, A_arr_PSA4-best_parameter_cov[1][1]**.5, A_arr_PSA4+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
     ax3.legend(loc="upper right")
     # fit range marker
@@ -526,12 +529,12 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     # fit 
     color = "C3"
     mt_fit_PSA4, mt_var_fit_PSA4 = local_mass(trange, model_combined.sinh, best_parameter, best_parameter_jks)
-    ax5.plot(trange[1:-1], mt_fit_PSA4, color=color, lw=.5, label=r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$")
+    ax5.plot(trange[1:-1], mt_fit_PSA4, color=color, lw=.5, label=r"$m(t) = cosh^{-1}\left( \frac{C_{PSA4}(t+1) + C_{PSA4}(t-1)}{2 C_{PSA4}(t)} \right)$")
     ax5.fill_between(trange[1:-1], mt_fit_PSA4-mt_var_fit_PSPS**.5, mt_fit_PSA4+mt_var_fit_PSA4**.5, alpha=0.5, color=color)
     # mass from fit
     color = "C4"
     m_arr = np.array([best_parameter[2] for t in trange])
-    ax5.plot(trange, m_arr, color=color, lw=.5, label=r"$m_0 = $" + f"{best_parameter[2]:.4g} +- {best_parameter_cov[2][2]**.5:.4g}")
+    ax5.plot(trange, m_arr, color=color, lw=.5, label=r"$m = $" + f"{best_parameter[2]:.4g} +- {best_parameter_cov[2][2]**.5:.4g}")
     ax5.fill_between(trange, m_arr-best_parameter_cov[2][2]**.5, m_arr+best_parameter_cov[2][2]**.5, alpha=0.5, color=color)
     ax5.legend(loc="upper right")
     # fit range marker
