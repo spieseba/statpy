@@ -84,18 +84,25 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ##############################################################################################################################
 ##############################################################################################################################
 
-def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
+def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     fitter = Fitter(cov, model, method, minimizer_params)
     db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
     best_parameter = db.database[dst_tag].mean
     db.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag) 
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
+    if sys_tags is not None:
+        for sys_tag in sys_tags:
+            mean_shifted = db.get_mean_shifted(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], sys_tag=sys_tag)
+            db.propagate_sys_var(mean_shifted, dst_tag=dst_tag, sys_tag=sys_tag)
     if verbosity >=1: 
         print(f"jackknife parameter covariance is ", best_parameter_cov) 
     chi2 = fitter.chi_squared(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
-    db.database[dst_tag].info = {"t": t, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pval": pval}
+    if db.database[dst_tag].info == None: db.database[dst_tag].info = {}
+    db.database[dst_tag].info["t"] = t
+    db.database[dst_tag].info["best_parameter_cov"] = best_parameter_cov 
+    db.database[dst_tag].info["chi2"] = chi2; db.database[dst_tag].info["dof"] = dof; db.database[dst_tag].info["pval"] = pval
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
