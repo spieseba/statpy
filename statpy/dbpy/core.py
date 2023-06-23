@@ -183,6 +183,15 @@ class JKS_DB:
  
     ############################# SYSTEMATICS #################################
 
+    def get_mean_shifted(self, *tags, f=lambda x: x , sys_tag=None):
+        x = []
+        for tag in tags:
+            try: 
+                x.append(self.database[tag].info[f"MEAN_SHIFTED_{sys_tag}"])
+            except (TypeError, KeyError):
+                x.append(self.database[tag].mean)
+        return f(*x)
+
     def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag=None):
         sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
         if self.database[dst_tag].info == None:
@@ -193,7 +202,7 @@ class JKS_DB:
         self.database[dst_tag].info[f"SYS_VAR{postfix}"] = sys_var
 
     def get_sys_var(self, tag):
-        sys_var = 0.
+        sys_var = np.zeros_like(self.database[tag].mean)
         if self.database[tag].info != None:
             for k,v in self.database[tag].info.items():
                 if "SYS_VAR" in k:

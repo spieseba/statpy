@@ -2,7 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from ..fitting.core import Fitter
+from ..fitting.core import Fitter, model_prediction_var
 from ..statistics import jackknife
 
 ########################################### EFFECTIVE MASS CURVES ###########################################
@@ -97,14 +97,14 @@ class const_model:
 
 def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None):
     # mean fit
-    fitter = Fitter(t, Ct_cov, model, lambda x: x, fit_method, fit_params)
-    best_parameter, chi2, _ = fitter.estimate_parameters(fitter.chi_squared, Ct, p0)
+    fitter = Fitter(Ct_cov, model, fit_method, fit_params)
+    best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, Ct, p0)
     # jks fits
     if jks_fit_method == None: jks_fit_method = fit_method; jks_fit_params = fit_params
-    jks_fitter = Fitter(t, Ct_cov, model, lambda x: x, jks_fit_method, jks_fit_params)
+    jks_fitter = Fitter(Ct_cov, model, jks_fit_method, jks_fit_params)
     best_parameter_jks = {}
     for cfg in  Ct_jks:
-        best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(fitter.chi_squared, Ct_jks[cfg], best_parameter)
+        best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, Ct_jks[cfg], best_parameter)
     dof = len(t) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof) 
     return best_parameter, best_parameter_jks, chi2, dof, pval
@@ -311,7 +311,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     trange = np.arange(1, Nt-1, 0.01)
     color = "C1"
     fy = np.array([model(t, best_parameter) for t in trange])
-    fy_err = np.array([db.model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
+    fy_err = np.array([model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
     model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit",
                    "double-cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} + e^{-m_1 (T-t)})$ - fit",
                    "double-sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} - e^{-m_1 (T-t)})$ - fit"}[model_type] 
@@ -409,7 +409,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     trange = np.arange(d, Nt-d, 0.01)
     color = "C1"
     fy_PSPS = np.array([model_combined.cosh(t, best_parameter) for t in trange])
-    fy_std_PSPS = np.array([db.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model_combined.parameter_gradient(x,y)[0]) for t in trange])**.5
+    fy_std_PSPS = np.array([model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model_combined.parameter_gradient(x,y)[0]) for t in trange])**.5
     ax0.plot(trange, fy_PSPS, color=color, lw=.5, label=r"$C_{PSPS}(t) = A_0 (e^{-m t} + e^{-m (T-t)})$ - fit")
     ax0.fill_between(trange, fy_PSPS-fy_std_PSPS, fy_PSPS+fy_std_PSPS, alpha=0.5, color=color)
     ax0.legend(loc="upper left")
@@ -480,7 +480,7 @@ def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS,
     trange = np.arange(d, Nt-d, 0.01)
     color = "C1"
     fy_PSA4 = np.array([model_combined.sinh(t, best_parameter) for t in trange])
-    fy_std_PSA4 = np.array([db.model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model_combined.parameter_gradient(x,y)[1]) for t in trange])**.5
+    fy_std_PSA4 = np.array([model_prediction_var(t, best_parameter, best_parameter_cov, lambda x,y: model_combined.parameter_gradient(x,y)[1]) for t in trange])**.5
     ax1.plot(trange, fy_PSA4, color=color, lw=.5, label=r"$C_{PSA4}(t) = A_1 (e^{-m t} - e^{-m (T-t)})$ - fit")
     ax1.fill_between(trange, fy_PSA4-fy_std_PSA4, fy_PSA4+fy_std_PSA4, alpha=0.5, color=color)
     ax1.legend(loc="upper left")

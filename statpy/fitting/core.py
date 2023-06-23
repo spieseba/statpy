@@ -20,18 +20,15 @@ class Fitter:
 
         Parameters:
         -----------
-                t (numpy array): independent variable t
-                y (numpy array): Markov chains at each t or numpy array of means. Note: pass array of means encapsulated in another array.
                 C (numpy 2D array): Covariance matrix of the data.
                 model (function): fit function which takes independent variable t, model parameter array p as an input and returns real number.
-                estimator (function): function which takes sample (y or y[i]) as an input and returns desired quantity.
+                estimator (function): function which takes sample y as an input and returns desired quantity.
                 method (string): minimization method. Can be "Nelder-Mead", "Migrad" or "Levenberg-Marquardt". Default is "Nelder-Mead".
     """
-    def __init__(self, C, model, estimator, method="Nelder-Mead", minimizer_params=None):
+    def __init__(self, C, model, method="Nelder-Mead", minimizer_params=None):
         self.C = C
         self.W = np.linalg.inv(C)
         self.model = model
-        self.estimator = estimator
         assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
         self.method = method
         if minimizer_params == None:
@@ -76,16 +73,11 @@ class Fitter:
         p, chi2, iterations, success, J = LevenbergMarquardt(t, y, self.W, self.model, p0, self.min_params)()
         assert success == True
         return p, chi2, J
-    
-##############################################################################################################################
-##############################################################################################################################
-######################################################## AUXILIARY ###########################################################
-##############################################################################################################################
-##############################################################################################################################
+
 
 def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_gradient):
     return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
-        
+
 ##############################################################################################################################
 ##############################################################################################################################
 ####################################################### JKS SYSTEM ###########################################################
@@ -93,38 +85,47 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ##############################################################################################################################
 
 def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
-    fitter = Fitter(cov, model, lambda x: x, method, minimizer_params)
+    fitter = Fitter(cov, model, method, minimizer_params)
     db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
     best_parameter = db.database[dst_tag].mean
-    db.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag)  
+    db.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag) 
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
     if verbosity >=1: 
         print(f"jackknife parameter covariance is ", best_parameter_cov) 
     chi2 = fitter.chi_squared(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
-    db.database[dst_tag].info = {"t": t, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
+    db.database[dst_tag].info = {"t": t, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pval": pval}
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}") 
 
-def fit_multiple(db, t_tags, y_tags, cov, p0, model, method="Nelder-Mead", minimizer_params={"tol": 1e-7}, binsize=1, dst_tag=None, verbosity=0):
-    fitter = Fitter(cov, model, lambda x: x, method, minimizer_params)
-    def estimate_parameters(t, y, p):
+def fit_multiple(db, t_tags, y_tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
+    tags = np.concatenate((t_tags, y_tags))
+    fitter = Fitter(cov, model, method, minimizer_params)
+    def estimate_parameters(fitter, t, y, p):
         t = np.array(t); y = np.array(y)
         return fitter.estimate_parameters(t, fitter.chi_squared, y, p)[0]
-    db.combine_mean(*np.concatenate((t_tags, y_tags)), f=lambda *tags: estimate_parameters(tags[:len(t_tags)], tags[len(t_tags):], p0), dst_tag=dst_tag) 
+    db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0), dst_tag=dst_tag) 
     best_parameter = db.database[dst_tag].mean
-    db.combine_jks(*np.concatenate((t_tags, y_tags)), f=lambda *tags: estimate_parameters(tags[:len(t_tags)], tags[len(t_tags):], best_parameter), dst_tag=dst_tag) 
+    db.combine_jks(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter), dst_tag=dst_tag) 
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
+    if sys_tags is not None:
+        for sys_tag in sys_tags:
+            mean_shifted = db.get_mean_shifted(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0) , sys_tag=sys_tag)
+            db.propagate_sys_var(mean_shifted, dst_tag=dst_tag, sys_tag=sys_tag)
     if verbosity >=1: 
         print(f"jackknife parameter covariance is ", best_parameter_cov) 
     chi2 = fitter.chi_squared(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
     dof = len(t_tags) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
-    db.database[dst_tag].info = {"t_tags": t_tags, "y_tags": y_tags, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
+    if db.database[dst_tag].info == None: db.database[dst_tag].info = {}
+    db.database[dst_tag].info["t_tags"] = t_tags
+    db.database[dst_tag].info["y_tags"] = y_tags
+    db.database[dst_tag].info["best_parameter_cov"] = best_parameter_cov 
+    db.database[dst_tag].info["chi2"] = chi2; db.database[dst_tag].info["dof"] = dof; db.database[dst_tag].info["pval"] = pval
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
