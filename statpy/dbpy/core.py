@@ -7,7 +7,6 @@ from . import custom_json as json
 from .leafs import Leaf 
 from ..statistics import core as statistics
 from ..statistics import jackknife, auto
-from ..fitting.core import Fitter
 
 ##############################################################################################################################################################
 ##############################################################################################################################################################
@@ -203,49 +202,6 @@ class JKS_DB:
     
     def get_tot_var(self, tag, binsize, pavg=False):
         return self.jackknife_variance(tag, binsize, pavg) + self.get_sys_var(tag)
-
-    ################################## FITTING ######################################
- 
-    def fit(self, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
-        fitter = Fitter(cov, model, lambda x: x, method, minimizer_params)
-        self.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
-        best_parameter = self.database[dst_tag].mean
-        self.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag)  
-        best_parameter_cov = self.jackknife_covariance(dst_tag, binsize, pavg=True)
-        if verbosity >=1: 
-            print(f"jackknife parameter covariance is ", best_parameter_cov) 
-        chi2 = fitter.chi_squared(t, best_parameter, self.database[tag].mean[t])
-        dof = len(t) - len(best_parameter)
-        pval = fitter.get_pvalue(chi2, dof)
-        self.database[dst_tag].info = {"t": t, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
-        if verbosity >= 0:
-            for i in range(len(best_parameter)):
-                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}") 
-
-    def fit_multiple(self, t_tags, y_tags, cov, p0, model, method="Nelder-Mead", minimizer_params={"tol": 1e-7}, binsize=1, dst_tag="CONTINUUM_FIT/a_mu_sd", verbosity=0):
-        fitter = Fitter(cov, model, lambda x: x, method, minimizer_params)
-        def estimate_parameters(t, y, p):
-            t = np.array(t); y = np.array(y)
-            return fitter.estimate_parameters(t, fitter.chi_squared, y, p)[0]
-        self.combine_mean(*np.concatenate((t_tags, y_tags)), f=lambda *tags: estimate_parameters(tags[:len(t_tags)], tags[len(t_tags):], p0), dst_tag=dst_tag) 
-        best_parameter = self.database[dst_tag].mean
-        self.combine_jks(*np.concatenate((t_tags, y_tags)), f=lambda *tags: estimate_parameters(tags[:len(t_tags)], tags[len(t_tags):], best_parameter), dst_tag=dst_tag) 
-        best_parameter_cov = self.jackknife_covariance(dst_tag, binsize, pavg=True)
-        if verbosity >=1: 
-            print(f"jackknife parameter covariance is ", best_parameter_cov) 
-        chi2 = fitter.chi_squared(np.array([self.database[tag].mean for tag in t_tags]), best_parameter, np.array([self.database[tag].mean for tag in y_tags]))
-        dof = len(t_tags) - len(best_parameter)
-        pval = fitter.get_pvalue(chi2, dof)
-        self.database[dst_tag].info = {"t_tags": t_tags, "y_tags": y_tags, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
-        if verbosity >= 0:
-            for i in range(len(best_parameter)):
-                print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-            print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
-    
-    def model_prediction_var(self, t, best_parameter, best_parameter_cov, model_parameter_gradient):
-        return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
-
 
 ###########################################################################################################################################################################
 ###########################################################################################################################################################################

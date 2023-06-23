@@ -76,55 +76,55 @@ class Fitter:
         p, chi2, iterations, success, J = LevenbergMarquardt(t, y, self.W, self.model, p0, self.min_params)()
         assert success == True
         return p, chi2, J
+    
+##############################################################################################################################
+##############################################################################################################################
+######################################################## AUXILIARY ###########################################################
+##############################################################################################################################
+##############################################################################################################################
+
+def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_gradient):
+    return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
         
-###################################################################################################################################
+##############################################################################################################################
+##############################################################################################################################
+####################################################### JKS SYSTEM ###########################################################
+##############################################################################################################################
+##############################################################################################################################
 
-#    def jackknife(self, parameter_estimator, verbosity=0):
-#        self.best_parameter_jks = samples(lambda y: parameter_estimator(self.estimator(y))[0], self.y)
-#        cov = covariance(lambda y: parameter_estimator(self.estimator(y))[0], self.y, self.best_parameter_jks)
-#        if verbosity >=1:
-#                print(f"jackknife parameter covariance is ", cov)
-#        return cov
-#
-#    def fit(self, t, y, p0, verbosity=0):
-#        self.t = t
-#        self.y = y
-#        self.y_est = self.estimator(self.y)
-#        self.best_parameter, self.chi2, self.J = self.estimate_parameters(lambda p,y: self.chi_squared(self.t, p, y), self.y_est, p0)
-#        self.best_parameter_cov = self.jackknife(lambda y: self.estimate_parameters(lambda p,y: self.chi_squared(self.t, p, y), y, self.best_parameter), verbosity)
-#        #if self.method == "Levenberg-Marquardt":
-#        #    self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
-#        #    self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), self.best_parameter_cov_lm)  
-#        self.dof = len(self.t) - len(self.best_parameter)
-#        self.pval = self.get_pvalue(self.chi2, self.dof)
-#        self.fit_var = lambda x: self.model_prediction_var(x, self.best_parameter, self.best_parameter_cov, self.model.parameter_gradient)
-#        if verbosity >= 0:    
-#            for i in range(len(self.best_parameter)):
-#                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
-#            print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.pval}")
-#
-###################################################################################################################################
+def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, verbosity=0):
+    fitter = Fitter(cov, model, lambda x: x, method, minimizer_params)
+    db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
+    best_parameter = db.database[dst_tag].mean
+    db.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag)  
+    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
+    if verbosity >=1: 
+        print(f"jackknife parameter covariance is ", best_parameter_cov) 
+    chi2 = fitter.chi_squared(t, best_parameter, db.database[tag].mean[t])
+    dof = len(t) - len(best_parameter)
+    pval = fitter.get_pvalue(chi2, dof)
+    db.database[dst_tag].info = {"t": t, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
+    if verbosity >= 0:
+        for i in range(len(best_parameter)):
+            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}") 
 
-#    def jackknife_indep_samples(self, parameter_estimator, verbosity=0):
-#        self.best_parameter_jks = np.array([samples(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y_samples[i]) for i in range(len(self.t))]) 
-#        covs = np.array([covariance(lambda yi: parameter_estimator(np.array(list(self.y_est[:i]) + [self.estimator(yi)] + list(self.y_est[i+1:])))[0], self.y_samples[i], self.best_parameter_jks[i]) for i in range(len(self.t))]) 
-#        if verbosity >= 1:
-#            for i in range(len(self.t)):
-#                print(f"jackknife parameter covariance from t[{i}] is ", covs[i])
-#        return sum(covs)    
-#
-#    def fit_indep_samples(self, y_samples, p0, verbosity=0):
-#        self.y_samples = y_samples
-#        self.y_est = np.array([self.estimator(np.mean(self.y_samples[i], axis=0)) for i in range(len(self.t))])
-#        self.best_parameter, self.chi2, J = self.estimate_parameters(self.chi_squared, self.y_est, p0)
-#        self.best_parameter_cov = self.jackknife_indep_samples(lambda y: self.estimate_parameters(self.chi_squared, y, self.best_parameter), verbosity)
-#        #if self.method == "Levenberg-Marquardt":
-#        #    self.best_parameter_cov_lm = param_cov_lm(self.J, self.W)
-#        #    self.fit_err_lm = lambda trange: fit_std_err_lm(jacobian(self.model, trange, self.best_parameter, delta=1e-5)(), self.best_parameter_cov_lm)  
-#        self.dof = len(self.t) - len(self.best_parameter)
-#        self.p = self.get_pvalue(self.chi2, self.dof)
-#        self.fit_var = lambda t: self.model_prediction_var(t, self.best_parameter, self.best_parameter_cov, self.model.parameter_gradient)
-#        if verbosity >= 0:
-#            for i in range(len(self.best_parameter)):
-#                print(f"parameter[{i}] = {self.best_parameter[i]} +- {self.best_parameter_cov[i][i]**0.5}")
-#            print(f"chi2 / dof = {self.chi2} / {self.dof} = {self.chi2/self.dof}, i.e., p = {self.p}") 
+def fit_multiple(db, t_tags, y_tags, cov, p0, model, method="Nelder-Mead", minimizer_params={"tol": 1e-7}, binsize=1, dst_tag=None, verbosity=0):
+    fitter = Fitter(cov, model, lambda x: x, method, minimizer_params)
+    def estimate_parameters(t, y, p):
+        t = np.array(t); y = np.array(y)
+        return fitter.estimate_parameters(t, fitter.chi_squared, y, p)[0]
+    db.combine_mean(*np.concatenate((t_tags, y_tags)), f=lambda *tags: estimate_parameters(tags[:len(t_tags)], tags[len(t_tags):], p0), dst_tag=dst_tag) 
+    best_parameter = db.database[dst_tag].mean
+    db.combine_jks(*np.concatenate((t_tags, y_tags)), f=lambda *tags: estimate_parameters(tags[:len(t_tags)], tags[len(t_tags):], best_parameter), dst_tag=dst_tag) 
+    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
+    if verbosity >=1: 
+        print(f"jackknife parameter covariance is ", best_parameter_cov) 
+    chi2 = fitter.chi_squared(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
+    dof = len(t_tags) - len(best_parameter)
+    pval = fitter.get_pvalue(chi2, dof)
+    db.database[dst_tag].info = {"t_tags": t_tags, "y_tags": y_tags, "best_parameter_cov": best_parameter_cov, "chi2": chi2, "dof": dof, "pvalue": pval}
+    if verbosity >= 0:
+        for i in range(len(best_parameter)):
+            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
