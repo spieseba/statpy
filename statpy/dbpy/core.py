@@ -184,6 +184,7 @@ class JKS_DB:
     ############################# SYSTEMATICS #################################
 
     def get_mean_shifted(self, *tags, f=lambda x: x , sys_tag=None):
+        assert sys_tag != None
         x = []
         for tag in tags:
             try: 
@@ -193,13 +194,23 @@ class JKS_DB:
         return f(*x)
 
     def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag=None):
+        assert sys_tag != None
         sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
         if self.database[dst_tag].info == None:
             self.database[dst_tag].info = {}
-        if sys_tag == None: postfix = ""
-        else: postfix = f"_{sys_tag}"
-        self.database[dst_tag].info[f"MEAN_SHIFTED{postfix}"] = mean_shifted
-        self.database[dst_tag].info[f"SYS_VAR{postfix}"] = sys_var
+        self.database[dst_tag].info[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
+        self.database[dst_tag].info[f"SYS_VAR_{sys_tag}"] = sys_var
+
+    def get_sys_tags(self, *tags):
+        sys_tags = []
+        for tag in tags:
+            if self.database[tag].info is not None:
+                for k in self.database[tag].info:
+                    if "MEAN_SHIFTED" in k:
+                        sys_tag = k.split("MEAN_SHIFTED_")[1] 
+                        if sys_tag not in sys_tags:
+                            sys_tags.append(k.split("MEAN_SHIFTED_")[1])
+        return sys_tags
 
     def get_sys_var(self, tag):
         sys_var = np.zeros_like(self.database[tag].mean)
