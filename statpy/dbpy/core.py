@@ -157,6 +157,7 @@ class JKS_DB:
         var = []
         for p in permutations:
             jks = self.as_array(self.jks(tag, binsize, p))
+            if len(jks) == 0: return 0.0
             var.append(jackknife.variance_jks(np.mean(jks, axis=0), jks))
         return np.mean(var, axis=0)
     
@@ -222,6 +223,10 @@ class JKS_DB:
     
     def get_tot_var(self, tag, binsize, pavg=False):
         return self.jackknife_variance(tag, binsize, pavg) + self.get_sys_var(tag)
+    
+    def print_estimate(self, tag, binsize, pavg=False):
+        self.message(f"{self.database[tag].mean} +- {self.jackknife_variance(tag, binsize)**.5} (STAT) +- {self.get_sys_var(tag)**.5} (SYS)"
+                     + f" [{self.get_tot_var(tag, binsize, pavg)**.5} (STAT + SYS)]")
 
 ###########################################################################################################################################################################
 ###########################################################################################################################################################################
