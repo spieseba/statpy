@@ -105,8 +105,8 @@ def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, 
     db.database[dst_tag].info["chi2"] = chi2; db.database[dst_tag].info["dof"] = dof; db.database[dst_tag].info["pval"] = pval
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}") 
+            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
 def fit_multiple(db, t_tags, y_tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     tags = np.concatenate((t_tags, y_tags))

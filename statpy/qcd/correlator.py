@@ -2,7 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from ..fitting.core import Fitter, model_prediction_var
+from ..fitting.core import Fitter, fit, fit_multiple, model_prediction_var
 from ..statistics import jackknife
 
 ########################################### EFFECTIVE MASS CURVES ###########################################
@@ -93,22 +93,6 @@ class const_model:
         def parameter_gradient(self, t, p):
             return np.array([1.0], dtype=object)
 
-##############################################################################################
-
-def fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None):
-    # mean fit
-    fitter = Fitter(Ct_cov, model, fit_method, fit_params)
-    best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, Ct, p0)
-    # jks fits
-    if jks_fit_method == None: jks_fit_method = fit_method; jks_fit_params = fit_params
-    jks_fitter = Fitter(Ct_cov, model, jks_fit_method, jks_fit_params)
-    best_parameter_jks = {}
-    for cfg in  Ct_jks:
-        best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, Ct_jks[cfg], best_parameter)
-    dof = len(t) - len(best_parameter)
-    pval = fitter.get_pvalue(chi2, dof) 
-    return best_parameter, best_parameter_jks, chi2, dof, pval
-
 ############################################## COMBINED FITTING ############################################
 
 #################################### FIT MODELS ############################################
@@ -141,17 +125,27 @@ class combined_cosh_sinh_model:
 ##############################################################################################################################
 ##############################################################################################################################
 
-def effective_mass_curve_fit(db, t0_min, t0_max, nt, tag, cov, p0, bc, method, minimizer_params, binsize, dst_tag, verbosity=0):
+def effective_mass_curve_fit(db, tag, t0_min, t0_max, nt, cov, p0, bc, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
    assert bc in ["pbc", "obc"]
    model = {"pbc": cosh_model(len(db.database[tag].mean)), "obc": exp_model()}[bc]
    for t0 in range(t0_min, t0_max):
        t = np.arange(nt) + t0
        if verbosity >=0: db.message(f"fit window: {t}")
-       db.fit(t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag=dst_tag + f"={t0}", verbosity=verbosity)
+       fit(db, t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag + f"={t0}", sys_tags, verbosity)
        db.database[dst_tag + f"={t0}"].mean = db.database[dst_tag + f"={t0}"].mean[1]
        db.database[dst_tag + f"={t0}"].jks = {cfg:val[1] for cfg, val in db.database[dst_tag + f"={t0}"].jks.items()} 
        db.database[dst_tag + f"={t0}"].info["best_parameter_cov"] = db.database[dst_tag + f"={t0}"].info["best_parameter_cov"][1][1]
+       for sys in sys_tags:
+           db.database[dst_tag + f"={t0}"].info[f"MEAN_SHIFTED_{sys}"] = db.database[dst_tag + f"={t0}"].info[f"MEAN_SHIFTED_{sys}"][1]
+           db.database[dst_tag + f"={t0}"].info[f"SYS_VAR_{sys}"] = db.database[dst_tag + f"={t0}"].info[f"SYS_VAR_{sys}"][1]
 
+def effective_mass_const_fit(db, ts, tags, cov, p0, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
+    model = const_model()
+    # add t Leafs
+    for t in ts: db.add_Leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, nrwf=None, info=None)
+    fit_multiple(db, [f"tmp_t{t}" for t in ts], tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags, verbosity)
+    # cleanup t Leafs
+    db.remove(*[f"tmp_t{t}" for t in ts])
 
 
 ##############################################################################################################################
@@ -159,6 +153,20 @@ def effective_mass_curve_fit(db, t0_min, t0_max, nt, tag, cov, p0, bc, method, m
 ##################################################### LATTICE CHARM ##########################################################
 ##############################################################################################################################
 ##############################################################################################################################
+
+def lc_fit(t, Ct, Ct_jks, Ct_cov, p0, model, fit_method, fit_params, jks_fit_method=None, jks_fit_params=None):
+    # mean fit
+    fitter = Fitter(Ct_cov, model, fit_method, fit_params)
+    best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, Ct, p0)
+    # jks fits
+    if jks_fit_method == None: jks_fit_method = fit_method; jks_fit_params = fit_params
+    jks_fitter = Fitter(Ct_cov, model, jks_fit_method, jks_fit_params)
+    best_parameter_jks = {}
+    for cfg in  Ct_jks:
+        best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, Ct_jks[cfg], best_parameter)
+    dof = len(t) - len(best_parameter)
+    pval = fitter.get_pvalue(chi2, dof) 
+    return best_parameter, best_parameter_jks, chi2, dof, pval
 
 def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params=None, jks_fit_method=None, jks_fit_params=None, verbosity=0, make_plots=True):
     def sort_params(p):
@@ -176,7 +184,7 @@ def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params
         t = np.arange(d, Nt-d)
         db.message(f"fit range: {t}", verbosity)
         y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
-        best_parameter, best_parameter_jks, chi2, dof, pval = fit(t, y, y_jks, cov, p0, model, 
+        best_parameter, best_parameter_jks, chi2, dof, pval = lc_fit(t, y, y_jks, cov, p0, model, 
                                                 fit_method, fit_params, jks_fit_method, jks_fit_params)
         best_parameter = sort_params(best_parameter)
         for cfg in best_parameter_jks:
@@ -223,7 +231,7 @@ def lc_spectroscopy(db, Ct_tag, b_max, fit_range, p0, model_type, correlated=Fal
         t = fit_range
         y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
         model = {"cosh": cosh_model(len(mean)), "sinh": sinh_model(len(mean))}[model_type]
-        best_parameter, best_parameter_jks, chi2, dof, pval = fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
+        best_parameter, best_parameter_jks, chi2, dof, pval = lc_fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
         best_parameter_cov = jackknife.covariance_jks(best_parameter, best_parameter_jks)
         for i in range(len(best_parameter)):
             db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
@@ -255,7 +263,7 @@ def lc_combined_cosh_sinh_fit(db, Ct_tag_PSPS, Ct_tag_PSA4, B, fit_range_PSPS, f
         jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
         mean = np.mean(jks_arr, axis=0)
         model = combined_cosh_sinh_model(len(Ct_jks_PSPS[0]), fit_range_PSPS, fit_range_PSA4)
-        best_parameter, best_parameter_jks, chi2, dof, pval = fit(np.hstack((fit_range_PSPS, fit_range_PSA4)), mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
+        best_parameter, best_parameter_jks, chi2, dof, pval = lc_fit(np.hstack((fit_range_PSPS, fit_range_PSA4)), mean, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
         best_parameter_cov = jackknife.covariance_jks(best_parameter, best_parameter_jks)
         for i in range(len(best_parameter)):
             db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
