@@ -29,17 +29,6 @@ def effective_amp_sinh(Ct, trange, m, Nt):
 
 #################################### FIT MODELS ############################################
 
-################ open boundary conditions ###############
-
-# C(t) = A * exp(-mt); A = p[0]; m = p[1] 
-class exp_model:
-    def __init__(self):
-        pass   
-    def __call__(self, t, p):
-        return p[0] * np.exp(-p[1]*t)
-    def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)], dtype=object)
-
 ############## periodic boundary conditions #############
 
 # C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1] 
@@ -83,16 +72,27 @@ class double_sinh_model():
                     p[0] * (np.exp(-p[1]*t) * (-t) - np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt)),
                     np.exp(-p[3]*t) + np.exp(-p[3]*(self.Nt-t)), 
                     p[2] * (np.exp(-p[3]*t) * (-t) - np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))], dtype=object) 
-    
-######### model to fit effective mass plateau #########
-class const_model:
-        def __init__(self):
-            pass  
-        def __call__(self, t, p):
-            return p[0]
-        def parameter_gradient(self, t, p):
-            return np.array([1.0], dtype=object)
 
+################ open boundary conditions ###############
+
+# C(t) = A * exp(-mt); A = p[0]; m = p[1] 
+class exp_model:
+    def __init__(self):
+        pass   
+    def __call__(self, t, p):
+        return p[0] * np.exp(-p[1]*t)
+    def parameter_gradient(self, t, p):
+        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)], dtype=object)
+    
+# C(t) = A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3] 
+class exp_model:
+    def __init__(self):
+        pass   
+    def __call__(self, t, p):
+        return p[0] * np.exp(-p[1]*t) + p[2] * np.exp(-p[3]*t)
+    def parameter_gradient(self, t, p):
+        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t), np.exp(-p[3]*t), p[2] * np.exp(-p[3]*t) * (-t)], dtype=object)
+    
 ############################################## COMBINED FITTING ############################################
 
 #################################### FIT MODELS ############################################
@@ -117,6 +117,14 @@ class combined_cosh_sinh_model:
         df1 = np.array([0, np.exp(-p[2]*t) - np.exp(-p[2]*(self.Nt-t)), p[1] * (np.exp(-p[2]*t) * (-t) - np.exp(-p[2]*(self.Nt-t)) * (t-self.Nt))], dtype=object)  
         return np.array([df0, df1]) 
     
+######### const model to fit effective mass plateau #########
+class const_model:
+        def __init__(self):
+            pass  
+        def __call__(self, t, p):
+            return p[0]
+        def parameter_gradient(self, t, p):
+            return np.array([1.0], dtype=object)
 
 
 ##############################################################################################################################
