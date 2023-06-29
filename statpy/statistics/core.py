@@ -100,7 +100,6 @@ def infinite_binsize_extrapolation(var_dict, N, fit_model, p0, make_plot=True):
             if  new_diff < diff:
                 best_parameter = np.array(m.values)
                 best_parameter_cov = np.array(m.covariance)
-                chi2 = m.fval
                 diff = new_diff
                 binsizes_plot = binsizes_to_be_fitted
         except AssertionError:
