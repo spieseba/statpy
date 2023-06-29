@@ -5,8 +5,7 @@ import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
 from iminuit import Minuit
-from .levenberg_marquardt import LevenbergMarquardt #, Jacobian, param_cov_lm, fit_std_err_lm
-from ..statistics.jackknife import samples, covariance
+from .levenberg_marquardt import LevenbergMarquardt 
 
 # default Nelder-Mead parameter
 nm_parameter = {
