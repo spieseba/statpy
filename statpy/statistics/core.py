@@ -83,7 +83,8 @@ def infinite_binsize_extrapolation(var_dict, N, fit_model, p0, make_plot=True):
     best_parameter = np.zeros(len(p0)); best_parameter_cov = np.zeros((len(p0),len(p0))); binsizes_plot = np.arange(len(var_ratio))
     for b in bs:
         binsizes_to_be_fitted = np.arange(b, len(var_ratio))
-        if len(binsizes_to_be_fitted) < 2:
+        dof = len(binsizes_to_be_fitted) - len(best_parameter)
+        if len(binsizes_to_be_fitted) < 2 or dof < 1:
             continue
         fitter = Fitter(C=np.diag(np.array([var_ratio_var[b] for b in binsizes_to_be_fitted])), model=model,
                         method="Migrad", minimizer_params=None)
@@ -92,7 +93,6 @@ def infinite_binsize_extrapolation(var_dict, N, fit_model, p0, make_plot=True):
             m.migrad()
             assert m.valid == True
             new_diff = abs(2.0 * m.values[0] - b)
-            dof = len(binsizes_to_be_fitted) - len(best_parameter)
             print("fitted binsizes: ", binsizes_to_be_fitted)
             print(f"abs(2*tau_int - b_start) = abs({2.0*m.values[0]} - {b}) = {new_diff}")
             print(f"chi2 / dof = {m.fval} / {dof} = {m.fval/dof}")
