@@ -18,12 +18,16 @@ def effective_mass_acosh(Ct, tmin, tmax):
 ########################################### EFFECTIVE AMPLITUDE CURVES ###########################################
 
 # cosh
-def effective_amp_cosh(Ct, trange, m, Nt):
-    return Ct / ( np.exp(-m*trange) + np.exp(-m*(Nt-trange)) ) 
+def effective_amp_cosh(Ctrange, trange, m, Nt):
+    return Ctrange / ( np.exp(-m*trange) + np.exp(-m*(Nt-trange)) ) 
 
 # sinh
-def effective_amp_sinh(Ct, trange, m, Nt):
-    return Ct / ( np.exp(-m*trange) - np.exp(-m*(Nt-trange)) ) 
+def effective_amp_sinh(Ctrange, trange, m, Nt):
+    return Ctrange / ( np.exp(-m*trange) - np.exp(-m*(Nt-trange)) ) 
+
+# exp
+def effective_amp_exp(Ctrange, trange, m):
+    return Ctrange / np.exp(-m*trange)
 
 ################################################## FITTING #################################################
 
@@ -85,7 +89,7 @@ class exp_model:
         return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)], dtype=object)
     
 # C(t) = A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3] 
-class exp_model:
+class double_exp_model:
     def __init__(self):
         pass   
     def __call__(self, t, p):
@@ -186,7 +190,8 @@ def lc_fit_range(db, Ct_tag, binsize, ds, p0, model_type, fit_method, fit_params
     mean = np.mean(jks, axis=0)
     var = jackknife.variance_jks(mean, jks)
     Nt = len(mean)
-    model = {"double-cosh": double_cosh_model(Nt), "double-sinh": double_sinh_model(Nt)}[model_type]
+    model = {"double-cosh": double_cosh_model(Nt), "double-sinh": double_sinh_model(Nt),
+             "double-exp": double_exp_model()}[model_type]
     fit_range = np.arange(Nt)
     for d in ds:
         t = np.arange(d, Nt-d)
@@ -238,7 +243,7 @@ def lc_spectroscopy(db, Ct_tag, b_max, fit_range, p0, model_type, correlated=Fal
         mean = np.mean(jks, axis=0)
         t = fit_range
         y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
-        model = {"cosh": cosh_model(len(mean)), "sinh": sinh_model(len(mean))}[model_type]
+        model = {"cosh": cosh_model(len(mean)), "sinh": sinh_model(len(mean)), "exp": exp_model()}[model_type]
         best_parameter, best_parameter_jks, chi2, dof, pval = lc_fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
         best_parameter_cov = jackknife.covariance_jks(best_parameter, best_parameter_jks)
         for i in range(len(best_parameter)):
@@ -290,11 +295,14 @@ def lc_combined_cosh_sinh_fit(db, Ct_tag_PSPS, Ct_tag_PSA4, B, fit_range_PSPS, f
                              B, model, best_parameter, best_parameter_jks, best_parameter_cov)
     return A_PS_dict, A_PS_var_dict, A_PS_jks_dict, A_A4_dict, A_A4_var_dict, A_A4_jks_dict, m_dict, m_var_dict, m_jks_dict 
 
+
+### TO DO: combined exp fit
+
 ############################################## PLOTS  ############################################
 
 def local_amp(trange, model, model_type, best_parameter, best_parameter_jks, Nt, mass_idx=1):
     Ct_fit = np.array([model(t, best_parameter) for t in trange]) 
-    effective_amp = {"cosh": effective_amp_cosh, "sinh": effective_amp_sinh, "double-cosh": effective_amp_cosh, "double-sinh": effective_amp_sinh}[model_type]
+    effective_amp = {"cosh": effective_amp_cosh, "sinh": effective_amp_sinh, "double-cosh": effective_amp_cosh, "double-sinh": effective_amp_sinh, "exp": effective_amp_exp, "double-exp": effective_amp_exp}[model_type]
     At = effective_amp(Ct_fit, trange, best_parameter[mass_idx], Nt) 
     At_jks = {}
     for j in best_parameter_jks:
@@ -306,7 +314,11 @@ def local_amp(trange, model, model_type, best_parameter, best_parameter_jks, Nt,
 def local_mass(trange, model, best_parameter, best_parameter_jks):
     dt = trange[1] - trange[0]
     Ct_fit = np.array([model(t, best_parameter) for t in trange]) 
-    mt = effective_mass_acosh(Ct_fit, tmin=1, tmax=len(trange)-1) / dt
+    if model in ["exp", "double-exp"]:
+        mt_func = effective_mass_log
+    else:
+        mt_func = effective_mass_acosh
+    mt = mt_func(Ct_fit, tmin=1, tmax=len(trange)-1) / dt
     mt_jks = {}
     for j in best_parameter_jks:
         Ct_fit_jks = np.array([model(t, best_parameter_jks[j]) for t in trange])
@@ -315,23 +327,42 @@ def local_mass(trange, model, best_parameter, best_parameter_jks):
     return mt, mt_var
 
 def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, best_parameter, best_parameter_jks, best_parameter_cov, reduced_fit_range=None):
+    Nt = len(Ct_mean)
+    fit_model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit",
+                       "double-cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} + e^{-m_1 (T-t)})$ - fit",
+                       "double-sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} - e^{-m_1 (T-t)})$ - fit",
+                       "exp": r"$A_0 e^{-m_0 t}$ - fit", 
+                       "double-exp": r"$A_0 e^{-m_0 t} + A_1 e^{-m_1 t}$ - fit"}[model_type] 
+    effective_amp = {"cosh": effective_amp_cosh, "double-cosh": effective_amp_cosh,
+                     "sinh": effective_amp_sinh, "double-sinh": effective_amp_sinh, 
+                     "exp": effective_amp_exp, "double-exp": effective_amp_exp}[model_type]
+    amplitude_fit_label = {"cosh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} + e^{-m_0 (T-t)}}$", 
+                           "double-cosh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} + e^{-m_0 (T-t)}}$",
+                           "sinh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} - e^{-m_0 (T-t)}}$", 
+                           "double-sinh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} - e^{-m_0 (T-t)}}$",
+                           "exp": r"$A(t) = \frac{C(t)}{e^{-m_0 t} - e^{-m_0 (T-t)}}$",
+                           "double-exp": r"$A(t) = \frac{C(t)}{e^{-m_0 t} - e^{-m_0 (T-t)}}$"}[model_type]  
+    mt_fit_label = {"cosh": r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$",
+                    "double-cosh": r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$",
+                    "sinh": r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$",
+                    "double-sinh": r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$",
+                    "exp": r"$m(t) = log\left( \frac{C(t)}{C(t+1)} \right)$",
+                    "double-exp": r"$m(t) = log\left( \frac{C(t)}{C(t+1)} \right)$"}[model_type]
+    
     fig, ((ax0, ax_not), (ax1, ax2)) = plt.subplots(nrows=2, ncols=2)
     ax_not.set_axis_off()
-    Nt = len(Ct_mean)
     ## correlator ##
     color = "C0"
     ax0.set_xlabel(r"source-sink separation $t/a$")
-    ax0.set_ylabel(r"$C(t)$")     
+    ax0.set_ylabel(r"$C(t)$")    
     ax0.errorbar(np.arange(1,Nt-1), Ct_mean[1:-1], jackknife.variance_jks(Ct_mean, Ct_jks)[1:-1]**0.5, linestyle="", capsize=3, color=color, label="data")
     # correlator fit
-    trange = np.arange(1, Nt-1, 0.01)
     color = "C1"
+    if model_type in ["exp", "double-exp"]: trange = np.arange(1, Nt//2-1, 0.01)
+    else: trange = np.arange(1, Nt-1, 0.01)
     fy = np.array([model(t, best_parameter) for t in trange])
     fy_err = np.array([model_prediction_var(t, best_parameter, best_parameter_cov, model.parameter_gradient) for t in trange])**.5
-    model_label = {"cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)})$ - fit", "sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)})$ - fit",
-                   "double-cosh": r"$A_0 (e^{-m_0 t} + e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} + e^{-m_1 (T-t)})$ - fit",
-                   "double-sinh": r"$A_0 (e^{-m_0 t} - e^{-m_0 (T-t)}) + A_1 (e^{-m_1 t} - e^{-m_1 (T-t)})$ - fit"}[model_type] 
-    ax0.plot(trange, fy, color=color, lw=.5, label=r"$C(t) = $" + model_label)
+    ax0.plot(trange, fy, color=color, lw=.5, label=r"$C(t) = $" + fit_model_label)
     ax0.fill_between(trange, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
     # fit range marker
     ax0.axvline(fit_range[0], color="gray", linestyle="--", label="fit range")
@@ -344,8 +375,8 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     ## local Amplitude ##
     # data
     color = "C2"
-    effective_amp = {"cosh": effective_amp_cosh, "sinh": effective_amp_sinh, "double-cosh": effective_amp_cosh, "double-sinh": effective_amp_sinh}[model_type]
-    At_func = lambda x, y: effective_amp(x[1:Nt-1], np.arange(1, Nt-1), y, Nt)
+    if model_type in ["exp", "double-exp"]: At_func = lambda x, y: effective_amp(x[1:Nt//2-1], np.arange(1, Nt//2-1), y, Nt)
+    else: At_func = lambda x, y: effective_amp(x[1:Nt-1], np.arange(1, Nt-1), y)
     At_data = At_func(Ct_mean, best_parameter[1])
     At_jks = {}
     for j in best_parameter_jks:
@@ -359,9 +390,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     At_fit, At_var_fit = local_amp(trange, model, model_type, best_parameter, best_parameter_jks, Nt)
     ax1.set_xlabel(r"source-sink separation $t/a$")
     ax1.set_ylabel("$A$")
-    amplitude_label = {"cosh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} + e^{-m_0 (T-t)}}$", "sinh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} - e^{-m_0 (T-t)}}$",
-                       "double-cosh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} + e^{-m_0 (T-t)}}$", "double-sinh": r"$A(t) = \frac{C(t)}{e^{-m_0 t} - e^{-m_0 (T-t)}}$"}[model_type]
-    ax1.plot(trange[1:-1], At_fit, color=color, lw=.5, label=amplitude_label)
+    ax1.plot(trange[1:-1], At_fit, color=color, lw=.5, label=amplitude_fit_label)
     ax1.fill_between(trange[1:-1], At_fit-At_var_fit**.5, At_fit+At_var_fit**.5, alpha=0.5, color=color)
     # best amplitude
     color = "C4"
@@ -379,7 +408,8 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     ## local mass ## 
     # data
     color = "C2"
-    mt_func = lambda x: effective_mass_acosh(x, tmin=1, tmax=Nt-1)
+    if model_type in ["exp", "double-exp"]: mt_func = lambda x: effective_mass_log(x, tmin=1, tmax=Nt//2-1)
+    else: mt_func = lambda x: effective_mass_acosh(x, tmin=1, tmax=Nt-1) 
     mt_data = mt_func(Ct_mean)
     mt_var_data = db.sample_jackknife_variance(Ct_tag, binsize, mt_func)
     ax2.set_xlabel(r"source-sink separation $t/a$")
@@ -388,7 +418,7 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
     # fit 
     color = "C3"
     mt_fit, mt_var_fit = local_mass(trange, model, best_parameter, best_parameter_jks)
-    ax2.plot(trange[1:-1], mt_fit, color=color, lw=.5, label=r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$")
+    ax2.plot(trange[1:-1], mt_fit, color=color, lw=.5, label=mt_fit_label) 
     ax2.fill_between(trange[1:-1], mt_fit-mt_var_fit**.5, mt_fit+mt_var_fit**.5, alpha=0.5, color=color)
     # mass from fit
     color = "C4"
@@ -403,11 +433,11 @@ def lc_plot(db, Ct_tag, Ct_mean, Ct_jks, binsize, fit_range, model_type, model, 
         ax2.axvline(reduced_fit_range[-1], color="black", linestyle="--")
     ax2.set_xlim(0, Nt)
     ax2.legend(loc="upper right")
-    ### 
     plt.suptitle(f"{Ct_tag} - binsize = {binsize}")
     plt.tight_layout()
     plt.plot()
 
+##############################################################
 
 def lc_combined_plot(db, Ct_tag_PSPS, Ct_mean_PSPS, Ct_jks_PSPS, fit_range_PSPS, Ct_tag_PSA4, Ct_mean_PSA4, Ct_jks_PSA4, fit_range_PSA4, binsize, 
                     model_combined, best_parameter, best_parameter_jks, best_parameter_cov):
