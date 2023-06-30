@@ -30,10 +30,12 @@ def cls_sample_db(data_path, rwf_path, src_tags, leaf_prefix, dst=None):
     assert os.path.isfile(rwf_path)
     database = {}
     for tag in src_tags:
-        sample = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(np.array(h5py.File(data_path, "r").get(tag)[:]))}
-        rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf) 
-        nrwf = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(nrwf)}   
-        database[f"{leaf_prefix}/{tag}"] = Leaf(mean=None, jks=None, sample=sample, nrwf=nrwf)
+        for key in h5py.File(data_path, "r").keys():
+            if tag in key:
+                sample = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(np.array(h5py.File(data_path, "r").get(key)[:]))}
+                rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf) 
+                nrwf = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(nrwf)}   
+                database[f"{leaf_prefix}/{key}"] = Leaf(mean=None, jks=None, sample=sample, nrwf=nrwf)
     if dst == None:
         return database
     with open(dst, "w") as f:
