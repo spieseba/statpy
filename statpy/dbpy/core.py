@@ -92,6 +92,9 @@ class JKS_DB:
             except KeyError:
                 print(f"{tag} not in database")
 
+    def get_tags(self, key="", verbosity=0):
+        return [tag for tag in self.database.keys() if key in tag]
+
     # helper function
     def as_array(self, obj):
         if isinstance(obj, np.ndarray):
