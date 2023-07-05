@@ -82,7 +82,7 @@ def infinite_binsize_extrapolation(var_dict, N, fit_model, p0, make_plot=True):
     diff = 1.0
     best_parameter = np.zeros(len(p0)); best_parameter_cov = np.zeros((len(p0),len(p0))); binsizes_plot = np.arange(len(var_ratio))
     for b in bs:
-        binsizes_to_be_fitted = np.arange(b, len(var_ratio))
+        binsizes_to_be_fitted = np.arange(b, len(var_ratio)+1)
         dof = len(binsizes_to_be_fitted) - len(best_parameter)
         if len(binsizes_to_be_fitted) < 2 or dof < 1:
             continue
