@@ -227,9 +227,15 @@ class JKS_DB:
     def get_tot_var(self, tag, binsize, pavg=False):
         return self.jackknife_variance(tag, binsize, pavg) + self.get_sys_var(tag)
     
-    def print_estimate(self, tag, binsize, pavg=False):
-        self.message(f"{self.database[tag].mean} +- {self.jackknife_variance(tag, binsize)**.5} (STAT) +- {self.get_sys_var(tag)**.5} (SYS)"
-                     + f" [{self.get_tot_var(tag, binsize, pavg)**.5} (STAT + SYS)]")
+    def print_estimate(self, tag, binsize, pavg=False, verbosity=0):
+        s = f"\n ESTIMATE of {tag}:\n"
+        s += f"   {self.database[tag].mean} +- {self.get_tot_var(tag, binsize, pavg)**.5} (STAT + SYS)\n"
+        if verbosity > 0:
+            s += " ERRORS:\n"
+            s += f"   {self.jackknife_variance(tag, binsize, pavg)**.5} (STAT)\n"
+            for sys_tag in self.get_sys_tags(tag):
+                s += f"   {self.database[tag].info[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
+        self.message(s, verbosity)
 
 ###########################################################################################################################################################################
 ###########################################################################################################################################################################
