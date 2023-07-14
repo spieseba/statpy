@@ -216,7 +216,7 @@ class LatticeCharmSpectroscopy():
         self.jks_fit_method = jks_fit_method
         self.jks_fit_params = jks_fit_params
 
-    def fit_PSPS(self, tag, B, fit_ranges, p0, bc, fit_range_plots=True, PSPS_plot=True, verbosity=0):
+    def fit_PSPS(self, tag, B, fit_ranges, p0, bc, fit_range_plots=True, PSPS_plot=True, figsize=None, verbosity=0):
         if bc == "pbc":
             fit_range_model_type = "double-cosh"
             spectroscopy_model_type = "cosh"
@@ -227,16 +227,16 @@ class LatticeCharmSpectroscopy():
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSPS CORRELATOR --------------------")  
         self.fit_range_PSPS, self.p0_PSPS  = self._get_fit_range(tag, B, fit_ranges, p0, fit_range_model_type, 
-                                                  self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, fit_range_plots, verbosity)   
+                                                  self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, fit_range_plots, figsize, verbosity)   
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message("---------------------------------------------------------------------------------\n") 
         self.db.message("------------------ FIT PSPS CORRELATOR WITH REDUCED FIT RANGE --------------------") 
         self.db.message(f"REDUCED FIT RANGE: {self.fit_range_PSPS}")
         self.A_PSPS, self.A_var_PSPS, self.m_PSPS, self.m_var_PSPS = self._spectroscopy(tag, B, self.fit_range_PSPS, self.p0_PSPS, spectroscopy_model_type, False,
-                                                                                        self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, PSPS_plot, verbosity)
+                                                                                        self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, PSPS_plot, figsize, verbosity)
         
-    def fit_PSA4I(self, tag_PSA4_sml, tag_PSPS_sml, beta, B, fit_ranges, p0, bc, fit_range_plots, PSA4I_spectroscopy=False, PSA4I_plot=True, verbosity=0):
+    def fit_PSA4I(self, tag_PSA4_sml, tag_PSPS_sml, beta, B, fit_ranges, p0, bc, fit_range_plots, PSA4I_spectroscopy=False, PSA4I_plot=True, figsize=None, verbosity=0):
         self._determine_PSA4I(tag_PSA4_sml, tag_PSPS_sml, beta)
         tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
         if bc == "pbc":
@@ -249,17 +249,16 @@ class LatticeCharmSpectroscopy():
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSA4I CORRELATOR --------------------")  
         self.fit_range_PSA4I, self.p0_PSA4I  = self._get_fit_range(tag_PSA4I, B, fit_ranges, p0, fit_range_model_type, 
-                                                  self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, fit_range_plots, verbosity) 
+                                                  self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, fit_range_plots, figsize, verbosity) 
         if PSA4I_spectroscopy:
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------\n") 
             self.db.message("------------------ FIT PSPS CORRELATOR WITH REDUCED FIT RANGE --------------------") 
             self.db.message(f"REDUCED FIT RANGE: {self.fit_range_PSPS}")
-            self.A_PSA4I, self.A_var_PSA4I, self.m_PSA4I, self.m_var_PSA4I = self._spectroscopy(tag_PSA4I, B, self.fit_range_PSA4I, self.p0_PSA4I, 
-                spectroscopy_model_type, False, self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, PSA4I_plot, verbosity)
+            self.A_PSA4I, self.A_var_PSA4I, self.m_PSA4I, self.m_var_PSA4I = self._spectroscopy(tag_PSA4I, B, self.fit_range_PSA4I, self.p0_PSA4I, spectroscopy_model_type, False, self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, PSA4I_plot, figsize, verbosity)
     
-    def fit_combined(self, tag_PSPS, tag_PSA4I, B, bc, correlated=False, verbosity=0):
+    def fit_combined(self, tag_PSPS, tag_PSA4I, B, bc, correlated=False, make_plot=True, figsize=None, verbosity=0):
         self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
         self.db.message(f"PSPS - REDUCED FIT RANGE {self.fit_range_PSPS}") 
         self.db.message(f"PSA4I - REDUCED FIT RANGE {self.fit_range_PSA4I}") 
@@ -307,8 +306,9 @@ class LatticeCharmSpectroscopy():
                 best_parameter_PSA4I = np.array([best_parameter[1], best_parameter[2]])
                 best_parameter_jks_PSA4I = {cfg:np.array([best_parameter_jks[cfg][1], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
                 Ct_data_PSA4I = CorrelatorData(mean_PSA4I, jks_PSA4I, model_type_PSA4I, None, self.fit_range_PSA4I, None, best_parameter_PSA4I, best_parameter_jks_PSA4I)
-                lcp = LatticeCharmPlots()
-                lcp.make_plot(Ct_data_PSPS, Ct_data_PSA4I)
+                if make_plot:
+                    lcp = LatticeCharmPlots()
+                    lcp.make_plot(Ct_data_PSPS, Ct_data_PSA4I, figsize)
 
     def compute_decay_constant(self, B):
         def bare_decay_constant(A_A4I, A_PS, m):
@@ -359,7 +359,7 @@ class LatticeCharmSpectroscopy():
         if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
         else: return p
 
-    def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, fit_method, fit_params, jks_fit_method, jks_fit_params, make_plots, verbosity):
+    def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, fit_method, fit_params, jks_fit_method, jks_fit_params, make_plots, figsize, verbosity):
         jks = self.db.sample_jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         var = jackknife.variance_jks(mean, jks)
@@ -388,10 +388,10 @@ class LatticeCharmSpectroscopy():
             if make_plots:
                 Ct_data = CorrelatorData(mean, jks, model_type, None, t, reduced_t, best_parameter, best_parameter_jks)
                 LCP = LatticeCharmPlots() 
-                LCP.make_plot(Ct_data)
+                LCP.make_plot(Ct_data, None, figsize)
         return fit_range, p_fit_range
     
-    def _spectroscopy(self, tag, B, fit_range, p0, model_type, correlated, fit_method, fit_params, jks_fit_method, jks_fit_params, make_plot, verbosity):
+    def _spectroscopy(self, tag, B, fit_range, p0, model_type, correlated, fit_method, fit_params, jks_fit_method, jks_fit_params, make_plot, figsize, verbosity):
         if correlated: cov = self.db.sample_jackknife_covariance(tag, binsize=1)
         else: cov = np.diag(self.db.sample_jackknife_variance(tag, binsize=1))
         A = {}; A_var = {}
@@ -413,10 +413,10 @@ class LatticeCharmSpectroscopy():
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
-            if b == B:
+            if b == B and make_plot:
                 Ct_data = CorrelatorData(mean, jks, model_type, None, t, None, best_parameter, best_parameter_jks)
                 lcp = LatticeCharmPlots() 
-                lcp.make_plot(Ct_data)
+                lcp.make_plot(Ct_data, None, figsize)
         return A, A_var, m, m_var
     
     def _determine_PSA4I(self, tag_PSA4_sml, tag_PSPS_sml, beta):
@@ -439,14 +439,14 @@ class LatticeCharmSpectroscopy():
 ############################################## PLOTS  ############################################ 
 
 class LatticeCharmPlots():
-    def make_plot(self, Ct_data0, Ct_data1=None):
+    def make_plot(self, Ct_data0, Ct_data1=None, figsize=None):
         if Ct_data1 is not None:
-            self._combined_plot(Ct_data0, Ct_data1)
+            self._combined_plot(Ct_data0, Ct_data1, figsize)
         else:
-            self._single_plot(Ct_data0)
+            self._single_plot(Ct_data0, figsize)
     
-    def _single_plot(self, Ct_data): 
-        fig, ((ax0, ax_not), (ax1, ax2)) = plt.subplots(nrows=2, ncols=2)
+    def _single_plot(self, Ct_data, figsize): 
+        fig, ((ax0, ax_not), (ax1, ax2)) = plt.subplots(nrows=2, ncols=2, figsize=figsize)
         ax_not.set_axis_off()
         self._add_correlator(ax0, Ct_data)
         self._add_amplitude(ax1, Ct_data)
@@ -454,8 +454,8 @@ class LatticeCharmPlots():
         plt.tight_layout()
         plt.plot()
 
-    def _combined_plot(self, Ct_data0, Ct_data1):
-        fig, ((ax0, ax1), (ax2, ax3), (ax4, ax5)) = plt.subplots(nrows=3, ncols=2)
+    def _combined_plot(self, Ct_data0, Ct_data1, figsize=None):
+        fig, ((ax0, ax1), (ax2, ax3), (ax4, ax5)) = plt.subplots(nrows=3, ncols=2, figsize=figsize)
         # correlator 1
         self._add_correlator(ax0, Ct_data0)
         self._add_amplitude(ax2, Ct_data0)
