@@ -1,5 +1,0 @@
-numpy
-scipy
-matplotlib
-iminuit
-h5py

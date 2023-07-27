@@ -2,7 +2,7 @@
 
 import os 
 import numpy as np
-from statpy.dbpy import custom_json as json
+from statpy.database import custom_json as json
 
 try:
     import gpt as g

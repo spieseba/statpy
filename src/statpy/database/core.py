@@ -107,7 +107,7 @@ class JKS_DB:
     def combine_mean(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
         mean = f(*[lf.mean for lf in lfs])
-        if dst_tag == None:
+        if dst_tag is None:
             return mean
         try:
             self.database[dst_tag].mean = mean
@@ -121,7 +121,7 @@ class JKS_DB:
         for cfg in cfgs:
             x = [lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs]
             jks[cfg] = f(*x)
-        if dst_tag == None:
+        if dst_tag is None:
             return jks
         try:
             self.database[dst_tag].jks = jks

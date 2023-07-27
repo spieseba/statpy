@@ -582,7 +582,7 @@ class LatticeCharmPlots():
         elif Ct.model_type == "sinh":
             return r"$C_{fit}(t) = A (e^{-m t} - e^{-m (T-t)})$"
         elif Ct.model_type == "double-cosh":
-            return r"$C_{fit}(t) = A (e^{-m t} + e^{-m (T-t)}) + A_' (e^{-m' t} + e^{-m' (T-t)})$"
+            return r"$C_{fit}(t) = A (e^{-m t} + e^{-m (T-t)}) + A' (e^{-m' t} + e^{-m' (T-t)})$"
         elif Ct.model_type == "double-sinh":
             return r"$C_{fit}(t) = A (e^{-m t} - e^{-m (T-t)}) + A' (e^{-m' t} - e^{-m' (T-t)})$"
         elif Ct.model_type == "exp":
