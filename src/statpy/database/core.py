@@ -3,6 +3,7 @@
 import os
 import numpy as np
 from time import time
+from multiprocessing import Process, Manager
 from . import custom_json as json
 from .leafs import Leaf 
 from ..statistics import core as statistics
@@ -114,13 +115,23 @@ class JKS_DB:
         except KeyError:
             self.database[dst_tag] = Leaf(mean, None, None)
 
-    def combine_jks(self, *tags, f=lambda x: x, dst_tag=None):
+    def combine_jks(self, *tags, f=lambda x: x, dst_tag=None, processes=1):
         lfs = [self.database[tag] for tag in tags]
-        jks = {}
         cfgs = np.unique(np.concatenate([list(lf.jks.keys()) for lf in lfs]))
-        for cfg in cfgs:
-            x = [lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs]
-            jks[cfg] = f(*x)
+        xs = {cfg:[lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs] for cfg in cfgs}
+        if processes > 1:
+            def g(d, cfg):
+                d[cfg] = f(*xs[cfg])
+            m = Manager()
+            jks = m.dict()
+            job = [Process(target=g, args=(jks, cfg)) for cfg in cfgs]
+            _ = [p.start() for p in job]
+            _ = [p.join() for p in job]
+        else:
+            jks = {}
+            for cfg, x in xs.items():
+                jks[cfg] = f(*x)
+        
         if dst_tag is None:
             return jks
         try:
@@ -128,9 +139,9 @@ class JKS_DB:
         except KeyError:
             self.database[dst_tag] = Leaf(None, jks, None)
 
-    def combine(self, *tags, f=lambda x: x, dst_tag=None):
+    def combine(self, *tags, f=lambda x: x, dst_tag=None, processes=1):
         mean = self.combine_mean(*tags, f=f)
-        jks = self.combine_jks(*tags, f=f)
+        jks = self.combine_jks(*tags, f=f, processes=processes)
         if dst_tag == None:
             return Leaf(mean, jks, None)
         self.database[dst_tag] = Leaf(mean, jks, None)

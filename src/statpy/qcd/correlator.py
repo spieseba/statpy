@@ -144,13 +144,13 @@ class const_model:
 ##############################################################################################################################
 ##############################################################################################################################
 
-def effective_mass_curve_fit(db, tag, t0_min, t0_max, nt, cov, p0, bc, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
+def effective_mass_curve_fit(db, tag, t0_min, t0_max, nt, cov, p0, bc, method, minimizer_params, binsize, dst_tag, sys_tags=None, processes=1, verbosity=0):
    assert bc in ["pbc", "obc"]
    model = {"pbc": cosh_model(len(db.database[tag].mean)), "obc": exp_model()}[bc]
    for t0 in range(t0_min, t0_max):
        t = np.arange(nt) + t0
        if verbosity >=0: db.message(f"fit window: {t}")
-       fit(db, t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag + f"={t0}", sys_tags, verbosity)
+       fit(db, t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag + f"={t0}", sys_tags, processes, verbosity)
        db.database[dst_tag + f"={t0}"].mean = db.database[dst_tag + f"={t0}"].mean[1]
        db.database[dst_tag + f"={t0}"].jks = {cfg:val[1] for cfg, val in db.database[dst_tag + f"={t0}"].jks.items()} 
        db.database[dst_tag + f"={t0}"].info["best_parameter_cov"] = db.database[dst_tag + f"={t0}"].info["best_parameter_cov"][1][1]
