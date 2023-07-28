@@ -83,11 +83,11 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ##############################################################################################################################
 ##############################################################################################################################
 
-def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags=None, processes=1, verbosity=0):
+def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     fitter = Fitter(cov, model, method, minimizer_params)
     db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
     best_parameter = db.database[dst_tag].mean
-    db.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag, processes=processes) 
+    db.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag) 
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
     if sys_tags is not None:
         for sys_tag in sys_tags:
