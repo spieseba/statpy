@@ -216,6 +216,16 @@ class LatticeCharmSpectroscopy():
         self.jks_fit_method = jks_fit_method
         self.jks_fit_params = jks_fit_params
 
+    def obc_tsrc_avg(self, Ct_prefix, tmin, tmax, dst_tag, cleanup=True):
+        Ct_tags = self.db.get_tags(Ct_prefix)
+        srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ct_tags])
+        self.db.combine_sample(*Ct_tags, f=lambda *Cts: self._avg_obc_srcs(*Cts, srcs=srcs, tmin=tmin, tmax=tmax), dst_tag=dst_tag)
+        self.db.database[dst_tag].nrwf = dict(self.db.database[Ct_tags[0]].nrwf)
+        if cleanup:
+            self.db.remove(*Ct_tags)
+        self.db.init_sample_means(dst_tag)
+        self.db.init_sample_jks(dst_tag)
+
     def fit_PSPS(self, tag, B, fit_ranges, p0, bc, fit_range_plots=True, PSPS_plot=True, figsize=None, verbosity=0):
         if bc == "pbc":
             fit_range_model_type = "double-cosh"
@@ -435,6 +445,19 @@ class LatticeCharmSpectroscopy():
         self.db.database[tag_PSA4I].nrwf = dict(self.db.database[tag_PSA4_sml].nrwf)
         self.db.init_sample_means(tag_PSA4I)
         self.db.init_sample_jks(tag_PSA4I)
+
+    def _avg_obc_srcs(self, *Cts, srcs=[], tmin=None, tmax=None):
+        assert tmin is not None and tmax is not None
+        Ct_arr = np.ma.empty((2 * len(Cts), max(tmax - srcs[0], srcs[-1] - tmin))); Ct_arr.mask = True    
+        # forward average
+        tmax_srcs_fw = tmax - np.array(srcs) 
+        for idx, Ct, tmax_src in zip(np.arange(len(srcs)), Cts, tmax_srcs_fw):
+            Ct_arr[idx, :tmax_src] = Ct[:tmax_src]
+        # backward average
+        tmax_srcs_bw = np.array(srcs) - tmin
+        for idx, Ct, tmax_src in zip(np.arange(len(srcs)), Cts, tmax_srcs_bw):
+            Ct_arr[len(Cts) + idx, :tmax_src] = np.roll(np.flip(Ct), 1)[:tmax_src]
+        return Ct_arr.mean(axis=0)
     
 ############################################## PLOTS  ############################################ 
 
