@@ -28,15 +28,18 @@ def sample_db(src_dir, src_tags, dst, branch_tag, leaf_prefix, meas_postfix="", 
 def cls_sample_db(data_path, rwf_path, src_tags, leaf_prefix, dst=None):
     assert os.path.isfile(data_path)
     assert os.path.isfile(rwf_path)
+    rwf_cfgs = np.array(np.loadtxt(rwf_path)[:,0] - 1, dtype=int)
+    rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf)
+    nrwf = {f"{leaf_prefix}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)}    
+    f = h5py.File(data_path, "r")
+    f_cfgs = np.array([int(cfg.decode("ascii").split("n")[1]) for cfg in f['configlist']]) - 1; f_cfgs = f_cfgs[rwf_cfgs]
     database = {}
     for tag in src_tags:
-        for key in h5py.File(data_path, "r").keys():
+        for key in f.keys():
             if tag in key:
-                sample = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(np.array(h5py.File(data_path, "r").get(key)[:]))}
-                rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf) 
-                nrwf = {f"{leaf_prefix}-{cfg}":val for cfg, val in enumerate(nrwf)}   
+                sample = {f"{leaf_prefix}-{cfg}":val for cfg,val in zip(f_cfgs, np.array(f.get(key))[f_cfgs])}
                 database[f"{leaf_prefix}/{key}"] = Leaf(mean=None, jks=None, sample=sample, nrwf=nrwf)
     if dst == None:
         return database
-    with open(dst, "w") as f:
-        json.dump(database, f)
+    with open(dst, "w") as file:
+        json.dump(database, file)
