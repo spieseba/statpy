@@ -153,15 +153,15 @@ def effective_mass_curve_fit(db, tag, t0_min, t0_max, nt, cov, p0, bc, method, m
        fit(db, t, tag, cov[t][:,t], p0, model, method, minimizer_params, binsize, dst_tag + f"={t0}", sys_tags, verbosity)
        db.database[dst_tag + f"={t0}"].mean = db.database[dst_tag + f"={t0}"].mean[1]
        db.database[dst_tag + f"={t0}"].jks = {cfg:val[1] for cfg, val in db.database[dst_tag + f"={t0}"].jks.items()} 
-       db.database[dst_tag + f"={t0}"].info["best_parameter_cov"] = db.database[dst_tag + f"={t0}"].info["best_parameter_cov"][1][1]
+       db.database[dst_tag + f"={t0}"].misc["best_parameter_cov"] = db.database[dst_tag + f"={t0}"].misc["best_parameter_cov"][1][1]
        for sys in sys_tags:
-           db.database[dst_tag + f"={t0}"].info[f"MEAN_SHIFTED_{sys}"] = db.database[dst_tag + f"={t0}"].info[f"MEAN_SHIFTED_{sys}"][1]
-           db.database[dst_tag + f"={t0}"].info[f"SYS_VAR_{sys}"] = db.database[dst_tag + f"={t0}"].info[f"SYS_VAR_{sys}"][1]
+           db.database[dst_tag + f"={t0}"].misc[f"MEAN_SHIFTED_{sys}"] = db.database[dst_tag + f"={t0}"].misc[f"MEAN_SHIFTED_{sys}"][1]
+           db.database[dst_tag + f"={t0}"].misc[f"SYS_VAR_{sys}"] = db.database[dst_tag + f"={t0}"].misc[f"SYS_VAR_{sys}"][1]
 
 def effective_mass_const_fit(db, ts, tags, cov, p0, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     model = const_model()
     # add t Leafs
-    for t in ts: db.add_Leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, nrwf=None, info=None)
+    for t in ts: db.add_Leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, nrwf=None, misc=None)
     fit_multiple(db, [f"tmp_t{t}" for t in ts], tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags, verbosity)
     # cleanup t Leafs
     db.remove(*[f"tmp_t{t}" for t in ts])
