@@ -47,9 +47,10 @@ class DatabaseIO:
         return data[tag]
     
     def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, filter_str=None, dst_tags=None, dst=None):
-        filenames = sorted([os.path.join(src_dir, f) for f in os.listdir(src_dir) if (os.path.isfile(os.path.join(src_dir, f)))], key=lambda x: int(x.split("ckpoint_lat.")[-1].split(".")[0]))
+        filenames = [os.path.join(src_dir, f) for f in os.listdir(src_dir) if (os.path.isfile(os.path.join(src_dir, f)))]
         if filter_str is not None:
             filenames = [x for x in filenames if filter_str in x]
+        filenames = sorted(filenames, key=lambda x: int(x.split("ckpoint_lat.")[-1].split(".")[0]))
         cfgs = [branch_tag + "-" + x.split("ckpoint_lat.")[-1].split(".")[0] for x in filenames]
         if dst_tags is None:
             dst_tags = src_tags

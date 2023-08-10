@@ -3,11 +3,10 @@
 import os
 import numpy as np
 from time import time
-from multiprocessing import Process, Manager
 from . import custom_json as json
 from .leafs import Leaf 
 from ..statistics import core as statistics
-from ..statistics import jackknife, auto
+from ..statistics import jackknife
 
 ##############################################################################################################################################################
 ##############################################################################################################################################################
