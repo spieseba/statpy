@@ -48,7 +48,7 @@ class JKS_DB:
         self.database[tag] = Leaf(mean, jks, sample, nrwf, misc)
 
     def message(self, s, verbosity=None):
-        if verbosity == None: verbosity = self.verbosity
+        if verbosity is None: verbosity = self.verbosity
         if verbosity >= 0: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
     
     def save(self, dst):
@@ -131,7 +131,7 @@ class JKS_DB:
     def combine(self, *tags, f=lambda x: x, dst_tag=None):
         mean = self.combine_mean(*tags, f=f)
         jks = self.combine_jks(*tags, f=f)
-        if dst_tag == None:
+        if dst_tag is None:
             return Leaf(mean, jks, None)
         self.database[dst_tag] = Leaf(mean, jks, None)
 
@@ -200,7 +200,7 @@ class JKS_DB:
     def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag=None):
         assert sys_tag != None
         sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
-        if self.database[dst_tag].misc == None:
+        if self.database[dst_tag].misc is None:
             self.database[dst_tag].misc = {}
         self.database[dst_tag].misc[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
         self.database[dst_tag].misc[f"SYS_VAR_{sys_tag}"] = sys_var
@@ -255,11 +255,11 @@ class Sample_DB(JKS_DB):
         dst_sample = {}
         for cfg, val in zip(dst_cfgs, sample):
             dst_sample[cfg] = val
-        if dst_tag == None:
+        if dst_tag is None:
             return Leaf(None, None, sample)
         else:
             self.database[dst_tag] = Leaf(None, None, dst_sample)
-    
+     
     def combine_sample(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
         f_sample = {}
@@ -267,7 +267,7 @@ class Sample_DB(JKS_DB):
         for cfg in cfgs:
             x = [lf.sample[cfg] if cfg in lf.sample else lf.mean for lf in lfs]
             f_sample[cfg] = f(*x) 
-        if dst_tag == None:
+        if dst_tag is None:
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
 
@@ -277,7 +277,7 @@ class Sample_DB(JKS_DB):
         for tag in tags:
             lf = self.database[tag]
             if lf.sample != None:
-                if lf.nrwf == None:
+                if lf.nrwf is None:
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
                     lf.mean = np.mean(self.as_array(lf.nrwf)[:,None] * self.as_array(lf.sample), axis=0)
@@ -287,7 +287,7 @@ class Sample_DB(JKS_DB):
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
-            if lf.nrwf == None:
+            if lf.nrwf is None:
                 jks = {}
                 for cfg in lf.sample:
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
@@ -297,10 +297,17 @@ class Sample_DB(JKS_DB):
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * lf.nrwf[cfg] / (len(lf.sample) - lf.nrwf[cfg])
             lf.jks = jks
  
+    def store_sample_bss(self, tag, bootstraps):
+        lf = self.database[tag]
+        bss = self.sample_bss(tag, bootstraps)
+        if lf.misc is None:
+            lf.misc = {}
+        lf.misc["bss"] = bss
+    
     def remove_cfgs(self, tag, cfgs):
         for cfg in cfgs:
             self.database[tag].sample.pop(str(cfg), None)
-
+    
     ############################### FUNCTIONS NOT MODIFYING THE DATABASE #######################################
 
     def return_JKS_DB(self):
@@ -314,16 +321,16 @@ class Sample_DB(JKS_DB):
     def sample_jks(self, tag, binsize, f=lambda x: x):
         lf = self.database[tag]
         if binsize == 1:
-            if lf.jks == None:
+            if lf.jks is None:
                 self.init_sample_jks(tag)
             jks = self.as_array(lf.jks)
         else:
-            if lf.nrwf == None:
+            if lf.nrwf is None:
                 bsample = statistics.bin(self.as_array(lf.sample), binsize)
-                jks = jackknife.samples(f, bsample)
+                jks = jackknife.sample(f, bsample)
             else:
                 bsample = statistics.bin(self.as_array(lf.sample), binsize, self.as_array(lf.nrwf)); bnrwf = statistics.bin(self.as_array(lf.nrwf), binsize)
-                jks = jackknife.samples(f, bsample, bnrwf[:, None])
+                jks = jackknife.sample(f, bsample, bnrwf[:, None])
         return jks
     
     def sample_jackknife_variance(self, tag, binsize, f=lambda x: x):
@@ -341,19 +348,10 @@ class Sample_DB(JKS_DB):
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
     
-#    ## autocorrelations ##
-#    def sample_autocovariance(self, tag, tmax, idx=None):        
-#        sorted_cfgs = sorted(self.database[tag].sample, key=lambda x: int(x.split("-")[-1]))
-#        if idx == None:
-#            sample = np.array([self.database[tag].sample[cfg] for cfg in sorted_cfgs]) 
-#        else: 
-#            sample = np.array([self.database[tag].sample[cfg][idx] for cfg in sorted_cfgs]) 
-#        return auto.covariance(sample, tmax)
-#    
-#    def sample_autocorrelation_function(self, tag, tmax, idx=None):
-#        cov = self.sample_autocovariance(tag, tmax, idx)
-#        return cov/cov[0]
-#    
-#    def sample_integrated_autocorrelation_time(self, tag, tmax, idx=None):
-#        gamma = self.sample_autocorrelation_function(tag, tmax, idx)
-#        return 0.5 + np.sum(gamma[1:])
+    def sample_bss(self, tag, bootstraps):
+        lf = self.database[tag]; lf_prefix = list(lf.sample.keys())[0].split("-")[0]
+        lf_dim = len(lf.sample[f"{lf_prefix}-{bootstraps[0][0]}"]); B = len(bootstraps)
+        bss = np.zeros((B, lf_dim))
+        for b in range(B):
+            bss[b] = np.mean([lf.sample[f"{lf_prefix}-{cfg}"] for cfg in bootstraps[b]], axis=0)
+        return bss      
