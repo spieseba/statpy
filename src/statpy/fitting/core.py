@@ -98,10 +98,10 @@ def fit(db, t, tag, cov, p0, model, method, minimizer_params, binsize, dst_tag, 
     chi2 = fitter.chi_squared(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
-    if db.database[dst_tag].info == None: db.database[dst_tag].info = {}
-    db.database[dst_tag].info["t"] = t
-    db.database[dst_tag].info["best_parameter_cov"] = best_parameter_cov 
-    db.database[dst_tag].info["chi2"] = chi2; db.database[dst_tag].info["dof"] = dof; db.database[dst_tag].info["pval"] = pval
+    if db.database[dst_tag].misc == None: db.database[dst_tag].misc = {}
+    db.database[dst_tag].misc["t"] = t
+    db.database[dst_tag].misc["best_parameter_cov"] = best_parameter_cov 
+    db.database[dst_tag].misc["chi2"] = chi2; db.database[dst_tag].misc["dof"] = dof; db.database[dst_tag].misc["pval"] = pval
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
@@ -126,11 +126,11 @@ def fit_multiple(db, t_tags, y_tags, cov, p0, model, method, minimizer_params, b
     chi2 = fitter.chi_squared(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
     dof = len(t_tags) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
-    if db.database[dst_tag].info == None: db.database[dst_tag].info = {}
-    db.database[dst_tag].info["t_tags"] = t_tags
-    db.database[dst_tag].info["y_tags"] = y_tags
-    db.database[dst_tag].info["best_parameter_cov"] = best_parameter_cov 
-    db.database[dst_tag].info["chi2"] = chi2; db.database[dst_tag].info["dof"] = dof; db.database[dst_tag].info["pval"] = pval
+    if db.database[dst_tag].misc == None: db.database[dst_tag].misc = {}
+    db.database[dst_tag].misc["t_tags"] = t_tags
+    db.database[dst_tag].misc["y_tags"] = y_tags
+    db.database[dst_tag].misc["best_parameter_cov"] = best_parameter_cov 
+    db.database[dst_tag].misc["chi2"] = chi2; db.database[dst_tag].misc["dof"] = dof; db.database[dst_tag].misc["pval"] = pval
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")

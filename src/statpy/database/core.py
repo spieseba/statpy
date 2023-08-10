@@ -29,7 +29,7 @@ class JKS_DB:
             if isinstance(src, dict):
                 for t, lf in src.items():
                     if self.db_type == "JKS-DB":
-                        self.database[t] = Leaf(lf.mean, lf.jks, None, None, lf.info)
+                        self.database[t] = Leaf(lf.mean, lf.jks, None, None, lf.misc)
                     elif self.db_type == "SAMPLE-DB":
                         self.database[t] = lf
 
@@ -39,14 +39,14 @@ class JKS_DB:
         with open(src) as f:
             src_db = json.load(f)
         for t, lf in src_db.items():
-            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.nrwf, lf.info)
+            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.nrwf, lf.misc)
 
-    def add_Leaf(self, tag, mean, jks, sample, nrwf, info):
+    def add_Leaf(self, tag, mean, jks, sample, nrwf, misc):
         assert (isinstance(sample, dict) or sample==None)
         assert (isinstance(jks, dict) or jks==None)
         assert (isinstance(nrwf, dict) or nrwf==None)
-        assert (isinstance(info, dict) or info==None)
-        self.database[tag] = Leaf(mean, jks, sample, nrwf, info)
+        assert (isinstance(misc, dict) or misc==None)
+        self.database[tag] = Leaf(mean, jks, sample, nrwf, misc)
 
     def message(self, s, verbosity=None):
         if verbosity == None: verbosity = self.verbosity
@@ -73,16 +73,16 @@ class JKS_DB:
                         s += f'\t└── sample\n' 
                     if np.array(lf.nrwf).any() != None:
                         s += f'\t└── nrwf\n' 
-                    if lf.info != None:
-                        s += f'\t└── info\n'
+                    if lf.misc != None:
+                        s += f'\t└── misc\n'
         return s
 
-    def print_info(self, tag):
-        self.message(self.__info_str__(tag))
+    def print_misc(self, tag):
+        self.message(self.__misc_str__(tag))
 
-    def __info_str__(self, tag):
-        s = f'\n\n\tINFO DICT OF {tag}\n\n'
-        for k, i in self.database[tag].info.items():
+    def __misc_str__(self, tag):
+        s = f'\n\n\tMISC DICT OF {tag}\n\n'
+        for k, i in self.database[tag].misc.items():
             s += f'\t{k:20s}: {i}\n'
         return s
     
@@ -193,7 +193,7 @@ class JKS_DB:
         x = []
         for tag in tags:
             try: 
-                x.append(self.database[tag].info[f"MEAN_SHIFTED_{sys_tag}"])
+                x.append(self.database[tag].misc[f"MEAN_SHIFTED_{sys_tag}"])
             except (TypeError, KeyError):
                 x.append(self.database[tag].mean)
         return f(*x)
@@ -201,16 +201,16 @@ class JKS_DB:
     def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag=None):
         assert sys_tag != None
         sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
-        if self.database[dst_tag].info == None:
-            self.database[dst_tag].info = {}
-        self.database[dst_tag].info[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
-        self.database[dst_tag].info[f"SYS_VAR_{sys_tag}"] = sys_var
+        if self.database[dst_tag].misc == None:
+            self.database[dst_tag].misc = {}
+        self.database[dst_tag].misc[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
+        self.database[dst_tag].misc[f"SYS_VAR_{sys_tag}"] = sys_var
 
     def get_sys_tags(self, *tags):
         sys_tags = []
         for tag in tags:
-            if self.database[tag].info is not None:
-                for k in self.database[tag].info:
+            if self.database[tag].misc is not None:
+                for k in self.database[tag].misc:
                     if "MEAN_SHIFTED" in k:
                         sys_tag = k.split("MEAN_SHIFTED_")[1] 
                         if sys_tag not in sys_tags:
@@ -219,8 +219,8 @@ class JKS_DB:
 
     def get_sys_var(self, tag):
         sys_var = np.zeros_like(self.database[tag].mean)
-        if self.database[tag].info != None:
-            for k,v in self.database[tag].info.items():
+        if self.database[tag].misc != None:
+            for k,v in self.database[tag].misc.items():
                 if "SYS_VAR" in k:
                     sys_var += v
         return sys_var
@@ -235,7 +235,7 @@ class JKS_DB:
             s += " ERRORS:\n"
             s += f"   {self.jackknife_variance(tag, binsize, pavg)**.5} (STAT)\n"
             for sys_tag in self.get_sys_tags(tag):
-                s += f"   {self.database[tag].info[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
+                s += f"   {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
         self.message(s, verbosity)
 
 ###########################################################################################################################################################################
@@ -342,19 +342,19 @@ class Sample_DB(JKS_DB):
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
     
-    ## autocorrelations ##
-    def sample_autocovariance(self, tag, tmax, idx=None):        
-        sorted_cfgs = sorted(self.database[tag].sample, key=lambda x: int(x.split("-")[-1]))
-        if idx == None:
-            sample = np.array([self.database[tag].sample[cfg] for cfg in sorted_cfgs]) 
-        else: 
-            sample = np.array([self.database[tag].sample[cfg][idx] for cfg in sorted_cfgs]) 
-        return auto.covariance(sample, tmax)
-    
-    def sample_autocorrelation_function(self, tag, tmax, idx=None):
-        cov = self.sample_autocovariance(tag, tmax, idx)
-        return cov/cov[0]
-    
-    def sample_integrated_autocorrelation_time(self, tag, tmax, idx=None):
-        gamma = self.sample_autocorrelation_function(tag, tmax, idx)
-        return 0.5 + np.sum(gamma[1:])
+#    ## autocorrelations ##
+#    def sample_autocovariance(self, tag, tmax, idx=None):        
+#        sorted_cfgs = sorted(self.database[tag].sample, key=lambda x: int(x.split("-")[-1]))
+#        if idx == None:
+#            sample = np.array([self.database[tag].sample[cfg] for cfg in sorted_cfgs]) 
+#        else: 
+#            sample = np.array([self.database[tag].sample[cfg][idx] for cfg in sorted_cfgs]) 
+#        return auto.covariance(sample, tmax)
+#    
+#    def sample_autocorrelation_function(self, tag, tmax, idx=None):
+#        cov = self.sample_autocovariance(tag, tmax, idx)
+#        return cov/cov[0]
+#    
+#    def sample_integrated_autocorrelation_time(self, tag, tmax, idx=None):
+#        gamma = self.sample_autocorrelation_function(tag, tmax, idx)
+#        return 0.5 + np.sum(gamma[1:])

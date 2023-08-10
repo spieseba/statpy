@@ -97,7 +97,7 @@ def db_gradient_flow_scale(db, leaf_prefix, binsize, verbose=True):
     # propagate systematic error of t0
     sqrt_t0_GeV_mean_shifted = scale.comp_sqrt_t0_GeV(db.database[leaf_prefix + "/sqrt_tau0"].mean, scale.sqrt_t0_fm + scale.sqrt_t0_fm_std)
     db.propagate_sys_var(sqrt_t0_GeV_mean_shifted, dst_tag=leaf_prefix + "/sqrt_t0_GeV", sys_tag="sqrt_t0_GeV")
-    sqrt_t0_GeV_sys_var = db.database[leaf_prefix + "/sqrt_t0_GeV"].info["SYS_VAR_sqrt_t0_GeV"]
+    sqrt_t0_GeV_sys_var = db.database[leaf_prefix + "/sqrt_t0_GeV"].misc["SYS_VAR_sqrt_t0_GeV"]
     # omega0
     db.combine(leaf_prefix + "/E", f=lambda x: scale.set_omega0(tau, x), dst_tag=leaf_prefix + "/omega0")
     omega0_var = db.jackknife_variance(leaf_prefix + "/omega0", binsize)
@@ -107,7 +107,7 @@ def db_gradient_flow_scale(db, leaf_prefix, binsize, verbose=True):
     # propagate systematic error of w0
     w0_GeV_mean_shifted = scale.comp_w0_GeV(db.database[leaf_prefix + "/omega0"].mean, scale.w0_fm + scale.w0_fm_std)
     db.propagate_sys_var(w0_GeV_mean_shifted, dst_tag=leaf_prefix + "/w0_GeV", sys_tag="w0_GeV")
-    w0_GeV_sys_var = db.database[leaf_prefix + "/w0_GeV"].info["SYS_VAR_w0_GeV"]
+    w0_GeV_sys_var = db.database[leaf_prefix + "/w0_GeV"].misc["SYS_VAR_w0_GeV"]
     if verbose:
         db.message(f"sqrt(tau0) = {db.database[leaf_prefix + '/sqrt_tau0'].mean:.4f} +- {sqrt_tau0_var**.5:.4f}")
         db.message(f"omega0 = {db.database[leaf_prefix + '/omega0'].mean:.4f} +- {omega0_var**.5:.4f}")
