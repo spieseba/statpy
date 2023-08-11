@@ -273,10 +273,7 @@ class Sample_DB(JKS_DB):
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
-            if "nrwf" in tag: 
-                nrwf = None
-            else:
-                nrwf = self.get_nrwf(tag)
+            nrwf = self.get_nrwf(tag)
             if lf.sample != None:
                 if nrwf is None:
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
@@ -319,7 +316,10 @@ class Sample_DB(JKS_DB):
         return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
     
     def get_nrwf(self, tag):
-        return self.database.get(f"{tag.split('/')[0]}/nrwf").sample 
+        lf = self.database.get(f"{tag.split('/')[0]}/nrwf") 
+        if (lf == None) or ("nrwf" in tag):
+            return None
+        return lf.sample 
 
     ################################## STATISTICS ######################################
 
