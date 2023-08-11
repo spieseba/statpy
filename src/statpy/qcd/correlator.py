@@ -161,7 +161,7 @@ def effective_mass_curve_fit(db, tag, t0_min, t0_max, nt, cov, p0, bc, method, m
 def effective_mass_const_fit(db, ts, tags, cov, p0, method, minimizer_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     model = const_model()
     # add t Leafs
-    for t in ts: db.add_Leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, nrwf=None, misc=None)
+    for t in ts: db.add_Leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, misc=None)
     fit_multiple(db, [f"tmp_t{t}" for t in ts], tags, cov, p0, model, method, minimizer_params, binsize, dst_tag, sys_tags, verbosity)
     # cleanup t Leafs
     db.remove(*[f"tmp_t{t}" for t in ts])
@@ -220,7 +220,6 @@ class LatticeCharmSpectroscopy():
         Ct_tags = self.db.get_tags(Ct_prefix)
         srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ct_tags])
         self.db.combine_sample(*Ct_tags, f=lambda *Cts: self._avg_obc_srcs(*Cts, srcs=srcs, tmin=tmin, tmax=tmax), dst_tag=dst_tag)
-        self.db.database[dst_tag].nrwf = dict(self.db.database[Ct_tags[0]].nrwf)
         if cleanup:
             self.db.remove(*Ct_tags)
         self.db.init_sample_means(dst_tag)
@@ -442,7 +441,6 @@ class LatticeCharmSpectroscopy():
             return PS_A4I
         tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
         self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PS_A4I(x, y, beta), dst_tag=tag_PSA4I)
-        self.db.database[tag_PSA4I].nrwf = dict(self.db.database[tag_PSA4_sml].nrwf)
         self.db.init_sample_means(tag_PSA4I)
         self.db.init_sample_jks(tag_PSA4I)
 

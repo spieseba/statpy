@@ -276,25 +276,30 @@ class Sample_DB(JKS_DB):
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
+            if "nrwf" in tag: 
+                nrwf = None
+            else:
+                nrwf = self.get_nrwf(tag)
             if lf.sample != None:
-                if lf.nrwf is None:
+                if nrwf is None:
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
-                    lf.mean = np.mean(self.as_array(lf.nrwf)[:,None] * self.as_array(lf.sample), axis=0)
+                    lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
     def init_sample_jks(self, *tags):
         if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
-            if lf.nrwf is None:
+            nrwf = self.get_nrwf(tag)
+            if nrwf is None:
                 jks = {}
                 for cfg in lf.sample:
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
             else:
                 jks = {}
                 for cfg in lf.sample:
-                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * lf.nrwf[cfg] / (len(lf.sample) - lf.nrwf[cfg])
+                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
             lf.jks = jks
  
     def store_sample_bss(self, tag, bootstraps):
@@ -315,6 +320,9 @@ class Sample_DB(JKS_DB):
 
     def cfgs(self, tag):
         return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
+    
+    def get_nrwf(self, tag):
+        return self.database.get(f"{tag.split('/')[0]}/nrwf").sample 
 
     ################################## STATISTICS ######################################
 
@@ -325,12 +333,13 @@ class Sample_DB(JKS_DB):
                 self.init_sample_jks(tag)
             jks = self.as_array(lf.jks)
         else:
-            if lf.nrwf is None:
+            nrwf = self.get_nrwf(tag)
+            if nrwf is None:
                 bsample = statistics.bin(self.as_array(lf.sample), binsize)
-                jks = jackknife.sample(f, bsample)
+                jks = jackknife.samples(f, bsample)
             else:
-                bsample = statistics.bin(self.as_array(lf.sample), binsize, self.as_array(lf.nrwf)); bnrwf = statistics.bin(self.as_array(lf.nrwf), binsize)
-                jks = jackknife.sample(f, bsample, bnrwf[:, None])
+                bsample = statistics.bin(self.as_array(lf.sample), binsize, self.as_array(nrwf)); bnrwf = statistics.bin(self.as_array(nrwf), binsize)
+                jks = jackknife.samples(f, bsample, bnrwf[:, None])
         return jks
     
     def sample_jackknife_variance(self, tag, binsize, f=lambda x: x):

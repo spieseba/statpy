@@ -66,20 +66,23 @@ class DatabaseIO:
         with open(dst, "w") as f:
             json.dump(database, f)
 
-    def create_SAMPLE_DB_from_CLS(self, data_path, rwf_path, src_tags, leaf_prefix, dst=None):
+    def create_SAMPLE_DB_from_CLS(self, data_path, rwf_path, src_tags, branch_tag, dst=None):
         assert os.path.isfile(data_path)
         assert os.path.isfile(rwf_path)
+        database = {}
+        # rwfs
         rwf_cfgs = np.array(np.loadtxt(rwf_path)[:,0] - 1, dtype=int)
         rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf)
-        nrwf = {f"{leaf_prefix}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)}    
+        nrwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)} 
+        database[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
+        # data
         f = h5py.File(data_path, "r")
         f_cfgs = np.array([int(cfg.decode("ascii").split("n")[1]) for cfg in f['configlist']]) - 1; f_cfgs = f_cfgs[rwf_cfgs]
-        database = {}
         for stag in src_tags:
             for key in f.keys():
                 if stag in key:
-                    sample = {f"{leaf_prefix}-{cfg}":val for cfg,val in zip(f_cfgs, np.array(f.get(key))[f_cfgs])}
-                    database[f"{leaf_prefix}/{key}"] = Leaf(mean=None, jks=None, sample=sample, nrwf=nrwf)
+                    sample = {f"{branch_tag}-{cfg}":val for cfg,val in zip(f_cfgs, np.array(f.get(key))[f_cfgs])}
+                    database[f"{branch_tag}/{key}"] = Leaf(mean=None, jks=None, sample=sample)
         if dst is None:
             return database
         with open(dst, "w") as file:
