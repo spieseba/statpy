@@ -28,7 +28,7 @@ class JKS_DB:
             if isinstance(src, dict):
                 for t, lf in src.items():
                     if self.db_type == "JKS-DB":
-                        self.database[t] = Leaf(lf.mean, lf.jks, None, None, lf.misc)
+                        self.database[t] = Leaf(lf.mean, lf.jks, None, lf.misc)
                     elif self.db_type == "SAMPLE-DB":
                         self.database[t] = lf
 
@@ -38,14 +38,13 @@ class JKS_DB:
         with open(src) as f:
             src_db = json.load(f)
         for t, lf in src_db.items():
-            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.nrwf, lf.misc)
+            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.misc)
 
-    def add_Leaf(self, tag, mean, jks, sample, nrwf, misc):
+    def add_Leaf(self, tag, mean, jks, sample, misc):
         assert (isinstance(sample, dict) or sample==None)
         assert (isinstance(jks, dict) or jks==None)
-        assert (isinstance(nrwf, dict) or nrwf==None)
         assert (isinstance(misc, dict) or misc==None)
-        self.database[tag] = Leaf(mean, jks, sample, nrwf, misc)
+        self.database[tag] = Leaf(mean, jks, sample, misc)
 
     def message(self, s, verbosity=None):
         if verbosity is None: verbosity = self.verbosity
@@ -70,8 +69,6 @@ class JKS_DB:
                         s += f'\t└── jks\n'
                     if np.array(lf.sample).any() != None:
                         s += f'\t└── sample\n' 
-                    if np.array(lf.nrwf).any() != None:
-                        s += f'\t└── nrwf\n' 
                     if lf.misc != None:
                         s += f'\t└── misc\n'
         return s
