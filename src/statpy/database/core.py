@@ -3,6 +3,8 @@
 import os
 import numpy as np
 from time import time
+from functools import reduce
+from operator import ior
 from . import custom_json as json
 from .leafs import Leaf 
 from ..statistics import core as statistics
@@ -244,18 +246,6 @@ class Sample_DB(JKS_DB):
     db_type = "SAMPLE-DB" 
 
     ################################## FUNCTIONS MODIFYING THE DATABASE #######################################
-    
-    def merge_sample(self, *tags, dst_tag=None, dst_cfgs=None):
-        assert dst_cfgs != None
-        lfs = [self.database[tag] for tag in tags]
-        sample = np.concatenate([self.as_array(lf.sample) for lf in lfs], axis=0)
-        dst_sample = {}
-        for cfg, val in zip(dst_cfgs, sample):
-            dst_sample[cfg] = val
-        if dst_tag is None:
-            return Leaf(None, None, sample)
-        else:
-            self.database[dst_tag] = Leaf(None, None, dst_sample)
      
     def combine_sample(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
@@ -268,6 +258,16 @@ class Sample_DB(JKS_DB):
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
 
+    ## TODO: need ordering parameter
+    ## sorted_dict = dict(sorted(unsorted_dict.items()))
+    def merge_sample(self, *tags, dst_tag=None):
+        lfs = [self.database[tag] for tag in tags]
+        sample = reduce(ior, [lf.sample for lf in lfs], {})
+        if dst_tag is None:
+            return Leaf(None, None, sample)
+        else:
+            self.database[dst_tag] = Leaf(None, None, sample)
+    
     def init_sample_means(self, *tags):
         if len(tags) == 0:
             tags = self.database.keys()
