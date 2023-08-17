@@ -258,11 +258,9 @@ class Sample_DB(JKS_DB):
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
 
-    ## TODO: need ordering parameter
-    ## sorted_dict = dict(sorted(unsorted_dict.items()))
-    def merge_sample(self, *tags, dst_tag=None):
+    def merge_sample(self, *tags, dst_tag=None, key=None):
         lfs = [self.database[tag] for tag in tags]
-        sample = reduce(ior, [lf.sample for lf in lfs], {})
+        sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=key))
         if dst_tag is None:
             return Leaf(None, None, sample)
         else:
