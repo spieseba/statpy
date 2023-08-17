@@ -71,17 +71,16 @@ class DatabaseIO:
         assert os.path.isfile(rwf_path)
         database = {}
         # rwfs
-        rwf_cfgs = np.array(np.loadtxt(rwf_path)[:,0] - 1, dtype=int)
+        rwf_cfgs = np.array(np.loadtxt(rwf_path)[:,0], dtype=int)
         rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf)
         nrwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)} 
         database[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
         # data
         f = h5py.File(data_path, "r")
-        f_cfgs = np.array([int(cfg.decode("ascii").split("n")[1]) for cfg in f['configlist']]) - 1; f_cfgs = f_cfgs[rwf_cfgs]
-        for stag in src_tags:
+        for s in src_tags:
             for key in f.keys():
-                if stag in key:
-                    sample = {f"{branch_tag}-{cfg}":val for cfg,val in zip(f_cfgs, np.array(f.get(key))[f_cfgs])}
+                if s in key:
+                    sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, f.get(key)[rwf_cfgs-1])}
                     database[f"{branch_tag}/{key}"] = Leaf(mean=None, jks=None, sample=sample)
         if dst is None:
             return database
