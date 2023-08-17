@@ -261,6 +261,7 @@ class Sample_DB(JKS_DB):
     def merge_sample(self, *tags, dst_tag=None, key=None):
         lfs = [self.database[tag] for tag in tags]
         sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=key))
+        ## nrwf
         if dst_tag is None:
             return Leaf(None, None, sample)
         else:
@@ -283,6 +284,7 @@ class Sample_DB(JKS_DB):
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
+            if lf.sample is None: continue
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
                 jks = {}
@@ -294,13 +296,18 @@ class Sample_DB(JKS_DB):
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
             lf.jks = jks
  
-    def store_sample_bss(self, tag, bootstraps):
-        lf = self.database[tag]
-        bss = self.sample_bss(tag, bootstraps)
-        if lf.misc is None:
-            lf.misc = {}
-        lf.misc["bss"] = bss
-    
+    def add_bootstraps(self, path, branch_tag):
+        def get_line(path, n):
+            with open(path) as f:
+                for i, line in enumerate(f):
+                    if i==n:
+                        return line
+            return None
+        bootstraps = np.loadtxt(path, dtype=int)
+        configlist = get_line(path, 3).replace("n", "-").split(" ")[1:]
+        configlist[-1] = configlist[-1].replace("\n", "")
+        self.database[f"{branch_tag}/bootstraps"] = Leaf(bootstraps, None, None, misc={"configlist": configlist})
+
     def remove_cfgs(self, tag, cfgs):
         for cfg in cfgs:
             self.database[tag].sample.pop(str(cfg), None)
@@ -352,10 +359,14 @@ class Sample_DB(JKS_DB):
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
     
-    def sample_bss(self, tag, bootstraps):
-        lf = self.database[tag]; lf_prefix = list(lf.sample.keys())[0].split("-")[0]
-        lf_dim = len(lf.sample[f"{lf_prefix}-{bootstraps[0][0]}"]); B = len(bootstraps)
-        bss = np.zeros((B, lf_dim))
+    def sample_bss(self, tag, bootstrap_tag):
+        lf = self.database[tag]
+        bootstrap_lf = self.database[bootstrap_tag]
+        bootstraps = bootstrap_lf.mean
+        stripped_sample = np.array([lf.sample[cfg] for cfg in bootstrap_lf.misc["configlist"]])
+        B = bootstraps.shape[0]; data_dim = stripped_sample.shape[1]
+        bss = np.zeros((B, data_dim))
+        # compute mean using nrwfs
         for b in range(B):
-            bss[b] = np.mean([lf.sample[f"{lf_prefix}-{cfg}"] for cfg in bootstraps[b]], axis=0)
+            bss[b] = np.mean(stripped_sample[bootstraps[b]], axis=0)
         return bss      
