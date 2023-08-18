@@ -261,7 +261,6 @@ class Sample_DB(JKS_DB):
     def merge_sample(self, *tags, dst_tag=None, key=None):
         lfs = [self.database[tag] for tag in tags]
         sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=key))
-        ## nrwf
         if dst_tag is None:
             return Leaf(None, None, sample)
         else:
@@ -273,7 +272,7 @@ class Sample_DB(JKS_DB):
         for tag in tags:
             lf = self.database[tag]
             nrwf = self.get_nrwf(tag)
-            if lf.sample != None:
+            if lf.sample is not None:
                 if nrwf is None:
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
@@ -359,14 +358,17 @@ class Sample_DB(JKS_DB):
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
     
-    def sample_bss(self, tag, bootstrap_tag):
+    def sample_bss(self, tag, nrwf_tag, bootstrap_tag):
         lf = self.database[tag]
+        nrwf_lf = self.database[nrwf_tag]
         bootstrap_lf = self.database[bootstrap_tag]
+        sample = np.array([lf.sample[cfg] for cfg in bootstrap_lf.misc["configlist"]])
+        nrwf = np.array([nrwf_lf.sample[cfg] for cfg in bootstrap_lf.misc["configlist"]])
         bootstraps = bootstrap_lf.mean
-        stripped_sample = np.array([lf.sample[cfg] for cfg in bootstrap_lf.misc["configlist"]])
-        B = bootstraps.shape[0]; data_dim = stripped_sample.shape[1]
+        B = bootstraps.shape[0]; data_dim = sample.shape[1]
         bss = np.zeros((B, data_dim))
-        # compute mean using nrwfs
         for b in range(B):
-            bss[b] = np.mean(stripped_sample[bootstraps[b]], axis=0)
-        return bss      
+            bs = bootstraps[b]
+            bs_nrwf = nrwf[bs] / np.mean(nrwf[bs])
+            bss[b] = np.mean(bs_nrwf[:,None] * sample[bs], axis=0)
+        return bss       
