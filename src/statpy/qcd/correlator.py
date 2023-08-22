@@ -263,8 +263,8 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------\n") 
-            self.db.message("------------------ FIT PSPS CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self.db.message(f"REDUCED FIT RANGE: {self.fit_range_PSPS}")
+            self.db.message("------------------ FIT PSA4I CORRELATOR WITH REDUCED FIT RANGE --------------------") 
+            self.db.message(f"REDUCED FIT RANGE: {self.fit_range_PSA4I}")
             self.A_PSA4I, self.A_var_PSA4I, self.m_PSA4I, self.m_var_PSA4I = self._spectroscopy(tag_PSA4I, B, self.fit_range_PSA4I, self.p0_PSA4I, spectroscopy_model_type, False, self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, PSA4I_plot, figsize, verbosity)
     
     def fit_combined(self, tag_PSPS, tag_PSA4I, B, bc, correlated=False, make_plot=True, figsize=None, verbosity=0):
