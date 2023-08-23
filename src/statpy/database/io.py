@@ -77,10 +77,12 @@ class DatabaseIO:
         database[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
         # data
         f = h5py.File(data_path, "r")
+        f_cfgs = np.array([cfg.decode("utf-8").replace("n", "-") for cfg in f.get("configlist")])
+        cfgs = [cfg for cfg in rwf_cfgs if cfg in f_cfgs]
         for s in src_tags:
             for key in f.keys():
                 if s in key:
-                    sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, f.get(key)[rwf_cfgs-1])}
+                    sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(cfgs, f.get(key)[cfgs-1])}
                     database[f"{branch_tag}/{key}"] = Leaf(mean=None, jks=None, sample=sample)
         if dst is None:
             return database

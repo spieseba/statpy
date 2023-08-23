@@ -219,7 +219,8 @@ class LatticeCharmSpectroscopy():
     def obc_tsrc_avg(self, Ct_prefix, tmin, tmax, dst_tag, cleanup=True):
         Ct_tags = self.db.get_tags(Ct_prefix)
         srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ct_tags])
-        self.db.combine_sample(*Ct_tags, f=lambda *Cts: self._avg_obc_srcs(*Cts, srcs=srcs, tmin=tmin, tmax=tmax), dst_tag=dst_tag)
+        self.db.combine_sample(*Ct_tags, f=lambda *Cts: self._avg_obc_srcs(*Cts, srcs=srcs, tmin=tmin, tmax=tmax), dst_tag=dst_tag,
+                               key=lambda x: int(x[0].split("-")[-1]))
         if cleanup:
             self.db.remove(*Ct_tags)
         self.db.init_sample_means(dst_tag)

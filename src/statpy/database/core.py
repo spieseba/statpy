@@ -247,13 +247,14 @@ class Sample_DB(JKS_DB):
 
     ################################## FUNCTIONS MODIFYING THE DATABASE #######################################
      
-    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None):
+    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, key=None):
         lfs = [self.database[tag] for tag in tags]
         f_sample = {}
         cfgs = np.unique([list(lf.sample.keys()) for lf in lfs]) 
         for cfg in cfgs:
             x = [lf.sample[cfg] if cfg in lf.sample else lf.mean for lf in lfs]
             f_sample[cfg] = f(*x) 
+        f_sample = dict(sorted(f_sample.items(), key=key)) 
         if dst_tag is None:
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
@@ -276,6 +277,7 @@ class Sample_DB(JKS_DB):
                 if nrwf is None:
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
+                    #lf.mean = np.mean([nrwf[cfg] * lf.sample[cfg] for cfg in nrwf], axis=0)
                     lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
     def init_sample_jks(self, *tags):
@@ -295,18 +297,6 @@ class Sample_DB(JKS_DB):
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
             lf.jks = jks
  
-    def add_bootstraps(self, path, branch_tag):
-        def get_line(path, n):
-            with open(path) as f:
-                for i, line in enumerate(f):
-                    if i==n:
-                        return line
-            return None
-        bootstraps = np.loadtxt(path, dtype=int)
-        configlist = get_line(path, 3).replace("n", "-").split(" ")[1:]
-        configlist[-1] = configlist[-1].replace("\n", "")
-        self.database[f"{branch_tag}/bootstraps"] = Leaf(bootstraps, None, None, misc={"configlist": configlist})
-
     def remove_cfgs(self, tag, cfgs):
         for cfg in cfgs:
             self.database[tag].sample.pop(str(cfg), None)
@@ -357,18 +347,3 @@ class Sample_DB(JKS_DB):
         for b in binsizes:
             var[b] = self.sample_jackknife_variance(tag, b)
         return var
-    
-    def sample_bss(self, tag, nrwf_tag, bootstrap_tag):
-        lf = self.database[tag]
-        nrwf_lf = self.database[nrwf_tag]
-        bootstrap_lf = self.database[bootstrap_tag]
-        sample = np.array([lf.sample[cfg] for cfg in bootstrap_lf.misc["configlist"]])
-        nrwf = np.array([nrwf_lf.sample[cfg] for cfg in bootstrap_lf.misc["configlist"]])
-        bootstraps = bootstrap_lf.mean
-        B = bootstraps.shape[0]; data_dim = sample.shape[1]
-        bss = np.zeros((B, data_dim))
-        for b in range(B):
-            bs = bootstraps[b]
-            bs_nrwf = nrwf[bs] / np.mean(nrwf[bs])
-            bss[b] = np.mean(bs_nrwf[:,None] * sample[bs], axis=0)
-        return bss       
