@@ -138,7 +138,7 @@ class JKS_DB:
 
     def jks(self, tag, binsize, shift=0, verbose=False):
         lf = self.database[tag]
-        if binsize == 1:
+        if binsize == 1 or not lf.jks:
             return lf.jks
         jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1])); branch_tag = jks_tags[0].split("-")[0]
         if verbose:
