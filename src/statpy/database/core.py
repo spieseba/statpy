@@ -84,22 +84,22 @@ class JKS_DB:
             s += f'\t{k:20s}: {i}\n'
         return s
     
-    def remove(self, *tags):
+    def remove(self, *tags, verbosity=-1):
         for tag in tags:
             try:
                 del self.database[tag]
             except KeyError:
-                print(f"{tag} not in database")
+                self.message(f"{tag} not in database", verbosity)
 
     def get_tags(self, key="", verbosity=0):
         return [tag for tag in self.database.keys() if key in tag]
 
     # helper function
-    def as_array(self, obj):
+    def as_array(self, obj, key=lambda x: int(x[0].split("-")[-1])):
         if isinstance(obj, np.ndarray):
             return obj
-        else:
-            return np.array(list(obj.values()))
+        sorted_obj = dict(sorted(obj.items(), key=key))
+        return np.array(list(sorted_obj.values()))
     
     ################################## FUNCTIONS #######################################
 
@@ -140,7 +140,7 @@ class JKS_DB:
         lf = self.database[tag]
         if binsize == 1:
             return lf.jks
-        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: (x.split("-")[0], int(x.split("-")[-1])))
+        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1])); branch_tag = jks_tags[0].split("-")[0]
         if verbose:
             print(jks_tags)
         N = len(jks_tags)
@@ -149,7 +149,7 @@ class JKS_DB:
         jks_bin = {}
         for i in range(Nb):
             s = sum([lf.jks[np.roll(jks_tags, shift)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
-            jks_bin[i] = lf.mean + s * (N-1) / (N-binsize)
+            jks_bin[f"{branch_tag}/binsize{binsize}-{i}"] = lf.mean + s * (N-1) / (N-binsize)
         return jks_bin
 
     def jackknife_variance(self, tag, binsize, pavg=False):
@@ -259,9 +259,12 @@ class Sample_DB(JKS_DB):
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
 
-    def merge_sample(self, *tags, dst_tag=None, key=None):
+    def merge_sample(self, *tags, dst_tag=None, key=None, dst_cfgs=None):
         lfs = [self.database[tag] for tag in tags]
-        sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=key))
+        if dst_cfgs is None:
+            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=key))
+        else:
+            sample = {cfg:val for cfg,val in zip(dst_cfgs, np.concatenate([self.as_array(lf.sample) for lf in lfs], axis=0))}
         if dst_tag is None:
             return Leaf(None, None, sample)
         else:
@@ -277,7 +280,6 @@ class Sample_DB(JKS_DB):
                 if nrwf is None:
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
-                    #lf.mean = np.mean([nrwf[cfg] * lf.sample[cfg] for cfg in nrwf], axis=0)
                     lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
     def init_sample_jks(self, *tags):
