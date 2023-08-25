@@ -77,8 +77,8 @@ class DatabaseIO:
         database[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
         # data
         f = h5py.File(data_path, "r")
-        f_cfgs = np.array([cfg.decode("utf-8").replace("n", "-") for cfg in f.get("configlist")])
-        cfgs = [cfg for cfg in rwf_cfgs if cfg in f_cfgs]
+        f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
+        cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
         for s in src_tags:
             for key in f.keys():
                 if s in key:
