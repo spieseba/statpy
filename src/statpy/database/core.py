@@ -3,12 +3,17 @@
 import os
 import numpy as np
 from time import time
-from functools import reduce
+from functools import reduce, partial
 from operator import ior
 from . import custom_json as json
 from .leafs import Leaf 
 from ..statistics import core as statistics
 from ..statistics import jackknife
+# import multiprocessing module and overwrite its Pickle class using dill
+import dill, multiprocessing
+dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+multiprocessing.reduction.ForkingPickler = dill.Pickler
+multiprocessing.reduction.dump = dill.dump
 
 ##############################################################################################################################################################
 ##############################################################################################################################################################
@@ -18,8 +23,9 @@ from ..statistics import jackknife
 
 class JKS_DB:
     db_type = "JKS-DB"
-    def __init__(self, *args, verbosity=0):
+    def __init__(self, *args, num_proc=None, verbosity=0):
         self.t0 = time()
+        self.num_proc = num_proc
         self.verbosity = verbosity
         self.database = {}
         for src in args:
@@ -103,6 +109,14 @@ class JKS_DB:
     
     ################################## FUNCTIONS #######################################
 
+    def combine(self, *tags, f=lambda x: x, dst_tag=None, num_proc=None):
+        if num_proc is None: num_proc = self.num_proc
+        mean = self.combine_mean(*tags, f=f)
+        jks = self.combine_jks(*tags, f=f, num_proc=num_proc)
+        if dst_tag is None:
+            return Leaf(mean, jks, None)
+        self.database[dst_tag] = Leaf(mean, jks, None)
+
     def combine_mean(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
         mean = f(*[lf.mean for lf in lfs])
@@ -113,26 +127,25 @@ class JKS_DB:
         except KeyError:
             self.database[dst_tag] = Leaf(mean, None, None)
 
-    def combine_jks(self, *tags, f=lambda x: x, dst_tag=None):
+    def combine_jks(self, *tags, f=lambda x: x, dst_tag=None, num_proc=None):
+        if num_proc is None: num_proc = self.num_proc
         lfs = [self.database[tag] for tag in tags]
         cfgs = np.unique(np.concatenate([list(lf.jks.keys()) for lf in lfs]))
         xs = {cfg:[lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs] for cfg in cfgs}
-        jks = {}
-        for cfg, x in xs.items():
-                jks[cfg] = f(*x)
+        if num_proc is None:
+            jks = {cfg:f(*x) for cfg,x in xs.items()}
+        else:
+            def wrapped_f(cfg, *x):
+                return cfg, f(*x)
+            self.message(f"Spawn {num_proc} processes to compute jackknife sample")
+            with multiprocessing.Pool(num_proc) as pool:
+                jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
         if dst_tag is None:
             return jks
         try:
             self.database[dst_tag].jks = jks
         except KeyError:
             self.database[dst_tag] = Leaf(None, jks, None)
-
-    def combine(self, *tags, f=lambda x: x, dst_tag=None):
-        mean = self.combine_mean(*tags, f=f)
-        jks = self.combine_jks(*tags, f=f)
-        if dst_tag is None:
-            return Leaf(mean, jks, None)
-        self.database[dst_tag] = Leaf(mean, jks, None)
 
     ################################## STATISTICS ######################################
 
