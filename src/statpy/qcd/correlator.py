@@ -4,6 +4,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ..fitting.core import Fitter, fit, fit_multiple, model_prediction_var
 from ..statistics import jackknife
+# import multiprocessing module and overwrite its Pickle class using dill
+import dill, multiprocessing
+dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+multiprocessing.reduction.ForkingPickler = dill.Pickler
+multiprocessing.reduction.dump = dill.dump
 
 ########################################### EFFECTIVE MASS CURVES ###########################################
 
@@ -217,12 +222,13 @@ class CorrelatorData():
             raise Exception("Model not available")
 
 class LatticeCharmSpectroscopy():
-    def __init__(self, db, fit_method="Migrad", fit_params=None, jks_fit_method="Migrad", jks_fit_params=None):
+    def __init__(self, db, fit_method="Migrad", fit_params=None, jks_fit_method="Migrad", jks_fit_params=None, num_proc=None):
         self.db = db
         self.fit_method = fit_method
         self.fit_params = fit_params
         self.jks_fit_method = jks_fit_method
         self.jks_fit_params = jks_fit_params
+        self.num_proc = num_proc
 
     def obc_tsrc_avg(self, Ct_prefix, tmin, tmax, dst_tag, cleanup=True):
         Ct_tags = self.db.get_tags(Ct_prefix)
@@ -336,19 +342,28 @@ class LatticeCharmSpectroscopy():
             self.f_bare[b] = bare_decay_constant(self.A_PSA4I_combined[b], self.A_PSPS_combined[b], self.m_combined[b])
             self.f_bare_jks[b] = {cfg:bare_decay_constant(self.A_PSA4I_combined_jks[b][cfg], self.A_PSPS_combined_jks[b][cfg], 
                                                           self.m_combined_jks[b][cfg]) for cfg in self.A_PSA4I_combined_jks[b]} 
-            self.f_bare_var[b] = jackknife.variance_jks(self.f_bare[b], self.db.as_array(self.f_bare_jks[b]))
+            self.f_bare_var[b] = jackknife.variance_jks(self.f_bare[b], self.db.as_array(self.f_bare_jks[b], key=None))
         print(f"bare decay constant estimate: f_bare = {self.f_bare[B]:.4f} +- {self.f_bare_var[B]**.5:.4f}")
         
-    def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params):
+    def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, num_proc=None):
+        if num_proc is None: num_proc = self.num_proc
         # mean fit
         fitter = Fitter(cov, model, fit_method, fit_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
         # jks fits
-        if jks_fit_method == None: jks_fit_method = fit_method; jks_fit_params = fit_params
+        if jks_fit_method is None: jks_fit_method = fit_method; jks_fit_params = fit_params
         jks_fitter = Fitter(cov, model, jks_fit_method, jks_fit_params)
-        best_parameter_jks = {}
-        for cfg in jks:
-            best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, jks[cfg], best_parameter)
+        if num_proc is None:
+            best_parameter_jks = {}
+            for cfg in jks:
+                best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, jks[cfg], best_parameter)
+        else:
+            def wrapper(cfg, y_j):
+                best_parameter_j, _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, y_j, best_parameter)
+                return cfg, best_parameter_j
+            self.db.message(f"Spawn {num_proc} processes to compute jackknife sample", verbosity=self.db.verbosity)
+            with multiprocessing.Pool(num_proc) as pool:
+                best_parameter_jks = dict(pool.starmap(wrapper, [(cfg, y_j) for cfg, y_j in jks.items()]))
         dof = len(t) - len(best_parameter)
         pval = fitter.get_pvalue(chi2, dof) 
         return best_parameter, best_parameter_jks, chi2, dof, pval
@@ -391,7 +406,7 @@ class LatticeCharmSpectroscopy():
             best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
             best_parameter = self._sort_params(best_parameter)
             best_parameter_jks = {cfg:self._sort_params(best_parameter_jks[cfg]) for cfg in best_parameter_jks}
-            best_parameter_cov = jackknife.covariance_jks(best_parameter, self.db.as_array(best_parameter_jks)) 
+            best_parameter_cov = jackknife.covariance_jks(best_parameter, self.db.as_array(best_parameter_jks, key=None)) 
             for i in range(len(best_parameter)):
                 self.db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)

@@ -137,7 +137,7 @@ class JKS_DB:
         else:
             def wrapped_f(cfg, *x):
                 return cfg, f(*x)
-            self.message(f"Spawn {num_proc} processes to compute jackknife sample")
+            self.message(f"Spawn {num_proc} processes to compute jackknife sample", verbosity=self.verbosity-1)
             with multiprocessing.Pool(num_proc) as pool:
                 jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
         if dst_tag is None:
