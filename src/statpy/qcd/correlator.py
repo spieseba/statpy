@@ -229,14 +229,14 @@ class LatticeCharmSpectroscopy():
         self.jks_fit_method = jks_fit_method
         self.jks_fit_params = jks_fit_params
         self.num_proc = num_proc
-
-    def obc_tsrc_avg(self, Ct_prefix, tmin, tmax, dst_tag, cleanup=True):
-        Ct_tags = self.db.get_tags(Ct_prefix)
-        srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ct_tags])
-        self.db.combine_sample(*Ct_tags, f=lambda *Cts: self._avg_obc_srcs(*Cts, srcs=srcs, tmin=tmin, tmax=tmax), dst_tag=dst_tag,
+    
+    def obc_tsrc_avg(self, Ctsrc_tags, tmin, tmax, dst_tag, cleanup=True):
+        srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
+        A4_in_tag = "A4" in Ctsrc_tags[0]
+        self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag,
                                key=lambda x: int(x[0].split("-")[-1]))
         if cleanup:
-            self.db.remove(*Ct_tags)
+            self.db.remove(*Ctsrc_tags)
         self.db.init_sample_means(dst_tag)
         self.db.init_sample_jks(dst_tag)
 
@@ -468,17 +468,17 @@ class LatticeCharmSpectroscopy():
         self.db.init_sample_means(tag_PSA4I)
         self.db.init_sample_jks(tag_PSA4I)
 
-    def _avg_obc_srcs(self, *Cts, srcs=[], tmin=None, tmax=None):
-        assert tmin is not None and tmax is not None
+    def _avg_obc_srcs(self, srcs, tmin, tmax, *Cts, antiperiodic=False):
         Ct_arr = np.ma.empty((2 * len(Cts), max(tmax - srcs[0], srcs[-1] - tmin))); Ct_arr.mask = True    
         # forward average
         tmax_srcs_fw = tmax - np.array(srcs) 
-        for idx, Ct, tmax_src in zip(np.arange(len(srcs)), Cts, tmax_srcs_fw):
+        for idx, Ct, tmax_src in zip(np.arange(len(Cts)), Cts, tmax_srcs_fw):
             Ct_arr[idx, :tmax_src] = Ct[:tmax_src]
         # backward average
         tmax_srcs_bw = np.array(srcs) - tmin
-        for idx, Ct, tmax_src in zip(np.arange(len(srcs)), Cts, tmax_srcs_bw):
-            Ct_arr[len(Cts) + idx, :tmax_src] = np.roll(np.flip(Ct), 1)[:tmax_src]
+        for idx, Ct, tmax_src in zip(len(Cts) + np.arange(len(Cts)), Cts, tmax_srcs_bw):
+            Ct_arr[idx, :tmax_src] = np.roll(np.flip(Ct), 1)[:tmax_src]
+            if antiperiodic: Ct_arr[idx, 1:tmax_src] *= -1.
         return Ct_arr.mean(axis=0)
     
 ############################################## PLOTS  ############################################ 
