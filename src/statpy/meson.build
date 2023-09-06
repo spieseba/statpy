@@ -17,7 +17,7 @@ python.install_sources(
 )
 
 python.install_sources(
-  'database/__init__.py', 'database/core.py', 'database/create.py', 'database/custom_json.py', 'database/io.py', 'database/leafs.py',
+  'database/__init__.py', 'database/core.py', 'database/custom_json.py', 'database/io.py', 'database/leafs.py',
   pure: true,
   subdir: 'statpy/database'
 )
