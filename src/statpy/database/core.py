@@ -40,13 +40,14 @@ class JKS_DB:
                     elif self.db_type == "SAMPLE-DB":
                         self.database[t] = lf
 
-    def add_src(self, src):
-        assert os.path.isfile(src)
-        self.message(f"load {src}")
-        with open(src) as f:
-            src_db = json.load(f)
-        for t, lf in src_db.items():
-            self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.misc)
+    def add_src(self, *srcs):
+        for src in srcs:
+            assert os.path.isfile(src)
+            self.message(f"load {src}")
+            with open(src) as f:
+                src_db = json.load(f)
+            for t, lf in src_db.items():
+                self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.misc)
 
     def add_Leaf(self, tag, mean, jks, sample, misc):
         assert (isinstance(sample, dict) or sample==None)
