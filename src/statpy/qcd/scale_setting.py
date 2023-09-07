@@ -80,10 +80,13 @@ class gradient_flow_scale:
         omega0 = self.comp_omega0(tau, tdt2E)
         return omega0 * 0.1973 / w0_fm
     
-def db_local_gradient_flow_scale(db, leaf_prefix):
+def db_local_gradient_flow_scale(db, leaf_prefix, scale_type="both"):
+    assert scale_type in ["sqrt_tau0", "omega0", "both"]
     scale = gradient_flow_scale()
-    db.combine_sample(leaf_prefix + "/tau", leaf_prefix + "/E", f=scale.set_sqrt_tau0, dst_tag=leaf_prefix + "/local_sqrt_tau0")
-    db.combine_sample(leaf_prefix + "/tau", leaf_prefix + "/E", f=scale.set_omega0, dst_tag=leaf_prefix + "/local_omega0")
+    if scale_type in ["sqrt_tau0", "both"]: 
+        db.combine_sample(leaf_prefix + "/tau", leaf_prefix + "/E", f=scale.set_sqrt_tau0, dst_tag=leaf_prefix + "/local_sqrt_tau0")
+    if scale_type in ["omega0", "both"]:     
+        db.combine_sample(leaf_prefix + "/tau", leaf_prefix + "/E", f=scale.set_omega0, dst_tag=leaf_prefix + "/local_omega0")
 
 def db_gradient_flow_scale(db, leaf_prefix, binsize, verbose=True):
     tau = db.database[leaf_prefix + "/tau"].mean
