@@ -343,7 +343,7 @@ class LatticeCharmSpectroscopy():
             self.f_bare_jks[b] = {cfg:bare_decay_constant(self.A_PSA4I_combined_jks[b][cfg], self.A_PSPS_combined_jks[b][cfg], 
                                                           self.m_combined_jks[b][cfg]) for cfg in self.A_PSA4I_combined_jks[b]} 
             self.f_bare_var[b] = jackknife.variance_jks(self.f_bare[b], self.db.as_array(self.f_bare_jks[b], key=None))
-        print(f"bare decay constant estimate: f_bare = {self.f_bare[B]:.4f} +- {self.f_bare_var[B]**.5:.4f}")
+        print(f"bare decay constant estimate: f_bare = {self.f_bare[B]:.8f} +- {self.f_bare_var[B]**.5:.8f}")
         
     def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, num_proc=None):
         if num_proc is None: num_proc = self.num_proc
