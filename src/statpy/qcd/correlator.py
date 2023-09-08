@@ -233,12 +233,12 @@ class LatticeCharmSpectroscopy():
         self.jks_fit_params = jks_fit_params
         self.num_proc = num_proc
 
-    def __call__(self, PSPS_smsm_tag, PSPS_fit_ranges, PSPS_p0, PSA4_sml_tag, PSPS_sml_tag, PSA4I_fit_ranges, PSA4I_p0, make_plot=True, verbosity=0):
-        self.fit_PSPS(PSPS_smsm_tag, self.B, PSPS_fit_ranges, PSPS_p0, self.bc, make_plot, PSPS_spectroscopy=False, figsize=None, verbosity=verbosity)
+    def __call__(self, PSPS_smsm_tag, PSPS_fit_ranges, PSPS_p0, PSA4_sml_tag, PSPS_sml_tag, PSA4I_fit_ranges, PSA4I_p0, make_plot=True, figsize=None, verbosity=0):
+        self.fit_PSPS(PSPS_smsm_tag, self.B, PSPS_fit_ranges, PSPS_p0, self.bc, make_plot, PSPS_spectroscopy=False, figsize=figsize, verbosity=verbosity)
         self.db.message("\n\n")
-        self.fit_PSA4I(PSA4_sml_tag, PSPS_sml_tag, self.B, PSA4I_fit_ranges, PSA4I_p0, self.bc, self.beta, make_plot, PSA4I_spectroscopy=False, figsize=None, verbosity=verbosity)
+        self.fit_PSA4I(PSA4_sml_tag, PSPS_sml_tag, self.B, PSA4I_fit_ranges, PSA4I_p0, self.bc, self.beta, make_plot, PSA4I_spectroscopy=False, figsize=figsize, verbosity=verbosity)
         self.db.message("\n\n")
-        self.fit_combined(PSPS_smsm_tag, PSA4_sml_tag.replace("PSA4", "PSA4I"), self.B, self.bc, [PSPS_p0[0], PSA4I_p0[0], (PSPS_p0[1]+PSA4I_p0[1])/2.0], False, make_plot, figsize=None, verbosity=verbosity)
+        self.fit_combined(PSPS_smsm_tag, PSA4_sml_tag.replace("PSA4", "PSA4I"), self.B, self.bc, [PSPS_p0[0], PSA4I_p0[0], (PSPS_p0[1]+PSA4I_p0[1])/2.0], False, make_plot, figsize=figsize, verbosity=verbosity)
         self.db.message("\n\n")
         self.compute_decay_constant(self.B)
     
@@ -370,7 +370,7 @@ class LatticeCharmSpectroscopy():
             self.f_bare_jks[b] = {cfg:bare_decay_constant(self.A_PSA4I_jks[b][cfg], self.A_PSPS_jks[b][cfg], 
                                                           self.m_jks[b][cfg]) for cfg in self.A_PSA4I_jks[b]} 
             self.f_bare_var[b] = jackknife.variance_jks(self.f_bare[b], self.db.as_array(self.f_bare_jks[b], key=None))
-        print(f"bare decay constant estimate: f_bare = {self.f_bare[B]:.8f} +- {self.f_bare_var[B]**.5:.8f}")
+        self.db.message(f"BARE DECAY CONSTANT ESTIMATE: f_bare = {self.f_bare[B]:.8f} +- {self.f_bare_var[B]**.5:.8f}")
         
     def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, num_proc=None):
         if num_proc is None: num_proc = self.num_proc
