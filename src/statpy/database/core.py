@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os
+import os, copy
 import numpy as np
 from time import time
 from functools import reduce, partial
@@ -313,9 +313,15 @@ class Sample_DB(JKS_DB):
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
             lf.jks = jks
  
-    def remove_cfgs(self, tag, cfgs):
+    def remove_cfgs(self, tag, cfgs, dst_tag=None):
+        sample = copy.deepcopy(self.database[tag].sample)
         for cfg in cfgs:
-            self.database[tag].sample.pop(str(cfg), None)
+            sample.pop(str(cfg), None)
+        if dst_tag is None:
+            self.database[tag].sample = sample
+        else:
+            self.add_Leaf(dst_tag, None, None, sample, None)
+
     
     ############################### FUNCTIONS NOT MODIFYING THE DATABASE #######################################
 
