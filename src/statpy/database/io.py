@@ -16,8 +16,9 @@ class Database_IO:
         with open(dst, "w") as f:
             json.dump(self.database, f)
 
-    def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, dst, filter_str=None, dst_tags=None):
+    def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, filter_str=None, dst_tags=None, dst=None):
         print("THIS METHOD IS DEPRECATED AND WILL BE REMOVED SOMETIME IN THE FUTURE")
+        assert dst is not None
         filenames = [os.path.join(src_dir, f) for f in os.listdir(src_dir) if (os.path.isfile(os.path.join(src_dir, f)))]
         if filter_str is not None:
             filenames = [x for x in filenames if filter_str in x]
