@@ -117,15 +117,15 @@ class GPT_IO:
                         print("Data corrupted!")
                         f.close()
                         sys.exit(1)
-                    print(f"Tag[{tag[0:-1]:s}]] Size[{ln:d}] Flags[{self._flag_str(flags):s}] CRC32[{crc32:X}]")
+                    print(f"Tag[{tag[0:-1].decode('ascii'):s}]] Size[{ln:d}] Flags[{self._flag_str(flags):s}] CRC32[{crc32:X}]")
                     corr = []
                     if flags != self.R_EMPTY:
                         for j in range(ln):
                             corr.append(rd[j*2+0]+1j*rd[j*2+1])
+                    return match.string, np.array(corr)
                 else:
                     f.seek(lnr*16 // nf,1)
             f.close()
-            return match, np.array(corr)
         except:
            raise
 
