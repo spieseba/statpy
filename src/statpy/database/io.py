@@ -16,7 +16,7 @@ class Database_IO:
         with open(dst, "w") as f:
             json.dump(self.database, f)
 
-    def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, filter_str=None, dst_tags=None):
+    def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, dst, filter_str=None, dst_tags=None):
         print("THIS METHOD IS DEPRECATED AND WILL BE REMOVED SOMETIME IN THE FUTURE")
         filenames = [os.path.join(src_dir, f) for f in os.listdir(src_dir) if (os.path.isfile(os.path.join(src_dir, f)))]
         if filter_str is not None:
@@ -33,6 +33,7 @@ class Database_IO:
                     data = json.load(f)
                 sample[cfg] = data[stag] 
             self.database[f"{leaf_prefix}/{dtag}"] = Leaf(mean=None, jks=None, sample=sample)
+        self.save(dst)
 
 class GPT_IO:
     def __init__(self):
