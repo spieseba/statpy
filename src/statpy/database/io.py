@@ -1,52 +1,23 @@
 #!/usr/bin/env python3
 
-import os, h5py
+import binascii, h5py, os, re, struct, sys
 import numpy as np
 from statpy.database import custom_json as json
 from .leafs import Leaf
 
-try:
-    import gpt as g
-    def rank_func():
-        return g.rank()
-    def barrier():
-        return g.barrier()
-except ImportError:
-    def rank_func():
-        return 0
-    def barrier():
-        pass
-
-class MeasureIO:
-    def __init__(self, path, filename):
-        self.src = path
-        self.dst = path + filename
-        if rank_func() == 0:
-            if os.path.isfile(self.dst):
-                with open(self.dst) as f:
-                    self.data = json.load(f)
-            else:
-                self.data = {}
-    def store(self, key, value):
-        if rank_func() == 0:
-            if self.data is not None:
-                    self.data[key] = value
-    def save(self):
-        if rank_func() == 0:
-            with open(self.dst, "w") as f:
-                json.dump(self.data, f)
-        barrier()
-
-class DatabaseIO:
+class Database_IO:
     def __init__(self):
-        pass
+        self.database = {}
 
-    def load_measurement(self, src, tag):
-        with open(src) as f:
-            data = json.load(f)
-        return data[tag]
-    
-    def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, filter_str=None, dst_tags=None, dst=None):
+    def store(self, key, value):
+        self.database[key] = value
+
+    def save(self, dst):
+        with open(dst, "w") as f:
+            json.dump(self.database, f)
+
+    def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, filter_str=None, dst_tags=None):
+        print("THIS METHOD IS DEPRECATED AND WILL BE REMOVED SOMETIME IN THE FUTURE")
         filenames = [os.path.join(src_dir, f) for f in os.listdir(src_dir) if (os.path.isfile(os.path.join(src_dir, f)))]
         if filter_str is not None:
             filenames = [x for x in filenames if filter_str in x]
@@ -54,37 +25,125 @@ class DatabaseIO:
         cfgs = [branch_tag + "-" + x.split("ckpoint_lat.")[-1].split(".")[0] for x in filenames]
         if dst_tags is None:
             dst_tags = src_tags
-        database = {}
         for stag, dtag in zip(src_tags, dst_tags):
-            print(f"store {stag} as {dtag} in database {dst}")
+            print(f"store {stag} as {dtag} in database")
             sample = {}
-            for cfg, f in zip(cfgs, filenames):
-                sample[cfg] = self.load_measurement(f, stag)
-            database[f"{leaf_prefix}/{dtag}"] = Leaf(mean=None, jks=None, sample=sample)
-        if dst is None:
-            return database
-        with open(dst, "w") as f:
-            json.dump(database, f)
+            for cfg, fn in zip(cfgs, filenames):
+                with open(fn) as f:
+                    data = json.load(f)
+                sample[cfg] = data[stag] 
+            self.database[f"{leaf_prefix}/{dtag}"] = Leaf(mean=None, jks=None, sample=sample)
 
-    def create_SAMPLE_DB_from_CLS(self, data_path, rwf_path, src_tags, branch_tag, dst=None):
-        assert os.path.isfile(data_path)
-        assert os.path.isfile(rwf_path)
-        database = {}
-        # rwfs
-        rwf_cfgs = np.array(np.loadtxt(rwf_path)[:,0], dtype=int)
-        rwf = np.loadtxt(rwf_path)[:,1]; nrwf = rwf / np.mean(rwf)
-        nrwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)} 
-        database[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
-        # data
-        f = h5py.File(data_path, "r")
-        f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
-        cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
-        for s in src_tags:
-            for key in f.keys():
-                if s in key:
-                    sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(cfgs, f.get(key)[cfgs-1])}
-                    database[f"{branch_tag}/{key}"] = Leaf(mean=None, jks=None, sample=sample)
-        if dst is None:
-            return database
-        with open(dst, "w") as file:
-            json.dump(database, file)
+class GPT_IO:
+    def __init__(self):
+        self.R_NONE    = 0x00
+        self.R_EMPTY   = 0x01
+        self.R_REAL    = 0x02
+        self.R_IMAG    = 0x04
+        self.R_SYMM    = 0x08
+        self.R_ASYMM   = 0x10
+
+    def _flag_str(self, f):
+        r=""
+        if f & self.R_EMPTY:
+            r += "empty "
+        if f & self.R_REAL:
+            r += "real "
+        if f & self.R_IMAG:
+            r += "imag "
+        if f & self.R_SYMM:
+            r += "symm "
+        if f & self.R_ASYMM:
+            r += "asymm "
+        return r.strip()
+
+    def _reconstruct_full(self, flags, i):
+        if flags & self.R_SYMM:
+            N=len(i)/2
+            for j in range(N/2+1,N):
+                jm=N - j
+                i[2*j + 0] = i[2*jm + 0]
+                i[2*j + 1] = -i[2*jm + 1]
+        if flags & self.R_ASYMM:
+            N=len(i)/2
+            for j in range(N/2+1,N):
+                jm=N - j
+                i[2*j + 0] = -i[2*jm + 0]
+                i[2*j + 1] = i[2*jm + 1]
+
+    def _reconstruct_min(self, flags, i, NT):
+        if flags & self.R_EMPTY:
+            return [ 0.0 for l in 2*range(NT) ]
+        if flags == 0:
+            return i
+        o=[ 0.0 for l in 2*range(NT) ]
+        # first fill in data at right places
+        i0=0
+        istep=1
+        if flags & self.R_REAL:
+            istep=2
+        if flags & self.R_IMAG:
+            istep=2
+            i0=1
+        for j in range(len(i)):
+            o[istep*j + i0] = i[j]
+        return o
+
+    def load(self, fn, pattern):
+        f=open(fn,"rb")
+        try:
+            while True:
+                rd=f.read(4)
+                if len(rd) == 0:
+                    break
+                ntag=struct.unpack('i', rd)[0]
+                tag=f.read(ntag)
+                (crc32,ln,flags)=struct.unpack('IHH', f.read(4*2))
+                nf = 1
+                lnr = ln
+                if flags & (self.R_REAL|self.R_IMAG):
+                    nf = 2
+                if flags & (self.R_SYMM|self.R_ASYMM):
+                    lnr = ln//2+1
+                if flags & self.R_EMPTY:
+                    lnr = 0
+                match = re.search(pattern, tag[0:-1].decode("ascii"))
+                if match:
+                    rd = self._reconstruct_min(flags, struct.unpack('d'*(2*lnr // nf), f.read(16*lnr // nf) ), ln)
+                    crc32comp = (binascii.crc32(struct.pack('d'*2*ln,*rd)) & 0xffffffff)
+                    self._reconstruct_full(flags, rd )
+                    if crc32comp != crc32:
+                        print("Data corrupted!")
+                        f.close()
+                        sys.exit(1)
+                    print(f"Tag[{tag[0:-1]:s}]] Size[{ln:d}] Flags[{self._flag_str(flags):s}] CRC32[{crc32:X}]")
+                    corr = []
+                    if flags != self.R_EMPTY:
+                        for j in range(ln):
+                            corr.append(rd[j*2+0]+1j*rd[j*2+1])
+                else:
+                    f.seek(lnr*16 // nf,1)
+            f.close()
+            return match, np.array(corr)
+        except:
+           raise
+
+def load_CLS(fn, rwf_fn, tags, branch_tag):
+    assert os.path.isfile(fn)
+    assert os.path.isfile(rwf_fn)
+    measurements = {}
+    # rwfs
+    rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
+    rwf = np.loadtxt(rwf_fn)[:,1]; nrwf = rwf / np.mean(rwf)
+    nrwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)} 
+    measurements[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
+    # data
+    f = h5py.File(fn, "r")
+    f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
+    cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
+    for t in tags:
+        for key in f.keys():
+            if t in key:
+                sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(cfgs, f.get(key)[cfgs-1])}
+                measurements[f"{branch_tag}/{key}"] = Leaf(mean=None, jks=None, sample=sample)
+    return measurements
