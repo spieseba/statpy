@@ -223,26 +223,14 @@ class CorrelatorData():
             raise Exception("Model not available")
 
 class LatticeCharmSpectroscopy():
-    def __init__(self, db, B, bc, beta, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, jks_fit_method="Migrad", jks_fit_params=None, num_proc=None):
+    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, jks_fit_method="Migrad", jks_fit_params=None, num_proc=None):
         self.db = db
-        self.B = B
-        self.bc = bc
-        self.beta = beta
         self.fit_method = fit_method
         self.fit_params = fit_params
         self.jks_fit_method = jks_fit_method
         self.jks_fit_params = jks_fit_params
         self.num_proc = num_proc
-
-    def __call__(self, PSPS_smsm_tag, PSPS_fit_ranges, PSPS_p0, PSA4_sml_tag, PSPS_sml_tag, PSA4I_fit_ranges, PSA4I_p0, make_plot=True, figsize=None, verbosity=0):
-        self.fit_PSPS(PSPS_smsm_tag, self.B, PSPS_fit_ranges, PSPS_p0, self.bc, make_plot, PSPS_spectroscopy=False, figsize=figsize, verbosity=verbosity)
-        self.db.message("\n\n")
-        self.fit_PSA4I(PSA4_sml_tag, PSPS_sml_tag, self.B, PSA4I_fit_ranges, PSA4I_p0, self.bc, self.beta, make_plot, PSA4I_spectroscopy=False, figsize=figsize, verbosity=verbosity)
-        self.db.message("\n\n")
-        self.fit_combined(PSPS_smsm_tag, PSA4_sml_tag.replace("PSA4", "PSA4I"), self.B, self.bc, [PSPS_p0[0], PSA4I_p0[0], (PSPS_p0[1]+PSA4I_p0[1])/2.0], False, make_plot, figsize=figsize, verbosity=verbosity)
-        self.db.message("\n\n")
-        self.compute_decay_constant(self.B)
-    
+ 
     def obc_tsrc_avg(self, Ctsrc_tags, tmin, tmax, dst_tag, cleanup=True):
         srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
         A4_in_tag = "A4" in Ctsrc_tags[0]
@@ -253,7 +241,7 @@ class LatticeCharmSpectroscopy():
         self.db.init_sample_means(dst_tag)
         self.db.init_sample_jks(dst_tag)
 
-    def fit_PSPS(self, tag_PSPS_smsm, B, fit_ranges, p0, bc, make_plot=True, PSPS_spectroscopy=False, figsize=None, verbosity=0):
+    def fit_PSPS(self, tag, binsize, fit_ranges, p0, bc, make_plot=True, PSPS_spectroscopy=False, figsize=None, verbosity=0):
         if bc == "pbc":
             fit_range_model_type = "double-cosh"
             spectroscopy_model_type = "cosh"
@@ -263,7 +251,7 @@ class LatticeCharmSpectroscopy():
         else:
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSPS CORRELATOR --------------------")  
-        self.fit_range_PSPS, self.p0_PSPS  = self._get_fit_range(tag_PSPS_smsm, B, fit_ranges, p0, fit_range_model_type, 
+        self.fit_range_PSPS, self.p0_PSPS  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, 
                                                   self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity)   
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message(f"REDUCED PSPS FIT RANGE: {self.fit_range_PSPS}")
@@ -272,12 +260,26 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------\n") 
             self.db.message("------------------ FIT PSPS CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self.A_PSPS_single, self.m_PSPS_single, self.jks_PSPS_single = self._spectroscopy(tag_PSPS_smsm, B, self.fit_range_PSPS, self.p0_PSPS, spectroscopy_model_type, False,
+            self.A_PSPS_single, self.m_PSPS_single, self.jks_PSPS_single = self._spectroscopy(tag, binsize, self.fit_range_PSPS, self.p0_PSPS, spectroscopy_model_type, False,
                                                                                         self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity)
-        
-    def fit_PSA4I(self, tag_PSA4_sml, tag_PSPS_sml, B, fit_ranges, p0, bc, beta, make_plot=True, PSA4I_spectroscopy=False, figsize=None, verbosity=0):
-        self._determine_PSA4I(tag_PSA4_sml, tag_PSPS_sml, beta)
+ 
+    def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
+        # https://arxiv.org/pdf/1502.04999.pdf
+        def compute_cA(beta):
+            p0 = 9.2056; p1 = -13.9847
+            return - 0.006033 * 6./beta * (1 + np.exp(p0 + p1*beta/6.))
+        def derivative(f):
+            return 0.5 * (np.roll(f, -1) - np.roll(f, 1)) 
+        def compute_PS_A4I(PS_A4, PS_PS, beta):
+            PS_A4I = PS_A4 - compute_cA(beta) * derivative(PS_PS)
+            PS_A4I[0] = 0.; PS_A4I[-1] = 0
+            return PS_A4I
         tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
+        self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PS_A4I(x, y, beta), dst_tag=tag_PSA4I)
+        self.db.init_sample_means(tag_PSA4I)
+        self.db.init_sample_jks(tag_PSA4I)
+
+    def fit_PSA4I(self, tag, binsize, fit_ranges, p0, bc, make_plot=True, PSA4I_spectroscopy=False, figsize=None, verbosity=0):
         if bc == "pbc":
             fit_range_model_type = "double-sinh"
             spectroscopy_model_type = "sinh"
@@ -287,7 +289,7 @@ class LatticeCharmSpectroscopy():
         else:
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSA4I CORRELATOR --------------------")  
-        self.fit_range_PSA4I, self.p0_PSA4I  = self._get_fit_range(tag_PSA4I, B, fit_ranges, p0, fit_range_model_type, 
+        self.fit_range_PSA4I, self.p0_PSA4I  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, 
                                                   self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity) 
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message(f"REDUCED FIT RANGE: {self.fit_range_PSA4I}")
@@ -296,9 +298,9 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------\n") 
             self.db.message("------------------ FIT PSA4I CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self.A_PSA4I_single, self.m_PSA4I_single, self.jks_PSA4I_single = self._spectroscopy(tag_PSA4I, B, self.fit_range_PSA4I, self.p0_PSA4I, spectroscopy_model_type, False, self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity)
+            self.A_PSA4I_single, self.m_PSA4I_single, self.jks_PSA4I_single = self._spectroscopy(tag, binsize, self.fit_range_PSA4I, self.p0_PSA4I, spectroscopy_model_type, False, self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity)
     
-    def fit_combined(self, tag_PSPS, tag_PSA4I, B, bc, p0, correlated=False, make_plot=True, figsize=None, verbosity=0):
+    def fit_combined(self, tag_PSPS, tag_PSA4I, binsize, p0, bc, correlated=False, make_plot=True, figsize=None, verbosity=0):
         self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
         self.db.message(f"PSPS - REDUCED FIT RANGE {self.fit_range_PSPS}") 
         self.db.message(f"PSA4I - REDUCED FIT RANGE {self.fit_range_PSA4I}") 
@@ -323,7 +325,7 @@ class LatticeCharmSpectroscopy():
                        misc={"fit_range_PSPS":self.fit_range_PSPS, "fit_range_PSA4I":self.fit_range_PSA4I, 
                              "model": model_type_combined, "fit_type": fit_type, 
                              "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
-        for b in range(1, B+1):
+        for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
             jks_PSPS = self.db.sample_jks(tag_PSPS, b); jks_PSA4I = self.db.sample_jks(tag_PSA4I, b) 
             mean_PSPS = np.mean(jks_PSPS, axis=0); mean_PSA4I = np.mean(jks_PSA4I, axis=0)
@@ -344,7 +346,7 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             # plot fit result for binsize b = B
-            if b == B:
+            if b == binsize:
                 best_parameter_PSPS = np.array([best_parameter[0], best_parameter[2]])
                 best_parameter_jks_PSPS = {cfg:np.array([best_parameter_jks[cfg][0], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
                 Ct_data_PSPS = CorrelatorData(mean_PSPS, jks_PSPS, model_type_PSPS, None, self.fit_range_PSPS, None, best_parameter_PSPS, best_parameter_jks_PSPS)
@@ -355,6 +357,12 @@ class LatticeCharmSpectroscopy():
                     lcp = LatticeCharmPlots()
                     lcp.make_plot(Ct_data_PSPS, Ct_data_PSA4I, f"Combined fit for {tag_PSPS} and {tag_PSA4I} ", figsize)
         self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"] = best_lf
+        # store mass as separate leaf
+        m_mean = self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].mean[2]
+        m_jks = {}
+        for b in range(1, binsize+1):
+            m_jks[b] = {j:p[2] for j,p in self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].misc["jks"][b].items()} 
+        self.db.add_Leaf(tag=f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit/m", mean=m_mean, jks=None, sample=None, misc={"jks":m_jks})
             
     def compute_decay_constant(self, combined_fit_tag, B):
         def bare_decay_constant(A_PSPS, A_PSA4I, m):
@@ -483,22 +491,6 @@ class LatticeCharmSpectroscopy():
                 lcp.make_plot(Ct_data, None, f"Spectroscopy plot for {tag} with fit range [{t[0],t[-1]}]", figsize)
         return A, m, best_parameter_jks
     
-    def _determine_PSA4I(self, tag_PSA4_sml, tag_PSPS_sml, beta):
-        # https://arxiv.org/pdf/1502.04999.pdf
-        def compute_cA(beta):
-            p0 = 9.2056; p1 = -13.9847
-            return - 0.006033 * 6./beta * (1 + np.exp(p0 + p1*beta/6.))
-        def derivative(f):
-            return 0.5 * (np.roll(f, -1) - np.roll(f, 1)) 
-        def compute_PS_A4I(PS_A4, PS_PS, beta):
-            PS_A4I = PS_A4 - compute_cA(beta) * derivative(PS_PS)
-            PS_A4I[0] = 0.; PS_A4I[-1] = 0
-            return PS_A4I
-        tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
-        self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PS_A4I(x, y, beta), dst_tag=tag_PSA4I)
-        self.db.init_sample_means(tag_PSA4I)
-        self.db.init_sample_jks(tag_PSA4I)
-
     def _avg_obc_srcs(self, srcs, tmin, tmax, *Cts, antiperiodic=False):
         Ct_arr = np.ma.empty((2 * len(Cts), max(tmax - srcs[0], srcs[-1] - tmin))); Ct_arr.mask = True    
         # forward average
