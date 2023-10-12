@@ -108,13 +108,13 @@ def infinite_binsize_extrapolation(var_dict, N, fit_model, p0, make_plot=True):
             print("-------------------------------------------")
             continue
     if fit_model == "singlemode": 
-        ratio_inf_b = 2. * best_parameter[0]; ratio_inf_b_var = np.array([2.0]) @ best_parameter_cov @ np.array([2.0])
+        sk_squared = 2. * best_parameter[0]; sk_squared_var = np.array([2.0]) @ best_parameter_cov @ np.array([2.0])
         model_label = r"$2\tau \left[1 - \frac{\tau}{S}\left(1 - e^{-S/\tau} \right)\right]$"
     if fit_model == "twoparam":
-        ratio_inf_b = 2. * best_parameter[0] 
-        model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S}\right)$"; ratio_inf_b_var = np.array([2.0, 0]) @ best_parameter_cov @ np.array([2.0, 0])
+        sk_squared = 2. * best_parameter[0] 
+        model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S}\right)$"; sk_squared_var = np.array([2.0, 0]) @ best_parameter_cov @ np.array([2.0, 0])
     if fit_model == "threeparam":
-        ratio_inf_b = 2. * best_parameter[0]; ratio_inf_b_var = np.array([2.0, 0, 0]) @ best_parameter_cov @ np.array([2.0, 0, 0])
+        sk_squared = 2. * best_parameter[0]; sk_squared_var = np.array([2.0, 0, 0]) @ best_parameter_cov @ np.array([2.0, 0, 0])
         model_label = r"$2\tau_{A,int} \left(1 - \frac{c_A}{S} + \frac{d_A}{S} e^{-S/\tau_{A,int}}\right)$"
     if make_plot:
         # figure
@@ -131,9 +131,10 @@ def infinite_binsize_extrapolation(var_dict, N, fit_model, p0, make_plot=True):
         ax.plot(brange, fb, color="C1") 
         ax.fill_between(brange, fb-fb_std, fb+fb_std, alpha=0.5, color="C1")
         # infinite binsize extrapolation
-        ax.plot(brange, [ratio_inf_b for b in brange], color="C2", 
-                label=r"$2\tau = $" + f"{ratio_inf_b:.2f} +- {ratio_inf_b_var**.5:.2f}, fit model: " + model_label)
-        ax.fill_between(brange, ratio_inf_b-ratio_inf_b_var**.5, ratio_inf_b+ratio_inf_b_var**.5, alpha=0.5, color="C2")
+        ax.plot(brange, [sk_squared for b in brange], color="C2", 
+                label=r"$2\tau = $" + f"{sk_squared:.2f} +- {sk_squared_var**.5:.2f}, fit model: " + model_label)
+        ax.fill_between(brange, sk_squared-sk_squared_var**.5, sk_squared+sk_squared_var**.5, alpha=0.5, color="C2")
         ax.legend(loc="upper left")
         plt.tight_layout()
         plt.show()
+    return sk_squared, sk_squared_var 
