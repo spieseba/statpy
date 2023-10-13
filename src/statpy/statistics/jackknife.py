@@ -4,7 +4,7 @@ import numpy as np
 
 ################################################ functions of means ################################################
 
-def samples(f, x, *argv): 
+def sample(f, x, *argv): 
     N = len(x)
     if len(argv) != 0:
         weights = argv[0]

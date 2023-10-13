@@ -3,7 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from ..fitting.core import Fitter, fit, fit_multiple, model_prediction_var
-from ..statistics import jackknife
+from ..statistics import jackknife, bootstrap
 from ..database.leafs import Leaf
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
@@ -223,12 +223,12 @@ class CorrelatorData():
             raise Exception("Model not available")
 
 class LatticeCharmSpectroscopy():
-    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, jks_fit_method="Migrad", jks_fit_params=None, num_proc=None):
+    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, res_fit_method="Migrad", res_fit_params=None, num_proc=None):
         self.db = db
         self.fit_method = fit_method
         self.fit_params = fit_params
-        self.jks_fit_method = jks_fit_method
-        self.jks_fit_params = jks_fit_params
+        self.res_fit_method = res_fit_method
+        self.res_fit_params = res_fit_params
         self.num_proc = num_proc
  
     def obc_tsrc_avg(self, Ctsrc_tags, tmin, tmax, dst_tag, cleanup=True):
@@ -252,7 +252,7 @@ class LatticeCharmSpectroscopy():
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSPS CORRELATOR --------------------")  
         self.fit_range_PSPS, self.p0_PSPS  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, 
-                                                  self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity)   
+                                                  self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, make_plot, figsize, verbosity)   
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message(f"REDUCED PSPS FIT RANGE: {self.fit_range_PSPS}")
         if PSPS_spectroscopy:
@@ -261,7 +261,7 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------\n") 
             self.db.message("------------------ FIT PSPS CORRELATOR WITH REDUCED FIT RANGE --------------------") 
             self.A_PSPS_single, self.m_PSPS_single, self.jks_PSPS_single = self._spectroscopy(tag, binsize, self.fit_range_PSPS, self.p0_PSPS, spectroscopy_model_type, False,
-                                                                                        self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity)
+                                                                                        self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, make_plot, figsize, verbosity)
  
     def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
         # https://arxiv.org/pdf/1502.04999.pdf
@@ -290,7 +290,7 @@ class LatticeCharmSpectroscopy():
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSA4I CORRELATOR --------------------")  
         self.fit_range_PSA4I, self.p0_PSA4I  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, 
-                                                  self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity) 
+                                                  self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, make_plot, figsize, verbosity) 
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message(f"REDUCED FIT RANGE: {self.fit_range_PSA4I}")
         if PSA4I_spectroscopy:
@@ -298,7 +298,7 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------\n") 
             self.db.message("------------------ FIT PSA4I CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self.A_PSA4I_single, self.m_PSA4I_single, self.jks_PSA4I_single = self._spectroscopy(tag, binsize, self.fit_range_PSA4I, self.p0_PSA4I, spectroscopy_model_type, False, self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params, make_plot, figsize, verbosity)
+            self.A_PSA4I_single, self.m_PSA4I_single, self.jks_PSA4I_single = self._spectroscopy(tag, binsize, self.fit_range_PSA4I, self.p0_PSA4I, spectroscopy_model_type, False, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, make_plot, figsize, verbosity)
     
     def fit_combined(self, tag_PSPS, tag_PSA4I, binsize, p0, bc, correlated=False, make_plot=True, figsize=None, verbosity=0):
         self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
@@ -334,9 +334,11 @@ class LatticeCharmSpectroscopy():
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
             model = self._get_model(model_type_combined, Nt, self.fit_range_PSPS, self.fit_range_PSA4I)
-            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(np.hstack((self.fit_range_PSPS, self.fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.jks_fit_method, self.jks_fit_params)
+            best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(np.hstack((self.fit_range_PSPS, self.fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
             best_parameter_cov = jackknife.covariance_jks(best_parameter, best_parameter_jks)
-            if b == 1: best_lf.mean = best_parameter
+            if b == 1: 
+                best_lf.mean = best_parameter
+                best_lf.misc["bss"] = best_parameter_bss
             best_lf.misc["jks"][b] = best_parameter_jks
             # print fit result for binsize b
             for i in range(len(best_parameter)):
@@ -378,14 +380,14 @@ class LatticeCharmSpectroscopy():
         self.db.add_Leaf(tag=f"{combined_fit_tag}/f_bare", mean=self.f_bare, jks=None, sample=None, 
                          misc={"jks":self.f_bare_jks})
  
-    def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, num_proc=None):
+    def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params, bss=None, cov_bss=None, num_proc=None):
         if num_proc is None: num_proc = self.num_proc
         # mean fit
         fitter = Fitter(cov, model, fit_method, fit_params)
         best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
         # jks fits
-        if jks_fit_method is None: jks_fit_method = fit_method; jks_fit_params = fit_params
-        jks_fitter = Fitter(cov, model, jks_fit_method, jks_fit_params)
+        if res_fit_method is None: res_fit_method = fit_method; res_fit_params = fit_params
+        jks_fitter = Fitter(cov, model, res_fit_method, res_fit_params)
         if num_proc is None:
             best_parameter_jks = {}
             for cfg in jks:
@@ -397,9 +399,26 @@ class LatticeCharmSpectroscopy():
             self.db.message(f"Spawn {num_proc} processes to compute jackknife sample", verbosity=self.db.verbosity)
             with multiprocessing.Pool(num_proc) as pool:
                 best_parameter_jks = dict(pool.starmap(wrapper, [(cfg, y_j) for cfg, y_j in jks.items()]))
+        # bss fits
+        if bss is not None:
+            bss_fitter = Fitter(cov_bss, model, res_fit_method, res_fit_params)
+            if num_proc is None:
+                best_parameter_bss = []
+                for bs in bss:
+                    best_parameter_bs, _, _ = bss_fitter.estimate_parameters(t, fitter.chi_squared, bs, best_parameter)
+                    best_parameter_bss.append(best_parameter_bs)
+            else:
+                def wrapper(y_b):
+                    best_parameter_b, _, _ = bss_fitter.estimate_parameters(t, fitter.chi_squared, y_b, best_parameter)
+                    return best_parameter_b
+                self.db.message(f"Spawn {num_proc} processes to compute bootstrap sample", verbosity=self.db.verbosity)
+                with multiprocessing.Pool(num_proc) as pool:
+                    best_parameter_bss = pool.starmap(wrapper, [y_b for y_b in bss])
+        else: 
+            best_parameter_bss = None
         dof = len(t) - len(best_parameter)
         pval = fitter.get_pvalue(chi2, dof) 
-        return best_parameter, best_parameter_jks, chi2, dof, pval
+        return best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval
     
     def _get_model(self, model_type, Nt=None, t0=None, t1=None):
         if model_type == "cosh":
@@ -425,7 +444,7 @@ class LatticeCharmSpectroscopy():
         if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
         else: return p
 
-    def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, fit_method, fit_params, jks_fit_method, jks_fit_params, make_plot, figsize, verbosity):
+    def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, fit_method, fit_params, res_fit_method, res_fit_params, make_plot, figsize, verbosity):
         jks = self.db.sample_jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         var = jackknife.variance_jks(mean, jks)
@@ -436,7 +455,7 @@ class LatticeCharmSpectroscopy():
         for t in fit_ranges:
             self.db.message(f"initial fit range: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
-            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
+            best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
             best_parameter = self._sort_params(best_parameter)
             best_parameter_jks = {cfg:self._sort_params(best_parameter_jks[cfg]) for cfg in best_parameter_jks}
             best_parameter_cov = jackknife.covariance_jks(best_parameter, self.db.as_array(best_parameter_jks, key=None)) 
@@ -451,7 +470,8 @@ class LatticeCharmSpectroscopy():
                 p_fit_range = best_parameter[:2]
                 self.db.add_Leaf(tag=f"{tag}/fit_range_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, 
                                  misc={"initial_fit_range": t, "fit_range":fit_range, "model": model_type,
-                                       "fit_type": "uncorrelated", "chi2":chi2, "chi2 / dof":chi2/dof, "p":pval})
+                                       "fit_type": "uncorrelated", "chi2":chi2, "chi2 / dof":chi2/dof, "p":pval,
+                                       "bss": best_parameter_bss})
 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
@@ -463,7 +483,7 @@ class LatticeCharmSpectroscopy():
             LCP.make_plot(Ct_data, None, f"Fit range determination plot for {tag}", figsize)
         return fit_range, p_fit_range
     
-    def _spectroscopy(self, tag, B, fit_range, p0, model_type, correlated, fit_method, fit_params, jks_fit_method, jks_fit_params, make_plot, figsize, verbosity):
+    def _spectroscopy(self, tag, B, fit_range, p0, model_type, correlated, fit_method, fit_params, res_fit_method, res_fit_params, make_plot, figsize, verbosity):
         if correlated: cov = self.db.sample_jackknife_covariance(tag, binsize=1)
         else: cov = np.diag(self.db.sample_jackknife_variance(tag, binsize=1))
         A = {}; A_var = {}
@@ -476,7 +496,7 @@ class LatticeCharmSpectroscopy():
             t = fit_range
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
             model = self._get_model(model_type, Nt)
-            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params)
+            best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
             best_parameter_cov = jackknife.covariance_jks(best_parameter, best_parameter_jks)
             A[b] = best_parameter[0]
             m[b] = best_parameter[1]

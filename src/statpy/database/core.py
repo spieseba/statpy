@@ -349,10 +349,10 @@ class Sample_DB(JKS_DB):
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
                 bsample = statistics.bin(self.as_array(lf.sample), binsize)
-                jks = jackknife.samples(f, bsample)
+                jks = jackknife.sample(f, bsample)
             else:
                 bsample = statistics.bin(self.as_array(lf.sample), binsize, self.as_array(nrwf)); bnrwf = statistics.bin(self.as_array(nrwf), binsize)
-                jks = jackknife.samples(f, bsample, bnrwf[:, None])
+                jks = jackknife.sample(f, bsample, bnrwf[:, None])
         return jks
     
     def sample_jackknife_variance(self, tag, binsize, f=lambda x: x):
