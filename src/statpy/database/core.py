@@ -55,6 +55,10 @@ class JKS_DB:
         assert (isinstance(misc, dict) or misc==None)
         self.database[tag] = Leaf(mean, jks, sample, misc)
 
+    def rename_Leaf(self, old, new):
+        if old in self.database:
+            self.database[new] = self.database.pop(old)
+
     def message(self, s, verbosity=None):
         if verbosity is None: verbosity = self.verbosity
         if verbosity >= 0: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
