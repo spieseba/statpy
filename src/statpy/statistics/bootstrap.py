@@ -18,18 +18,16 @@ def sample(f, x, bootstraps, *argv):
         bss[b] = f(np.average(x[bs], axis=0, weights=nrwf_bs))
     return bss
 
+def variance_bss(bss, mean=None):
+    if mean is None: mean = np.mean(bss, axis=0)
+    B = len(bss)
+    return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / B 
 
-
-#def rescale_bss(bss, f_mean, f=lambda x: x, s=1.0):
-#    f_bss = np.array([f(bs) for bs in bss])
-#    return f_mean[None,:] + s * (f_bss - f_mean[None,:])
-
-# Workflow
-# read data at beginning of simulation, create bootstrap leaf and instance of bootstrap class
-# fits to determine fit ranges (use jackknife) at binsize such that N//S ≈ 100
-# combined fit to determine A_PSPS, A_PSA4I, m and their jackknife samples for different binsizes
-# infinite binsize extrapolation using jackknife variances to determine scale factors
-
+def rescale_bss(bss, s):
+    mean = np.mean(bss, axis=0)
+    if isinstance(np.mean(bss, axis=0), np.float64):
+        return mean + s * (bss - mean) 
+    return mean[None,:] + s * (bss - mean[None,:])
 
 
 class LatticeCharmBootstrap():

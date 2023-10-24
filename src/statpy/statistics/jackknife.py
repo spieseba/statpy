@@ -17,11 +17,13 @@ def sample(f, x, *argv):
     mean = np.mean(x, axis=0)
     return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
 
-def variance_jks(mean, jks):
+def variance_jks(jks, mean=None):
+    if mean is None: mean = np.mean(jks, axis=0)
     N = len(jks)
     return np.sum(np.array([(jks[j] - mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
 
-def covariance_jks(mean, jks):
+def covariance_jks(jks, mean=None):
+    if mean is None: mean = np.mean(jks, axis=0)
     N = len(jks)
     def outer_sqr(a):
         return np.outer(a,a)

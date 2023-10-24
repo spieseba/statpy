@@ -178,7 +178,7 @@ class JKS_DB:
         for p in permutations:
             jks = self.as_array(self.jks(tag, binsize, p))
             if len(jks) == 0: return 0.0
-            var.append(jackknife.variance_jks(np.mean(jks, axis=0), jks))
+            var.append(jackknife.variance_jks(jks))
         return np.mean(var, axis=0)
     
     def jackknife_covariance(self, tag, binsize, pavg=False):
@@ -188,7 +188,7 @@ class JKS_DB:
         cov = []
         for p in permutations:
             jks = self.as_array(self.jks(tag, binsize, p))
-            cov.append(jackknife.covariance_jks(np.mean(jks, axis=0), jks))
+            cov.append(jackknife.covariance_jks(jks))
         return np.mean(cov, axis=0)
 
     def binning_study(self, tag, binsizes, pavg=False):
@@ -361,11 +361,11 @@ class Sample_DB(JKS_DB):
     
     def sample_jackknife_variance(self, tag, binsize, f=lambda x: x):
         jks = self.sample_jks(tag, binsize, f)
-        return jackknife.variance_jks(np.mean(jks, axis=0), jks)
+        return jackknife.variance_jks(jks)
 
     def sample_jackknife_covariance(self, tag, binsize, f=lambda x: x):
         jks = self.sample_jks(tag, binsize, f)
-        return jackknife.covariance_jks(np.mean(jks, axis=0), jks)
+        return jackknife.covariance_jks(jks)
     
     def sample_binning_study(self, tag, binsizes):
         self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
