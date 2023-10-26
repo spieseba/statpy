@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import numpy as np
+from ..statistics.jackknife import variance_jks
+
 
 class gradient_flow_scale:
     def __init__(self, ct0=0.3, cw0=0.3):
@@ -105,3 +107,9 @@ def db_gradient_flow_scale(db, leaf_prefix, binsize, verbose=True):
     if verbose:
         db.message(f"omega0 = {db.database[leaf_prefix + '/omega0'].mean:.4f} +- {db.jackknife_variance(leaf_prefix + '/omega0', binsize)**.5:.4f}")
         db.message(f"a_inv_GeV from omega0 (cutoff) = {db.database[leaf_prefix + '/omega0/a_inv_GeV'].mean:.4f} +- {db.jackknife_variance(leaf_prefix + '/omega0/a_inv_GeV', binsize)**.5:.4f} (STAT) +- {db.get_sys_var(leaf_prefix + '/omega0/a_inv_GeV')**.5:.4f} (SYS) [{(db.get_tot_var(leaf_prefix + '/omega0/a_inv_GeV', binsize))**.5:.4f} (STAT+SYS)]")
+    # difference between sqrt_t0 and omega0
+    db.combine(leaf_prefix + "/sqrt_tau0", leaf_prefix + "/omega0", f=lambda x,y: abs(x-y), dst_tag=leaf_prefix + "/abs(sqrt_t0 - omega0)")
+    db.combine(leaf_prefix + "/sqrt_tau0/a_inv_GeV", leaf_prefix + "/omega0/a_inv_GeV", f=lambda x,y: abs(x-y), dst_tag=leaf_prefix + "/abs(sqrt_t0/a_inv_GeV - omega0/a_inv_GeV)")
+    if verbose:
+        db.message(f"abs(sqrt_tau0 - omega0) = {db.database[leaf_prefix + '/abs(sqrt_t0 - omega0)'].mean:.4f} +- {db.jackknife_variance(leaf_prefix + '/abs(sqrt_t0 - omega0)', binsize)**.5:.4f}")
+        db.message(f"abs(sqrt_tau0/a_inv_GeV - omega0/a_inv_GeV) = {db.database[leaf_prefix + '/abs(sqrt_t0/a_inv_GeV - omega0/a_inv_GeV)'].mean:.4f} +- {db.jackknife_variance(leaf_prefix + '/abs(sqrt_t0/a_inv_GeV - omega0/a_inv_GeV)', binsize)**.5:.4f}")
