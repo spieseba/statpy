@@ -300,10 +300,10 @@ class LatticeCharmSpectroscopy():
             self.db.message("------------------ FIT PSA4I CORRELATOR WITH REDUCED FIT RANGE --------------------") 
             self.A_PSA4I_single, self.m_PSA4I_single, self.jks_PSA4I_single = self._spectroscopy(tag, binsize, self.fit_range_PSA4I, self.p0_PSA4I, spectroscopy_model_type, False, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, make_plot, figsize, verbosity)
     
-    def fit_combined(self, tag_PSPS, tag_PSA4I, binsize, p0, bc, correlated=False, make_plot=True, figsize=None, Ct_scale=None, verbosity=0):
+    def fit_combined(self, tag_PSPS, fit_range_PSPS, tag_PSA4I, fit_range_PSA4I, binsize, p0, bc, correlated=False, make_plot=True, figsize=None, Ct_scale=None, verbosity=0):
         self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
-        self.db.message(f"PSPS - REDUCED FIT RANGE {self.fit_range_PSPS}") 
-        self.db.message(f"PSA4I - REDUCED FIT RANGE {self.fit_range_PSA4I}") 
+        self.db.message(f"PSPS - REDUCED FIT RANGE {fit_range_PSPS}") 
+        self.db.message(f"PSA4I - REDUCED FIT RANGE {fit_range_PSA4I}") 
         if bc == "pbc":
             model_type_combined = "combined-cosh-sinh"
             model_type_PSPS = "cosh"
@@ -313,9 +313,9 @@ class LatticeCharmSpectroscopy():
             model_type_PSPS = "exp"
             model_type_PSA4I = "exp"
         jks_PSPS = self.db.sample_jks(tag_PSPS, 1); jks_PSA4I = self.db.sample_jks(tag_PSA4I, 1)
-        jks = np.array([np.hstack((jks_PSPS[j][self.fit_range_PSPS],jks_PSA4I[j][self.fit_range_PSA4I])) for j in range(len(jks_PSPS))])
+        jks = np.array([np.hstack((jks_PSPS[j][fit_range_PSPS],jks_PSA4I[j][fit_range_PSA4I])) for j in range(len(jks_PSPS))])
         bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
-        bss = np.array([np.hstack((bss_PSPS[b][self.fit_range_PSPS],bss_PSA4I[b][self.fit_range_PSA4I])) for b in range(len(bss_PSPS))])
+        bss = np.array([np.hstack((bss_PSPS[b][fit_range_PSPS],bss_PSA4I[b][fit_range_PSA4I])) for b in range(len(bss_PSPS))])
         if correlated:
             cov = jackknife.covariance_jks(jks)
             fit_type = "correlated"
@@ -324,7 +324,7 @@ class LatticeCharmSpectroscopy():
             fit_type = "uncorrelated"
 
         best_lf = Leaf(mean=None, jks=None, sample=None,
-                       misc={"fit_range_PSPS":self.fit_range_PSPS, "fit_range_PSA4I":self.fit_range_PSA4I, 
+                       misc={"fit_range_PSPS":fit_range_PSPS, "fit_range_PSA4I":fit_range_PSA4I, 
                              "model": model_type_combined, "fit_type": fit_type, 
                              "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
         for b in range(1, binsize+1):
@@ -332,15 +332,15 @@ class LatticeCharmSpectroscopy():
             jks_PSPS = self.db.sample_jks(tag_PSPS, b); jks_PSA4I = self.db.sample_jks(tag_PSA4I, b) 
             mean_PSPS = np.mean(jks_PSPS, axis=0); mean_PSA4I = np.mean(jks_PSA4I, axis=0)
             Nt = len(mean_PSPS)
-            jks_arr = np.array([np.hstack((jks_PSPS[cfg][self.fit_range_PSPS], jks_PSA4I[cfg][self.fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
+            jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
             if b == 1:
                 pass
             else:
                 bss = None
-            model = self._get_model(model_type_combined, Nt, self.fit_range_PSPS, self.fit_range_PSA4I)
-            best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(np.hstack((self.fit_range_PSPS, self.fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, bss)
+            model = self._get_model(model_type_combined, Nt, fit_range_PSPS, fit_range_PSA4I)
+            best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, bss)
             best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, key=None))
             if b == 1: 
                 best_lf.mean = best_parameter
@@ -360,10 +360,10 @@ class LatticeCharmSpectroscopy():
             if b == binsize:
                 best_parameter_PSPS = np.array([best_parameter[0], best_parameter[2]])
                 best_parameter_jks_PSPS = {cfg:np.array([best_parameter_jks[cfg][0], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
-                Ct_data_PSPS = CorrelatorData(mean_PSPS, jks_PSPS, model_type_PSPS, None, self.fit_range_PSPS, None, best_parameter_PSPS, best_parameter_jks_PSPS)
+                Ct_data_PSPS = CorrelatorData(mean_PSPS, jks_PSPS, model_type_PSPS, None, fit_range_PSPS, None, best_parameter_PSPS, best_parameter_jks_PSPS)
                 best_parameter_PSA4I = np.array([best_parameter[1], best_parameter[2]])
                 best_parameter_jks_PSA4I = {cfg:np.array([best_parameter_jks[cfg][1], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
-                Ct_data_PSA4I = CorrelatorData(mean_PSA4I, jks_PSA4I, model_type_PSA4I, None, self.fit_range_PSA4I, None, best_parameter_PSA4I, best_parameter_jks_PSA4I)
+                Ct_data_PSA4I = CorrelatorData(mean_PSA4I, jks_PSA4I, model_type_PSA4I, None, fit_range_PSA4I, None, best_parameter_PSA4I, best_parameter_jks_PSA4I)
                 if make_plot:
                     lcp = LatticeCharmPlots()
                     lcp.make_plot(Ct_data_PSPS, Ct_data_PSA4I, f"Combined fit for {tag_PSPS} and {tag_PSA4I} ", figsize, Ct_scale)
@@ -375,20 +375,23 @@ class LatticeCharmSpectroscopy():
             m_jks[b] = {j:p[2] for j,p in self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].misc["jks"][b].items()} 
         m_bss = np.array([p[2] for p in best_lf.misc["bss"]])
         self.db.add_Leaf(tag=f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit/m", mean=m_mean, jks=None, sample=None, misc={"jks":m_jks, "bss":m_bss})
+        # compute decay constant
+        self.db.message(f"BARE DECAY CONSTANT ESTIMATE FOR BINSIZE {binsize}:")
+        self.compute_decay_constant(f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit", binsize)
             
     def compute_decay_constant(self, combined_fit_tag, B):
         def bare_decay_constant(A_PSPS, A_PSA4I, m):
             return np.sqrt(2.) * A_PSA4I / np.sqrt(A_PSPS * m)
         combined_lf = self.db.database[combined_fit_tag]
-        self.f_bare = bare_decay_constant(*combined_lf.mean)   
-        self.f_bare_jks = {}
+        f_bare = bare_decay_constant(*combined_lf.mean)   
+        f_bare_jks = {}
         for b in range(1,B+1):
-            self.f_bare_jks[b] = {j:bare_decay_constant(*combined_lf.misc["jks"][b][j]) for j in combined_lf.misc["jks"][b]}
-        self.f_bare_var = jackknife.variance_jks(self.db.as_array(self.f_bare_jks[B], key=None))
-        self.f_bare_bss = np.array([bare_decay_constant(*combined_lf.misc["bss"][k]) for k in range(len(combined_lf.misc["bss"]))])
-        self.db.message(f"BARE DECAY CONSTANT ESTIMATE: f_bare = {self.f_bare:.8f} +- {self.f_bare_var**.5:.8f}")
-        self.db.add_Leaf(tag=f"{combined_fit_tag}/f_bare", mean=self.f_bare, jks=None, sample=None, 
-                         misc={"jks":self.f_bare_jks, "bss":self.f_bare_bss})
+            f_bare_jks[b] = {j:bare_decay_constant(*combined_lf.misc["jks"][b][j]) for j in combined_lf.misc["jks"][b]}
+        f_bare_var = jackknife.variance_jks(self.db.as_array(f_bare_jks[B], key=None))
+        f_bare_bss = np.array([bare_decay_constant(*combined_lf.misc["bss"][k]) for k in range(len(combined_lf.misc["bss"]))])
+        self.db.message(f"f_bare = sqrt(2) A_A4I / sqrt(m A_PS) = {np.mean(self.db.as_array(f_bare_jks[B], key=None)):.8f}  +- {f_bare_var**.5:.8f} (jackknife)")
+        self.db.add_Leaf(tag=f"{combined_fit_tag}/f_bare", mean=f_bare, jks=None, sample=None, 
+                         misc={"jks":f_bare_jks, "bss":f_bare_bss})
  
     def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params, bss=None, num_proc=None):
         if num_proc is None: num_proc = self.num_proc
