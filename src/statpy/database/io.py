@@ -132,17 +132,20 @@ class GPT_IO:
 
 def load_CLS(fn, rwf_fn, tags, branch_tag):
     assert os.path.isfile(fn)
-    assert os.path.isfile(rwf_fn)
-    measurements = {}
-    # rwfs
-    rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
-    rwf = np.loadtxt(rwf_fn)[:,1]; nrwf = rwf / np.mean(rwf)
-    nrwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)} 
-    measurements[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
     # data
     f = h5py.File(fn, "r")
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
-    cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
+    measurements = {}
+    # rwfs
+    if rwf_fn is not None:
+        assert os.path.isfile(rwf_fn) 
+        rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
+        rwf = np.loadtxt(rwf_fn)[:,1]; nrwf = rwf / np.mean(rwf)
+        nrwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)} 
+        measurements[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
+        cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
+    else: 
+        cfgs = f_cfgs 
     for t in tags:
         for key in f.keys():
             if t in key:
