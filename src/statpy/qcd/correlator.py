@@ -349,7 +349,7 @@ class LatticeCharmSpectroscopy():
             best_lf.misc["jks"][b] = best_parameter_jks
             # print fit result for binsize b
             for i in range(len(best_parameter)):
-                msg = f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (Jackknife)"
+                msg = f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)"
                 if b == 1: msg += f" [{best_parameter_var_bss[i]**.5} (Bootstrap)]"
                 self.db.message(msg, verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
