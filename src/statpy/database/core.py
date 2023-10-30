@@ -253,6 +253,9 @@ class JKS_DB:
             for sys_tag in self.get_sys_tags(tag):
                 s += f"   {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
         self.message(s, verbosity)
+        
+    def get_estimate(self, tag, binsize, pavg=False):
+        return self.database[tag].mean, self.get_tot_var(tag, binsize, pavg)
 
 ###########################################################################################################################################################################
 ###########################################################################################################################################################################
