@@ -40,13 +40,15 @@ class LatticeCharmBootstrap():
 
     def __call__(self, tag, nrwf_tag):
         lf = self.db.database[tag]; x = np.array([lf.sample[cfg] for cfg in self.configlist])
-        nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
-        bss = sample(lambda y: y, x, self.bootstraps, nrwf)
+        if nrwf_tag is not None:
+            nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
+            bss = sample(lambda y: y, x, self.bootstraps, nrwf)
+        else:
+            bss = sample(lambda y: y, x, self.bootstraps)
         if lf.misc is None:
             lf.misc = {"bss": bss}
         else:
             lf.misc["bss"] = bss
-        #self.rescaled_bss = self.rescale_bss(self.bss, s=1.0)
 
     def get_bootstraps(self, bs_fn):
         def get_line(bs_fn, n):
