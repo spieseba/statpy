@@ -350,7 +350,7 @@ class LatticeCharmSpectroscopy():
             # print fit result for binsize b
             for i in range(len(best_parameter)):
                 msg = f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)"
-                if b == 1: msg += f" [{best_parameter_var_bss[i]**.5} (Bootstrap)]"
+                if b == 1: msg += f" [{best_parameter_var_bss[i]**.5} (bootstrap)]"
                 self.db.message(msg, verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
