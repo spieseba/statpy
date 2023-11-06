@@ -316,16 +316,9 @@ class LatticeCharmSpectroscopy():
         jks = np.array([np.hstack((jks_PSPS[j][fit_range_PSPS],jks_PSA4I[j][fit_range_PSA4I])) for j in range(len(jks_PSPS))])
         bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
         bss = np.array([np.hstack((bss_PSPS[b][fit_range_PSPS],bss_PSA4I[b][fit_range_PSA4I])) for b in range(len(bss_PSPS))])
-        if correlated:
-            cov = jackknife.covariance_jks(jks)
-            fit_type = "correlated"
-        else: 
-            cov = np.diag(jackknife.variance_jks(jks))
-            fit_type = "uncorrelated"
-
         best_lf = Leaf(mean=None, jks=None, sample=None,
                        misc={"fit_range_PSPS":fit_range_PSPS, "fit_range_PSA4I":fit_range_PSA4I, 
-                             "model": model_type_combined, "fit_type": fit_type, 
+                             "model": model_type_combined, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
                              "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
         for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
@@ -335,7 +328,7 @@ class LatticeCharmSpectroscopy():
             jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
-            cov = np.diag(jackknife.variance_jks(jks_arr)) ## test
+            cov = jackknife.covariance_jks(jks_arr) if correlated else np.diag(jackknife.variance_jks(jks_arr))
             if b == 1:
                 pass
             else:
