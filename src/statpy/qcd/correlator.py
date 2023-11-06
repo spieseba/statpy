@@ -335,6 +335,7 @@ class LatticeCharmSpectroscopy():
             jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
+            cov = np.diag(jackknife.variance_jks(jks_arr)) ## test
             if b == 1:
                 pass
             else:
@@ -342,18 +343,19 @@ class LatticeCharmSpectroscopy():
             model = self._get_model(model_type_combined, Nt, fit_range_PSPS, fit_range_PSA4I)
             best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, bss)
             best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, key=None))
+            # store fit results in database
             if b == 1: 
                 best_lf.mean = best_parameter
                 best_lf.misc["bss"] = best_parameter_bss
                 best_parameter_var_bss = bootstrap.variance_bss(best_parameter_bss)
             best_lf.misc["jks"][b] = best_parameter_jks
+            best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
             # print fit result for binsize b
             for i in range(len(best_parameter)):
                 msg = f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)"
                 if b == 1: msg += f" [{best_parameter_var_bss[i]**.5} (bootstrap)]"
                 self.db.message(msg, verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             # plot fit result for binsize b = B
