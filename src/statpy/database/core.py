@@ -301,6 +301,7 @@ class Sample_DB(JKS_DB):
                 if nrwf is None:
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
+                    self.message(f"found nrwf for mean computation of {tag}")
                     lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
     def init_sample_jks(self, *tags):
@@ -315,6 +316,7 @@ class Sample_DB(JKS_DB):
                 for cfg in lf.sample:
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
             else:
+                self.message(f"found nrwf for jks computation of {tag}")
                 jks = {}
                 for cfg in lf.sample:
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
@@ -346,7 +348,7 @@ class Sample_DB(JKS_DB):
 
     ################################## STATISTICS ######################################
 
-    def sample_jks(self, tag, binsize, f=lambda x: x):
+    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1]), f=lambda x: x):
         lf = self.database[tag]
         if binsize == 1:
             if lf.jks is None:
@@ -355,9 +357,10 @@ class Sample_DB(JKS_DB):
         else:
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
-                bsample = statistics.bin(self.as_array(lf.sample), binsize)
+                bsample = statistics.bin(self.as_array(lf.sample, key=sorting_key), binsize)
                 jks = jackknife.sample(f, bsample)
             else:
+                self.message(f"found nrwf for jks computation of {tag}")
                 bsample = statistics.bin(self.as_array(lf.sample), binsize, self.as_array(nrwf)); bnrwf = statistics.bin(self.as_array(nrwf), binsize)
                 jks = jackknife.sample(f, bsample, bnrwf[:, None])
         return jks
