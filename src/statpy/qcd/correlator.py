@@ -302,7 +302,9 @@ class LatticeCharmSpectroscopy():
     
     def fit_combined(self, tag_PSPS, fit_range_PSPS, tag_PSA4I, fit_range_PSA4I, binsize, p0, bc, correlated=False, make_plot=True, figsize=None, Ct_scale=None, verbosity=0):
         self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
+        self.db.message(f"PSPS correlator: {tag_PSPS}")
         self.db.message(f"PSPS - REDUCED FIT RANGE {fit_range_PSPS}") 
+        self.db.message(f"PSA4I correlator: {tag_PSA4I}")
         self.db.message(f"PSA4I - REDUCED FIT RANGE {fit_range_PSA4I}") 
         if bc == "pbc":
             model_type_combined = "combined-cosh-sinh"
@@ -322,13 +324,16 @@ class LatticeCharmSpectroscopy():
                              "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
         for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
-            jks_PSPS = self.db.sample_jks(tag_PSPS, b); jks_PSA4I = self.db.sample_jks(tag_PSA4I, b) 
+            jks_PSPS = self.db.sample_jks(tag_PSPS, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1]))) 
+            jks_PSA4I = self.db.sample_jks(tag_PSA4I, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1]))) 
             mean_PSPS = np.mean(jks_PSPS, axis=0); mean_PSA4I = np.mean(jks_PSA4I, axis=0)
             Nt = len(mean_PSPS)
             jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
             cov = jackknife.covariance_jks(jks_arr) if correlated else np.diag(jackknife.variance_jks(jks_arr))
+            if b == 2:
+                self.db.add_Leaf(tag="test_JKS", mean=jks_arr, jks=None, sample=None, misc=None)
             if b == 1:
                 pass
             else:
@@ -454,7 +459,7 @@ class LatticeCharmSpectroscopy():
         else: return p
 
     def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, fit_method, fit_params, res_fit_method, res_fit_params, make_plot, figsize, Ct_scale, verbosity):
-        jks = self.db.sample_jks(tag, binsize)
+        jks = self.db.sample_jks(tag, binsize, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])))
         mean = np.mean(jks, axis=0)
         var = jackknife.variance_jks(jks)
         Nt = len(mean)
