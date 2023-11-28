@@ -2,7 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from ..fitting.core import Fitter, fit, fit_multiple, model_prediction_var
+from ..fitting.core import Fitter, ConvergenceError, fit, fit_multiple, model_prediction_var
 from ..statistics import jackknife, bootstrap
 from ..database.leafs import Leaf
 # import multiprocessing module and overwrite its Pickle class using dill
@@ -235,7 +235,7 @@ class LatticeCharmSpectroscopy():
         srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
         A4_in_tag = "A4" in Ctsrc_tags[0]
         self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag,
-                               key=lambda x: int(x[0].split("-")[-1]))
+                               sorting_key=lambda x: int(x[0].split("-")[-1]))
         if cleanup:
             self.db.remove(*Ctsrc_tags)
         self.db.init_sample_means(dst_tag)
@@ -340,7 +340,7 @@ class LatticeCharmSpectroscopy():
                 bss = None
             model = self._get_model(model_type_combined, Nt, fit_range_PSPS, fit_range_PSA4I)
             best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, bss)
-            best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, key=None))
+            best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, sorting_key=None))
             # store fit results in database
             if b == 1: 
                 best_lf.mean = best_parameter
@@ -387,9 +387,9 @@ class LatticeCharmSpectroscopy():
         f_bare_jks = {}
         for b in range(1,B+1):
             f_bare_jks[b] = {j:bare_decay_constant(*combined_lf.misc["jks"][b][j]) for j in combined_lf.misc["jks"][b]}
-        f_bare_var = jackknife.variance_jks(self.db.as_array(f_bare_jks[B], key=None))
+        f_bare_var = jackknife.variance_jks(self.db.as_array(f_bare_jks[B], sorting_key=None))
         f_bare_bss = np.array([bare_decay_constant(*combined_lf.misc["bss"][k]) for k in range(len(combined_lf.misc["bss"]))])
-        self.db.message(f"f_bare = sqrt(2) A_A4I / sqrt(m A_PS) = {np.mean(self.db.as_array(f_bare_jks[B], key=None)):.8f}  +- {f_bare_var**.5:.8f} (jackknife)")
+        self.db.message(f"f_bare = sqrt(2) A_A4I / sqrt(m A_PS) = {np.mean(self.db.as_array(f_bare_jks[B], sorting_key=None)):.8f}  +- {f_bare_var**.5:.8f} (jackknife)")
         self.db.add_Leaf(tag=f"{combined_fit_tag}/f_bare", mean=f_bare, jks=None, sample=None, 
                          misc={"jks":f_bare_jks, "bss":f_bare_bss})
  
@@ -397,7 +397,10 @@ class LatticeCharmSpectroscopy():
         if num_proc is None: num_proc = self.num_proc
         # mean fit
         fitter = Fitter(cov, model, fit_method, fit_params)
-        best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
+        try:
+            best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
+        except ConvergenceError as ce:
+            raise ConvergenceError(f"{ce} for mean")
         # jks fits
         if res_fit_method is None: res_fit_method = fit_method; res_fit_params = fit_params
         jks_fitter = Fitter(cov, model, res_fit_method, res_fit_params)
@@ -469,23 +472,34 @@ class LatticeCharmSpectroscopy():
         for t in fit_ranges:
             self.db.message(f"initial fit range: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
-            best_parameter, best_parameter_jks, _, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
+            try:
+                best_parameter, best_parameter_jks, _, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
+            except ConvergenceError as ce:
+                self.db.message(f"{ce} -> jump to next fit range")
+                self.db.message("---------------------------------------------------------------------------------", verbosity) 
+                self.db.message("---------------------------------------------------------------------------------", verbosity) 
+                continue
             best_parameter = self._sort_params(best_parameter)
             best_parameter_jks = {cfg:self._sort_params(best_parameter_jks[cfg]) for cfg in best_parameter_jks}
-            best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, key=None)) 
+            best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, sorting_key=None)) 
             for i in range(len(best_parameter)):
                 self.db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             criterion = np.abs([model(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
             reduced_t = t[criterion]
-            self.db.message(f"reduced fit range {reduced_t}", verbosity)
+            if len(reduced_t) < 1:
+                self.db.message(f"reduced fit range {reduced_t} -> jump to next fit range", verbosity)
+                self.db.message("---------------------------------------------------------------------------------", verbosity) 
+                self.db.message("---------------------------------------------------------------------------------", verbosity) 
+                continue
+            else:
+                self.db.message(f"reduced fit range {reduced_t}", verbosity)
             if len(reduced_t) < len(fit_range): 
                 fit_range = reduced_t
                 p_fit_range = best_parameter[:2]
                 self.db.add_Leaf(tag=f"{tag}/fit_range_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, 
                                  misc={"initial_fit_range": t, "fit_range":fit_range, "model": model_type,
                                        "fit_type": "uncorrelated", "chi2":chi2, "chi2 / dof":chi2/dof, "p":pval})
-
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
         if make_plot:

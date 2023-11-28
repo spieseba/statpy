@@ -106,10 +106,10 @@ class JKS_DB:
         return [tag for tag in self.database.keys() if key in tag]
 
     # helper function
-    def as_array(self, obj, key=lambda x: int(x[0].split("-")[-1])):
+    def as_array(self, obj, sorting_key=lambda x: int(x[0].split("-")[-1])):
         if isinstance(obj, np.ndarray):
             return obj
-        sorted_obj = dict(sorted(obj.items(), key=key))
+        sorted_obj = dict(sorted(obj.items(), key=sorting_key))
         return np.array(list(sorted_obj.values()))
     
     ################################## FUNCTIONS #######################################
@@ -268,22 +268,22 @@ class Sample_DB(JKS_DB):
 
     ################################## FUNCTIONS MODIFYING THE DATABASE #######################################
      
-    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, key=None):
+    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, sorting_key=None):
         lfs = [self.database[tag] for tag in tags]
         f_sample = {}
         cfgs = np.unique([list(lf.sample.keys()) for lf in lfs]) 
         for cfg in cfgs:
             x = [lf.sample[cfg] if cfg in lf.sample else lf.mean for lf in lfs]
             f_sample[cfg] = f(*x) 
-        f_sample = dict(sorted(f_sample.items(), key=key)) 
+        f_sample = dict(sorted(f_sample.items(), key=sorting_key)) 
         if dst_tag is None:
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
 
-    def merge_sample(self, *tags, dst_tag=None, key=None, dst_cfgs=None):
+    def merge_sample(self, *tags, dst_tag=None, sorting_key=None, dst_cfgs=None):
         lfs = [self.database[tag] for tag in tags]
         if dst_cfgs is None:
-            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=key))
+            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=sorting_key))
         else:
             sample = {cfg:val for cfg,val in zip(dst_cfgs, np.concatenate([self.as_array(lf.sample) for lf in lfs], axis=0))}
         if dst_tag is None:
@@ -357,11 +357,11 @@ class Sample_DB(JKS_DB):
         else:
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
-                bsample = statistics.bin(self.as_array(lf.sample, key=sorting_key), binsize)
+                bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize)
                 jks = jackknife.sample(f, bsample)
             else:
                 self.message(f"found nrwf for jks computation of {tag}")
-                bsample = statistics.bin(self.as_array(lf.sample), binsize, self.as_array(nrwf)); bnrwf = statistics.bin(self.as_array(nrwf), binsize)
+                bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize, self.as_array(nrwf, sorting_key=sorting_key)); bnrwf = statistics.bin(self.as_array(nrwf, sorting_key=sorting_key), binsize)
                 jks = jackknife.sample(f, bsample, bnrwf[:, None])
         return jks
     

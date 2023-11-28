@@ -13,6 +13,9 @@ nm_parameter = {
     "maxiter": None
 }
 
+class ConvergenceError(Exception):
+    pass
+
 class Fitter:
     """
     fit class using Nelder-Mead provided by scipy or Migrad algorithm provided by iminuit package
@@ -59,18 +62,22 @@ class Fitter:
             if param in nm_parameter:
                 nm_parameter[param] = value
         opt_res = opt.minimize(lambda p: f(p, y), p0, method="Nelder-Mead", tol=nm_parameter["tol" ], options={"maxiter": nm_parameter["maxiter"]})
+        if opt_res.success is not True:
+            raise ConvergenceError("Nelder-Mead did not converge")
         assert opt_res.success == True
         return opt_res.x, opt_res.fun, None
 
     def _opt_Migrad(self, f, y, p0):
         m = Minuit(lambda p: f(p, y), p0)
         m.migrad()
-        assert m.valid == True
+        if m.valid is not True:
+            raise ConvergenceError("Migrad did not converge")
         return np.array(m.values), m.fval, None
     
     def _opt_LevenbergMarquardt(self, t, y, p0):
         p, chi2, iterations, success, J = LevenbergMarquardt(t, y, self.W, self.model, p0, self.min_params)()
-        assert success == True
+        if success is not True:
+            raise ConvergenceError("Levenberg-Marquardt did not converge")
         return p, chi2, J
 
 
