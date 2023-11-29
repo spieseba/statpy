@@ -23,6 +23,13 @@ def variance_bss(bss, mean=None):
     B = len(bss)
     return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / B 
 
+def covariance_bss(bss, mean=None):
+    if mean is None: mean = np.mean(bss, axis=0)
+    B = len(bss)
+    def outer_sqr(a):
+        return np.outer(a,a)
+    return np.sum(np.array([outer_sqr(bss[b] - mean) for b in range(B)]), axis=0) / B 
+
 def rescale_bss(bss, s):
     mean = np.mean(bss, axis=0)
     if isinstance(np.mean(bss, axis=0), np.float64):

@@ -314,46 +314,50 @@ class LatticeCharmSpectroscopy():
             model_type_combined = "combined-exp"
             model_type_PSPS = "exp"
             model_type_PSA4I = "exp"
-        jks_PSPS = self.db.sample_jks(tag_PSPS, 1); jks_PSA4I = self.db.sample_jks(tag_PSA4I, 1)
-        jks = np.array([np.hstack((jks_PSPS[j][fit_range_PSPS],jks_PSA4I[j][fit_range_PSA4I])) for j in range(len(jks_PSPS))])
-        bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
-        bss = np.array([np.hstack((bss_PSPS[b][fit_range_PSPS],bss_PSA4I[b][fit_range_PSA4I])) for b in range(len(bss_PSPS))])
         best_lf = Leaf(mean=None, jks=None, sample=None,
                        misc={"fit_range_PSPS":fit_range_PSPS, "fit_range_PSA4I":fit_range_PSA4I, 
                              "model": model_type_combined, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
-                             "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
+                             "best_parameter": {}, "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
         for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
+            self.db.message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
             jks_PSPS = self.db.sample_jks(tag_PSPS, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1]))) 
             jks_PSA4I = self.db.sample_jks(tag_PSA4I, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1]))) 
             mean_PSPS = np.mean(jks_PSPS, axis=0); mean_PSA4I = np.mean(jks_PSA4I, axis=0)
-            Nt = len(mean_PSPS)
             jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
             cov = jackknife.covariance_jks(jks_arr) if correlated else np.diag(jackknife.variance_jks(jks_arr))
-            if b == 2:
-                self.db.add_Leaf(tag="test_JKS", mean=jks_arr, jks=None, sample=None, misc=None)
-            if b == 1:
-                pass
-            else:
-                bss = None
+            Nt = len(mean_PSPS)
             model = self._get_model(model_type_combined, Nt, fit_range_PSPS, fit_range_PSA4I)
-            best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, bss)
+            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
             best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, sorting_key=None))
-            # store fit results in database
-            if b == 1: 
-                best_lf.mean = best_parameter
-                best_lf.misc["bss"] = best_parameter_bss
-                best_parameter_var_bss = bootstrap.variance_bss(best_parameter_bss)
+            # store jks fit results in db
+            best_lf.misc["best_parameter"][b] = best_parameter
             best_lf.misc["jks"][b] = best_parameter_jks
             best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
-            # print fit result for binsize b
+            if b == 1:
+                best_lf.mean = best_parameter
+                best_lf.jks = best_parameter_jks
+            # print jk fit results
             for i in range(len(best_parameter)):
-                msg = f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)"
-                if b == 1: msg += f" [{best_parameter_var_bss[i]**.5} (bootstrap)]"
-                self.db.message(msg, verbosity)
+                self.db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
+
+            # perform bootstrap fit for binsize = 1
+            if b == 1:
+                self.db.message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
+                bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
+                bss = np.array([np.hstack((bss_PSPS[k][fit_range_PSPS],bss_PSA4I[k][fit_range_PSA4I])) for k in range(len(bss_PSPS))])
+                mean_bss = np.mean(bss, axis=0)
+                cov_bss = bootstrap.covariance_bss(bss) if correlated else np.diag(bootstrap.variance_bss(bss))
+                best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+                best_parameter_cov_bss = bootstrap.covariance_bss(best_parameter_bss)
+                # print bs fit results
+                for i in range(len(best_parameter_bs)):
+                    self.db.message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)
+                self.db.message(f"chi2 / dof = {chi2_bss} / {dof_bss} = {chi2_bss/dof_bss}, i.e., p = {pval_bss}", verbosity)
+                best_lf.misc["bss"] = best_parameter_bss 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             # plot fit result for binsize b = B
@@ -393,7 +397,7 @@ class LatticeCharmSpectroscopy():
         self.db.add_Leaf(tag=f"{combined_fit_tag}/f_bare", mean=f_bare, jks=None, sample=None, 
                          misc={"jks":f_bare_jks, "bss":f_bare_bss})
  
-    def _fit(self, t, y, jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params, bss=None, num_proc=None):
+    def _fit(self, t, y, res, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params, num_proc=None):
         if num_proc is None: num_proc = self.num_proc
         # mean fit
         fitter = Fitter(cov, model, fit_method, fit_params)
@@ -401,42 +405,36 @@ class LatticeCharmSpectroscopy():
             best_parameter, chi2, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
         except ConvergenceError as ce:
             raise ConvergenceError(f"{ce} for mean")
-        # jks fits
+        # res fits
         if res_fit_method is None: res_fit_method = fit_method; res_fit_params = fit_params
-        jks_fitter = Fitter(cov, model, res_fit_method, res_fit_params)
+        res_fitter = Fitter(cov, model, res_fit_method, res_fit_params)
         if num_proc is None:
-            best_parameter_jks = {}
-            for cfg in jks:
-                best_parameter_jks[cfg], _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, jks[cfg], best_parameter)
+            if isinstance(res, dict):
+                best_parameter_res = {}
+                idxs = list(res.keys())
+            if isinstance(res, list) or isinstance(res, np.ndarray):
+                best_parameter_res = np.zeros(shape=(len(res), len(res[0])))
+                idxs = range(len(res))
+            for idx in idxs:
+                best_parameter_res[idx], _, _ = res_fitter.estimate_parameters(t, fitter.chi_squared, res[idx], best_parameter)
         else:
-            def wrapper(cfg, y_j):
-                best_parameter_j, _, _ = jks_fitter.estimate_parameters(t, fitter.chi_squared, y_j, best_parameter)
-                return cfg, best_parameter_j
-            self.db.message(f"Spawn {num_proc} processes to compute jackknife sample", verbosity=self.db.verbosity)
-            with multiprocessing.Pool(num_proc) as pool:
-                best_parameter_jks = dict(pool.starmap(wrapper, [(cfg, y_j) for cfg, y_j in jks.items()]))
-        # bss fits
-        if bss is not None:
-            bss_fitter = Fitter(cov, model, res_fit_method, res_fit_params)
-            if num_proc is None:
-                best_parameter_bss = []
-                for bs in bss:
-                    best_parameter_bs, _, _ = bss_fitter.estimate_parameters(t, fitter.chi_squared, bs, best_parameter)
-                    best_parameter_bss.append(best_parameter_bs)
-            else:
-                def wrapper(y_b):
-                    best_parameter_b, _, _ = bss_fitter.estimate_parameters(t, fitter.chi_squared, y_b, best_parameter)
-                    return best_parameter_b
-                self.db.message(f"Spawn {num_proc} processes to compute bootstrap sample", verbosity=self.db.verbosity)
+            self.db.message(f"Spawn {num_proc} processes to compute resampled sample", verbosity=self.db.verbosity)
+            if isinstance(res, dict):
+                def dict_wrapper(idx, y_i):
+                    best_parameter_i, _, _ = res_fitter.estimate_parameters(t, fitter.chi_squared, y_i, best_parameter)
+                    return idx, best_parameter_i
                 with multiprocessing.Pool(num_proc) as pool:
-                    best_parameter_bss = pool.starmap(wrapper, [(y_b,) for y_b in bss])
-            best_parameter_bss = np.array(best_parameter_bss)
-        else: 
-            best_parameter_bss = None
+                    best_parameter_res = dict(pool.starmap(dict_wrapper, [(idx, y_k) for idx, y_k in res.items()]))
+            if isinstance(res, list) or isinstance(res, np.ndarray):
+                def arr_wrapper(y_k):
+                    best_parameter_k, _, _ = res_fitter.estimate_parameters(t, fitter.chi_squared, y_k, best_parameter)
+                    return best_parameter_k
+                with multiprocessing.Pool(num_proc) as pool:
+                    best_parameter_res = np.array(pool.starmap(arr_wrapper, [(y_k,) for y_k in res]))
         dof = len(t) - len(best_parameter)
         pval = fitter.get_pvalue(chi2, dof) 
-        return best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval
-    
+        return best_parameter, best_parameter_res, chi2, dof, pval
+
     def _get_model(self, model_type, Nt=None, t0=None, t1=None):
         if model_type == "cosh":
             return cosh_model(Nt)
@@ -473,7 +471,7 @@ class LatticeCharmSpectroscopy():
             self.db.message(f"initial fit range: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}; cov = np.diag(var)[t][:,t]
             try:
-                best_parameter, best_parameter_jks, _, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
+                best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
             except ConvergenceError as ce:
                 self.db.message(f"{ce} -> jump to next fit range")
                 self.db.message("---------------------------------------------------------------------------------", verbosity) 
@@ -523,7 +521,7 @@ class LatticeCharmSpectroscopy():
             t = fit_range
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks)}
             model = self._get_model(model_type, Nt)
-            best_parameter, best_parameter_jks, best_parameter_bss, chi2, dof, pval = self._fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
+            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov[t][:,t], p0, model, fit_method, fit_params, res_fit_method, res_fit_params)
             best_parameter_cov = jackknife.covariance_jks(best_parameter_jks)
             A[b] = best_parameter[0]
             m[b] = best_parameter[1]
