@@ -140,9 +140,9 @@ def load_CLS(fn, rwf_fn, tags, branch_tag):
     if rwf_fn is not None:
         assert os.path.isfile(rwf_fn) 
         rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
-        rwf = np.loadtxt(rwf_fn)[:,1]; nrwf = rwf / np.mean(rwf)
-        nrwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, nrwf)} 
-        measurements[f"{branch_tag}/nrwf"] = Leaf(mean=None, jks=None, sample=nrwf)
+        rwf = np.loadtxt(rwf_fn)[:,1] 
+        rwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, rwf)} 
+        measurements[f"{branch_tag}/rwf"] = Leaf(mean=None, jks=None, sample=rwf)
         cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
     else: 
         cfgs = f_cfgs 

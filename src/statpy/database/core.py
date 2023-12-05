@@ -331,6 +331,9 @@ class Sample_DB(JKS_DB):
         else:
             self.add_Leaf(dst_tag, None, None, sample, None)
 
+    def compute_nrwf(self, tag):
+        rwf = self.database[tag].sample; n = np.mean(self.as_array(rwf, None))
+        self.add_Leaf(tag.replace("rwf","nrwf"), None, None, {cfg:rwf/n for cfg,rwf in rwf.items()}, None)
     
     ############################### FUNCTIONS NOT MODIFYING THE DATABASE #######################################
 
@@ -339,7 +342,7 @@ class Sample_DB(JKS_DB):
 
     def cfgs(self, tag):
         return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
-    
+     
     def get_nrwf(self, tag):
         lf = self.database.get(f"{tag.split('/')[0]}/nrwf") 
         if (lf == None) or ("nrwf" in tag):
