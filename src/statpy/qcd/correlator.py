@@ -343,7 +343,6 @@ class LatticeCharmSpectroscopy():
             for i in range(len(best_parameter)):
                 self.db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-
             # perform bootstrap fit for binsize = 1
             if b == 1:
                 self.db.message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)

@@ -21,7 +21,7 @@ def sample(f, x, bootstraps, *argv):
 def variance_bss(bss, mean=None):
     if mean is None: mean = np.mean(bss, axis=0)
     B = len(bss)
-    return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / B 
+    return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / (B-1) 
 
 def covariance_bss(bss, mean=None):
     if mean is None: mean = np.mean(bss, axis=0)
