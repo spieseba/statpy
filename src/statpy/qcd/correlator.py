@@ -507,7 +507,7 @@ class LatticeCharmSpectroscopy():
             if b == 1:
                 self.db.message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.database[tag].misc["bss"][:,fit_range]
-                mean_bss = np.mean(bss, axis=0)
+                #mean_bss = np.mean(bss, axis=0)
                 cov_bss = bootstrap.covariance_bss(bss) if correlated else np.diag(bootstrap.variance_bss(bss))
                 best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(fit_range, mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
                 best_parameter_cov_bss = bootstrap.covariance_bss(best_parameter_bss)
