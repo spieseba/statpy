@@ -45,12 +45,13 @@ class LatticeCharmBootstrap():
         self.bootstrap_tag = bootstrap_tag
         self.db.database[self.bootstrap_tag] = Leaf(self.bootstraps, None, None, misc={"configlist": self.configlist})
 
-    def __call__(self, tag, nrwf_tag):
+    def __call__(self, tag, nrwf_tag, check_nrwf=True):
         lf = self.db.database[tag]; x = np.array([lf.sample[cfg] for cfg in self.configlist])
         if nrwf_tag is not None:
             nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
             bss = sample(lambda y: y, x, self.bootstraps, nrwf)
         else:
+            if check_nrwf: self.message(f"!NRWF FOR BOOTSTRAP OF {tag} NOT FOUND!")
             bss = sample(lambda y: y, x, self.bootstraps)
         if lf.misc is None:
             lf.misc = {"bss": bss}

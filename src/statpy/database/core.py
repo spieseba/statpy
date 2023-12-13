@@ -43,7 +43,7 @@ class JKS_DB:
     def add_src(self, *srcs):
         for src in srcs:
             assert os.path.isfile(src)
-            self.message(f"load {src}")
+            self.message(f"LOAD {src}")
             with open(src) as f:
                 src_db = json.load(f)
             for t, lf in src_db.items():
@@ -291,7 +291,7 @@ class Sample_DB(JKS_DB):
         else:
             self.database[dst_tag] = Leaf(None, None, sample)
     
-    def init_sample_means(self, *tags):
+    def init_sample_means(self, *tags, check_nrwf=False):
         if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
@@ -299,12 +299,12 @@ class Sample_DB(JKS_DB):
             nrwf = self.get_nrwf(tag)
             if lf.sample is not None:
                 if nrwf is None:
+                    if check_nrwf: self.message(f"!NRWF FOR MEAN COMPUTATION OF {tag} NOT FOUND!")
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
-                    self.message(f"found nrwf for mean computation of {tag}")
                     lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
-    def init_sample_jks(self, *tags):
+    def init_sample_jks(self, *tags, check_nrwf=False):
         if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
@@ -312,11 +312,11 @@ class Sample_DB(JKS_DB):
             if lf.sample is None: continue
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
+                if check_nrwf: self.message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
                 jks = {}
                 for cfg in lf.sample:
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
             else:
-                self.message(f"found nrwf for jks computation of {tag}")
                 jks = {}
                 for cfg in lf.sample:
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
@@ -345,25 +345,25 @@ class Sample_DB(JKS_DB):
      
     def get_nrwf(self, tag):
         lf = self.database.get(f"{tag.split('/')[0]}/nrwf") 
-        if (lf == None) or ("nrwf" in tag):
+        if (lf == None) or ("rwf" in tag):
             return None
         return lf.sample 
 
     ################################## STATISTICS ######################################
 
-    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1]), f=lambda x: x):
+    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1]), f=lambda x: x, check_nrwf=False):
         lf = self.database[tag]
         if binsize == 1:
             if lf.jks is None:
-                self.init_sample_jks(tag)
+                self.init_sample_jks(tag, check_nrwf=check_nrwf)
             jks = self.as_array(lf.jks)
         else:
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
+                if check_nrwf: self.message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
                 bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize)
                 jks = jackknife.sample(f, bsample)
             else:
-                self.message(f"found nrwf for jks computation of {tag}")
                 bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize, self.as_array(nrwf, sorting_key=sorting_key)); bnrwf = statistics.bin(self.as_array(nrwf, sorting_key=sorting_key), binsize)
                 jks = jackknife.sample(f, bsample, bnrwf[:, None])
         return jks
