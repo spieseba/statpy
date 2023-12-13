@@ -2,7 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from ..fitting.core import Fitter, ConvergenceError, fit, fit_multiple, model_prediction_var
+from ..fitting.core import Fitter, ConvergenceError, fit, fit_multiple
 from ..statistics import jackknife, bootstrap
 from ..database.leafs import Leaf
 # import multiprocessing module and overwrite its Pickle class using dill
@@ -196,17 +196,17 @@ class LatticeCharmSpectroscopy():
         self.res_fit_params = res_fit_params
         self.num_proc = num_proc
  
-    def obc_tsrc_avg(self, Ctsrc_tags, tmin, tmax, dst_tag, cleanup=True):
+    def obc_tsrc_avg(self, Ctsrc_tags, tmin, tmax, dst_tag, cleanup=True, check_nrwf=True):
         srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
         A4_in_tag = "A4" in Ctsrc_tags[0]
         self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag,
                                sorting_key=lambda x: int(x[0].split("-")[-1]))
         if cleanup:
             self.db.remove(*Ctsrc_tags)
-        self.db.init_sample_means(dst_tag)
-        self.db.init_sample_jks(dst_tag)
+        self.db.init_sample_means(dst_tag, check_nrwf=check_nrwf)
+        self.db.init_sample_jks(dst_tag, check_nrwf=check_nrwf)
 
-    def fit_PSPS(self, tag, binsize, fit_ranges, p0, bc, make_plot=True, spectroscopy=False, fit_range=None, figsize=None, Ct_scale=None, verbosity=0):
+    def fit_PSPS(self, tag, binsize, fit_ranges, p0, bc, spectroscopy=False, fit_range=None, verbosity=0):
         if bc == "pbc":
             fit_range_model_type = "double-cosh"
             spectroscopy_model_type = "cosh"
@@ -216,7 +216,7 @@ class LatticeCharmSpectroscopy():
         else:
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSPS CORRELATOR --------------------")  
-        self.fit_range_PSPS, self.p0_PSPS  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, make_plot, figsize, Ct_scale, verbosity)   
+        self.fit_range_PSPS, self.p0_PSPS  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, verbosity)   
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message(f"REDUCED PSPS FIT RANGE: {self.fit_range_PSPS}")
         if spectroscopy:
@@ -225,7 +225,7 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------\n") 
             self.db.message("------------------ FIT PSPS CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self._spectroscopy(tag, binsize, fit_range, self.p0_PSPS, spectroscopy_model_type, False, make_plot, figsize, Ct_scale, verbosity)
+            self._spectroscopy(tag, binsize, fit_range, self.p0_PSPS, spectroscopy_model_type, False, verbosity)
  
     def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
         # https://arxiv.org/pdf/1502.04999.pdf
@@ -240,10 +240,10 @@ class LatticeCharmSpectroscopy():
             return PS_A4I
         tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
         self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PS_A4I(x, y, beta), dst_tag=tag_PSA4I)
-        self.db.init_sample_means(tag_PSA4I)
-        self.db.init_sample_jks(tag_PSA4I)
+        self.db.init_sample_means(tag_PSA4I, check_nrwf=True)
+        self.db.init_sample_jks(tag_PSA4I, check_nrwf=True)
 
-    def fit_PSA4I(self, tag, binsize, fit_ranges, p0, bc, make_plot=True, spectroscopy=False, fit_range=None, figsize=None, Ct_scale=None, verbosity=0):
+    def fit_PSA4I(self, tag, binsize, fit_ranges, p0, bc, spectroscopy=False, verbosity=0):
         if bc == "pbc":
             fit_range_model_type = "double-sinh"
             spectroscopy_model_type = "sinh"
@@ -253,7 +253,7 @@ class LatticeCharmSpectroscopy():
         else:
             raise ValueError(bc)         
         self.db.message("-------------------- DETERMINE FIT RANGE FOR PSA4I CORRELATOR --------------------")  
-        self.fit_range_PSA4I, self.p0_PSA4I  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, make_plot, figsize, Ct_scale, verbosity) 
+        self.fit_range_PSA4I, self.p0_PSA4I  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, verbosity) 
         self.db.message("---------------------------------------------------------------------------------") 
         self.db.message(f"REDUCED FIT RANGE: {self.fit_range_PSA4I}")
         if spectroscopy:
@@ -262,14 +262,15 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------") 
             self.db.message("---------------------------------------------------------------------------------\n") 
             self.db.message("------------------ FIT PSA4I CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self._spectroscopy(tag, binsize, fit_range, self.p0_PSA4I, spectroscopy_model_type, False, make_plot, figsize, Ct_scale, verbosity)
+            self._spectroscopy(tag, binsize, fit_range, self.p0_PSA4I, spectroscopy_model_type, False, verbosity)
     
-    def fit_combined(self, tag_PSPS, fit_range_PSPS, tag_PSA4I, fit_range_PSA4I, binsize, p0, bc, correlated=False, make_plot=True, figsize=None, Ct_scale=None, verbosity=0):
+    def fit_combined(self, tag_PSPS, fit_range_PSPS, tag_PSA4I, fit_range_PSA4I, binsize, p0, bc, correlated=False, verbosity=0):
         self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
         self.db.message(f"PSPS correlator: {tag_PSPS}")
         self.db.message(f"PSPS - REDUCED FIT RANGE {fit_range_PSPS}") 
         self.db.message(f"PSA4I correlator: {tag_PSA4I}")
         self.db.message(f"PSA4I - REDUCED FIT RANGE {fit_range_PSA4I}") 
+        self.db.message(f"P0 = {p0}")
         if bc == "pbc":
             model_type_combined = "combined-cosh-sinh"
             model_type_PSPS = "cosh"
@@ -286,8 +287,8 @@ class LatticeCharmSpectroscopy():
         for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
             self.db.message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
-            jks_PSPS = self.db.sample_jks(tag_PSPS, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1]))) 
-            jks_PSA4I = self.db.sample_jks(tag_PSA4I, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1]))) 
+            jks_PSPS = self.db.sample_jks(tag_PSPS, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), check_nrwf=True) 
+            jks_PSA4I = self.db.sample_jks(tag_PSA4I, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), check_nrwf=True) 
             mean_PSPS = np.mean(jks_PSPS, axis=0); mean_PSA4I = np.mean(jks_PSA4I, axis=0)
             jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
@@ -324,17 +325,17 @@ class LatticeCharmSpectroscopy():
                 best_lf.misc["bss"] = best_parameter_bss 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
-            # plot fit result for binsize b = B
-            if b == binsize:
-                best_parameter_PSPS = np.array([best_parameter[0], best_parameter[2]])
-                best_parameter_jks_PSPS = {cfg:np.array([best_parameter_jks[cfg][0], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
-                Ct_data_PSPS = CorrelatorData(mean_PSPS, jks_PSPS, model_type_PSPS, None, fit_range_PSPS, None, best_parameter_PSPS, best_parameter_jks_PSPS)
-                best_parameter_PSA4I = np.array([best_parameter[1], best_parameter[2]])
-                best_parameter_jks_PSA4I = {cfg:np.array([best_parameter_jks[cfg][1], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
-                Ct_data_PSA4I = CorrelatorData(mean_PSA4I, jks_PSA4I, model_type_PSA4I, None, fit_range_PSA4I, None, best_parameter_PSA4I, best_parameter_jks_PSA4I)
-                if make_plot:
-                    lcp = LatticeCharmPlots()
-                    lcp.make_plot(Ct_data_PSPS, Ct_data_PSA4I, f"Combined fit for {tag_PSPS} and {tag_PSA4I} ", figsize, Ct_scale)
+            ## plot fit result for binsize b = B
+            #if b == binsize:
+            #    best_parameter_PSPS = np.array([best_parameter[0], best_parameter[2]])
+            #    best_parameter_jks_PSPS = {cfg:np.array([best_parameter_jks[cfg][0], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
+            #    Ct_data_PSPS = CorrelatorData(mean_PSPS, jks_PSPS, model_type_PSPS, None, fit_range_PSPS, None, best_parameter_PSPS, best_parameter_jks_PSPS)
+            #    best_parameter_PSA4I = np.array([best_parameter[1], best_parameter[2]])
+            #    best_parameter_jks_PSA4I = {cfg:np.array([best_parameter_jks[cfg][1], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
+            #    Ct_data_PSA4I = CorrelatorData(mean_PSA4I, jks_PSA4I, model_type_PSA4I, None, fit_range_PSA4I, None, best_parameter_PSA4I, best_parameter_jks_PSA4I)
+            #    if make_plot:
+            #        lcp = LatticeCharmPlots()
+            #        lcp.make_plot(Ct_data_PSPS, Ct_data_PSA4I, f"Combined fit for {tag_PSPS} and {tag_PSA4I} ", figsize, Ct_scale)
         self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"] = best_lf
         # store mass as separate leaf
         m_mean = self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].mean[2]
@@ -344,7 +345,7 @@ class LatticeCharmSpectroscopy():
         m_bss = np.array([p[2] for p in best_lf.misc["bss"]])
         self.db.add_Leaf(tag=f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit/m", mean=m_mean, jks=None, sample=None, misc={"jks":m_jks, "bss":m_bss})
         # compute decay constant
-        self.db.message(f"BARE DECAY CONSTANT ESTIMATE FOR BINSIZE {binsize}:")
+        self.db.message(f"BARE DECAY CONSTANT ESTIMATE:")
         self.compute_decay_constant(f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit", binsize)
             
     def compute_decay_constant(self, combined_fit_tag, B):
@@ -357,7 +358,8 @@ class LatticeCharmSpectroscopy():
             f_bare_jks[b] = {j:bare_decay_constant(*combined_lf.misc["jks"][b][j]) for j in combined_lf.misc["jks"][b]}
         f_bare_var = jackknife.variance_jks(self.db.as_array(f_bare_jks[B], sorting_key=None))
         f_bare_bss = np.array([bare_decay_constant(*combined_lf.misc["bss"][k]) for k in range(len(combined_lf.misc["bss"]))])
-        self.db.message(f"f_bare = sqrt(2) A_A4I / sqrt(m A_PS) = {np.mean(self.db.as_array(f_bare_jks[B], sorting_key=None)):.8f}  +- {f_bare_var**.5:.8f} (jackknife)")
+        self.db.message(f"f_bare = sqrt(2) A_A4I / sqrt(m A_PS) = {f_bare:.8f} (sample mean)")
+        self.db.message(f"                                      = {np.mean(self.db.as_array(f_bare_jks[B], sorting_key=None)):.8f} +- {f_bare_var**.5:.8f} (jackknife, binsize = {B})")
         self.db.add_Leaf(tag=f"{combined_fit_tag}/f_bare", mean=f_bare, jks=None, sample=None, 
                          misc={"jks":f_bare_jks, "bss":f_bare_bss})
  
@@ -423,10 +425,11 @@ class LatticeCharmSpectroscopy():
         if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
         else: return p
 
-    def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, make_plot, figsize, Ct_scale, verbosity):
+    def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, verbosity):
         self.db.message(f"CORRELATOR: {tag}")
+        self.db.message(f"P0 = {p0}")
         self.db.message(f"BINSIZE = {binsize}", verbosity)
-        jks_arr = self.db.sample_jks(tag, binsize, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])))
+        jks_arr = self.db.sample_jks(tag, binsize, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), check_nrwf=True)
         mean = np.mean(jks_arr, axis=0)
         var = jackknife.variance_jks(jks_arr)
         Nt = len(mean)
@@ -466,14 +469,11 @@ class LatticeCharmSpectroscopy():
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
         self.db.database[f"{tag}/fit_range_fit"] = fit_range_lf
-        if make_plot:
-            Ct_data = CorrelatorData(mean, jks_arr, model_type, None, fit_range_lf.misc["initial_fit_range"], fit_range_lf.misc["fit_range"], fit_range_lf.mean, fit_range_lf.jks)
-            LCP = LatticeCharmPlots() 
-            LCP.make_plot(Ct_data, None, f"FIT RANGE DETERMINATION PLOT FOR CORRELATOR {tag}", figsize, Ct_scale)
         return fit_range_lf.misc["fit_range"], fit_range_lf.mean[:2]
     
-    def _spectroscopy(self, tag, binsize, fit_range, p0, model_type, correlated, make_plot, figsize, Ct_scale, verbosity):
+    def _spectroscopy(self, tag, binsize, fit_range, p0, model_type, correlated, verbosity):
         self.db.message(f"CORRELATOR: {tag}")
+        self.db.message(f"P0 = {p0}")
         self.db.message(f"FIT RANGE {fit_range}") 
         best_lf = Leaf(mean=None, jks=None, sample=None,
                        misc={"fit_range":fit_range, "model": model_type, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
@@ -482,9 +482,9 @@ class LatticeCharmSpectroscopy():
         for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
             self.db.message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
-            jks_arr_full = self.db.sample_jks(tag, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])))
+            jks_arr_full = self.db.sample_jks(tag, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), check_nrwf=True)
             mean_full = np.mean(jks_arr_full, axis=0)
-            jks_arr = self.db.sample_jks(tag, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])))[:,fit_range]
+            jks_arr = self.db.sample_jks(tag, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), check_nrwf=True)[:,fit_range]
             jks = {cfg:jk for cfg,jk in enumerate(jks_arr)}
             mean = np.mean(jks_arr, axis=0)
             Nt = len(mean)
@@ -518,11 +518,11 @@ class LatticeCharmSpectroscopy():
                 best_lf.misc["bss"] = best_parameter_bss 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
-            # plot fit result for binsize b = B
-            if b == binsize and make_plot:
-                Ct_data_PSPS = CorrelatorData(mean_full, jks_arr_full, model_type, None, fit_range, None, best_parameter, best_parameter_jks)
-                lcp = LatticeCharmPlots()
-                lcp.make_plot(Ct_data_PSPS, None, f"Fit {tag} with fit range [{fit_range[0],fit_range[-1]}]", figsize, Ct_scale)
+            ## plot fit result for binsize b = B
+            #if b == binsize and make_plot:
+            #    Ct_data_PSPS = CorrelatorData(mean_full, jks_arr_full, model_type, None, fit_range, None, best_parameter, best_parameter_jks)
+            #    lcp = LatticeCharmPlots()
+            #    lcp.make_plot(Ct_data_PSPS, None, f"Fit {tag} with fit range [{fit_range[0],fit_range[-1]}]", figsize, Ct_scale)
         self.db.database[f"{tag}/fit"] = best_lf
         # store mass as separate leaf
         m_mean = self.db.database[f"{tag}/fit"].mean[1]
@@ -543,239 +543,4 @@ class LatticeCharmSpectroscopy():
         for idx, Ct, tmax_src in zip(len(Cts) + np.arange(len(Cts)), Cts, tmax_srcs_bw):
             Ct_arr[idx, :tmax_src] = np.roll(np.flip(Ct), 1)[:tmax_src]
             if antiperiodic: Ct_arr[idx, 1:tmax_src] *= -1.
-        return Ct_arr.mean(axis=0)
-    
-############################################## PLOTS  ############################################ 
-
-class CorrelatorData():
-    def __init__(self, mean, jks, model_type, model_parameter_gradient, fit_range, reduced_fit_range, best_parameter, best_parameter_jks):
-        self.mean = mean
-        self.Nt = len(mean)
-        self.jks = jks
-        self.var = jackknife.variance_jks(jks)
-        self.model_type = model_type
-        self.model = self._get_model()
-        if model_parameter_gradient is not None:
-            self.model_parameter_gradient = model_parameter_gradient
-        else:
-            self.model_parameter_gradient = self.model.parameter_gradient
-        self.fit_range = fit_range
-        self.fit_range_dt = np.arange(fit_range[0], fit_range[-1], step=0.01)
-        self.reduced_fit_range = reduced_fit_range
-        self.best_parameter = best_parameter
-        self.best_parameter_jks = best_parameter_jks
-        self.best_parameter_cov = jackknife.covariance_jks(np.array(list(best_parameter_jks.values())))
-
-    def _get_model(self):
-        if self.model_type == "cosh":
-            return cosh_model(self.Nt)
-        if self.model_type == "double-cosh":
-            return double_cosh_model(self.Nt)
-        elif self.model_type == "sinh":
-            return sinh_model(self.Nt)
-        elif self.model_type == "double-sinh":
-            return double_sinh_model(self.Nt)
-        elif self.model_type == "exp":
-            return exp_model()
-        elif self.model_type == "double-exp":
-            return double_exp_model()
-        else:
-            raise Exception("Model not available")
-
-class LatticeCharmPlots():
-    def make_plot(self, Ct_data0, Ct_data1=None, title=None, figsize=None, Ct_scale=None):
-        if Ct_scale is None: Ct_scale = "linear"
-        if Ct_data1 is not None:
-            self._combined_plot(Ct_data0, Ct_data1, title, figsize, Ct_scale)
-        else:
-            self._single_plot(Ct_data0, title, figsize, Ct_scale)
-    
-    def _single_plot(self, Ct_data, title, figsize, Ct_scale): 
-        fig, ((ax0, ax_not), (ax1, ax2)) = plt.subplots(nrows=2, ncols=2, figsize=figsize)
-        ax_not.set_axis_off()
-        self._add_correlator(ax0, Ct_data, Ct_scale)
-        self._add_amplitude(ax1, Ct_data)
-        self._add_mass(ax2, Ct_data)
-        plt.suptitle(title)
-        plt.tight_layout()
-        plt.plot()
-
-    def _combined_plot(self, Ct_data0, Ct_data1, title, figsize, Ct_scale):
-        fig, ((ax0, ax1), (ax2, ax3), (ax4, ax5)) = plt.subplots(nrows=3, ncols=2, figsize=figsize)
-        # correlator 1
-        self._add_correlator(ax0, Ct_data0, Ct_scale)
-        self._add_amplitude(ax2, Ct_data0)
-        self._add_mass(ax4, Ct_data0)
-        # correlator 2
-        self._add_correlator(ax1, Ct_data1, Ct_scale)
-        self._add_amplitude(ax3, Ct_data1)
-        self._add_mass(ax5, Ct_data1)
-        plt.suptitle(title)
-        plt.tight_layout()
-        plt.plot()
-
-    def _add_fit_range_marker(self, ax, Ct):
-        ax.axvline(Ct.fit_range[0], color="gray", linestyle="--", label="fit range")
-        ax.axvline(Ct.fit_range[-1], color="gray", linestyle="--")
-        if Ct.reduced_fit_range is not None:
-            ax.axvline(Ct.reduced_fit_range[0], color="black", linestyle="--", label="reduced fit range")
-            ax.axvline(Ct.reduced_fit_range[-1], color="black", linestyle="--")
-
-    def _add_correlator(self, ax, Ct, Ct_scale):
-        ax.set_xlabel(r"source-sink separation $t/a$")
-        ax.set_ylabel(r"$C(t)$")   
-        ax.set_yscale(Ct_scale) 
-        ax.grid()
-        # data
-        color = "C0"
-        ax.errorbar(np.arange(Ct.Nt), Ct.mean, Ct.var**0.5, linestyle="", capsize=3, color=color, label="C(t) data")
-        # fit
-        color = "C1"
-        fy = np.array([Ct.model(t, Ct.best_parameter) for t in Ct.fit_range_dt])
-        fy_err = np.array([model_prediction_var(t, Ct.best_parameter, Ct.best_parameter_cov, Ct.model_parameter_gradient) for t in Ct.fit_range_dt])**.5
-        ax.plot(Ct.fit_range_dt, fy, color=color, lw=.5, label=self._get_Ct_fit_model_label(Ct))
-        ax.fill_between(Ct.fit_range_dt, fy-fy_err, fy+fy_err, alpha=0.5, color=color)
-        # misc
-        self._add_fit_range_marker(ax, Ct)
-        #ax.set_xlim(Ct.fit_range[0]-1, Ct.fit_range[-1]+1)
-        ax.set_xlim(0, Ct.Nt)
-        ax.legend(loc="upper right")
-
-    def _add_amplitude(self, ax, Ct):
-        ax.set_xlabel(r"source-sink separation $t/a$")
-        ax.set_ylabel("$A$")
-        ax.grid()
-        # data   
-        color = "C2"
-        At = self._effective_amplitude(Ct)(Ct.mean[Ct.fit_range], Ct.fit_range, Ct.best_parameter[1])
-        At_var = jackknife.variance_jks(np.array([self._effective_amplitude(Ct)(Ct.jks[j][Ct.fit_range], Ct.fit_range, Ct.best_parameter_jks[j][1]) for j in Ct.best_parameter_jks]))
-        ax.errorbar(Ct.fit_range, At, At_var**.5, linestyle="", capsize=3, color=color, label=self._get_effective_amplitude_label(Ct))
-        # fit
-        color = "C3"
-        At_fit, At_fit_var = self._local_amp(Ct)
-        ax.plot(Ct.fit_range_dt, At_fit, color=color, lw=.5, label=self._get_amplitude_fit_label(Ct))
-        ax.fill_between(Ct.fit_range_dt, At_fit-At_fit_var**.5, At_fit+At_fit_var**.5, alpha=0.5, color=color)
-        # misc
-        self._add_fit_range_marker(ax, Ct)
-        ax.set_xlim(Ct.fit_range[0]-1, Ct.fit_range[-1]+1)
-        ax.legend(loc="upper right")
-        ## best amplitude
-        #color = "C4"
-        #A_arr = np.array([best_parameter[0] for t in trange])
-        #ax1.plot(trange, A_arr, color=color, lw=.5, label=r"$A_0 = $" + f"{best_parameter[0]:.4g} +- {best_parameter_cov[0][0]**.5:.4g}")
-        #ax1.fill_between(trange, A_arr-best_parameter_cov[0][0]**.5, A_arr+best_parameter_cov[0][0]**.5, alpha=0.5, color=color)
-
-    def _add_mass(self, ax, Ct):
-        ax.set_xlabel(r"source-sink separation $t/a$")
-        ax.set_ylabel(r"$am$")
-        ax.grid()
-        # data
-        color = "C2"
-        mt = self._effective_mass(Ct)(Ct.mean, Ct.fit_range[0], Ct.fit_range[-1]+1)
-        mt_var = jackknife.variance_jks(np.array([self._effective_mass(Ct)(Ct.jks[j], Ct.fit_range[0], Ct.fit_range[-1]+1) for j in Ct.best_parameter_jks]))
-        ax.errorbar(Ct.fit_range, mt, mt_var**.5, linestyle="", capsize=3, color=color, label=self._get_effective_mass_label(Ct))
-        # fit 
-        color = "C3"
-        mt_fit, mt_fit_var = self._local_mass(Ct) 
-        ax.plot(Ct.fit_range_dt[1:-1], mt_fit, color=color, lw=.5, label=self._get_mass_fit_label(Ct)) 
-        ax.fill_between(Ct.fit_range_dt[1:-1], mt_fit-mt_fit_var**.5, mt_fit+mt_fit_var**.5, alpha=0.5, color=color)
-        # misc 
-        self._add_fit_range_marker(ax, Ct)
-        ax.set_xlim(Ct.fit_range[0]-1, Ct.fit_range[-1]+1)
-        ax.legend(loc="upper right")
-        ## best mass
-        #color = "C4"
-        #m_arr = np.array([best_parameter[1] for t in trange])
-        #ax2.plot(trange, m_arr, color=color, lw=.5, label=r"$m_0 = $" + f"{best_parameter[1]:.4g} +- {best_parameter_cov[1][1]**.5:.4g}")
-        #ax2.fill_between(trange, m_arr-best_parameter_cov[1][1]**.5, m_arr+best_parameter_cov[1][1]**.5, alpha=0.5, color=color)
-
-    ######### AMPLITUDE #########
-
-    def _effective_amplitude(self, Ct):
-        if Ct.model_type in ["cosh", "double-cosh"]:
-            return lambda C, t, m: effective_amplitude_cosh(C, t, m, Ct.Nt)
-        elif Ct.model_type in ["sinh", "double-sinh"]:
-            return lambda C, t, m: effective_amplitude_sinh(C, t, m, Ct.Nt)
-        elif Ct.model_type in ["exp", "double-exp"]:
-            return lambda C, t, m: effective_amplitude_exp(C, t, m)
-        else:
-            raise Exception("Effective amplitude function not found")
-
-    def _local_amp(self, Ct):
-        C_fit_range_dt = np.array([Ct.model(t, Ct.best_parameter) for t in Ct.fit_range_dt])
-        At = self._effective_amplitude(Ct)(C_fit_range_dt, Ct.fit_range_dt, Ct.best_parameter[1]) 
-        At_var = jackknife.variance_jks(np.array([self._effective_amplitude(Ct)(np.array([Ct.model(t, Ct.best_parameter_jks[j]) for t in Ct.fit_range_dt]), 
-                                                      Ct.fit_range_dt, Ct.best_parameter_jks[j][1]) for j in Ct.best_parameter_jks]) )
-        return At, At_var
-
-    ######### MASS #########
-
-    def _effective_mass(self, Ct):
-        if Ct.model_type in ["cosh", "double-cosh", "sinh", "double-sinh"]:
-            return lambda C, tmin, tmax: effective_mass_acosh(C, tmin, tmax)
-        elif Ct.model_type in ["exp", "double-exp"]:
-            return lambda C, tmin, tmax: effective_mass_log(C, tmin, tmax)
-        else:
-            raise Exception("Effective mass function not found")
-        
-    def _local_mass(self, Ct):
-        C_fit_range_dt = np.array([Ct.model(t, Ct.best_parameter) for t in Ct.fit_range_dt])
-        dt = Ct.fit_range_dt[1] - Ct.fit_range_dt[0]
-        mt = self._effective_mass(Ct)(C_fit_range_dt, 1, len(Ct.fit_range_dt)-1) / dt
-        mt_var = jackknife.variance_jks(np.array([self._effective_mass(Ct)(np.array([Ct.model(t, Ct.best_parameter_jks[j]) for t in Ct.fit_range_dt]), 
-                                                               1, len(Ct.fit_range_dt)-1)/dt for j in Ct.best_parameter_jks]) )
-        return mt, mt_var
-
-    ######### LABELS #########
-
-    def _get_Ct_fit_model_label(self, Ct):
-        if Ct.model_type == "cosh":
-            return r"$C_{fit}(t) = A (e^{-m t} + e^{-m (T-t)})$"
-        elif Ct.model_type == "sinh":
-            return r"$C_{fit}(t) = A (e^{-m t} - e^{-m (T-t)})$"
-        elif Ct.model_type == "double-cosh":
-            return r"$C_{fit}(t) = A (e^{-m t} + e^{-m (T-t)}) + A' (e^{-m' t} + e^{-m' (T-t)})$"
-        elif Ct.model_type == "double-sinh":
-            return r"$C_{fit}(t) = A (e^{-m t} - e^{-m (T-t)}) + A' (e^{-m' t} - e^{-m' (T-t)})$"
-        elif Ct.model_type == "exp":
-            return r"$C_{fit}(t) = A e^{-m t}$"
-        elif Ct.model_type == "double-exp":
-            return r"$C_{fit}(t) = A e^{-m t} + A' e^{-m' t}$"
-        else:
-            raise Exception("Label for Ct fit model not found")
-        
-    def _get_effective_amplitude_label(self, Ct):
-        if Ct.model_type in ["cosh", "double-cosh"]:
-            return r"$A(t) = \frac{C(t)}{e^{-m t} + e^{-m (T-t)}}$"
-        elif Ct.model_type in ["sinh", "double-sinh"]:
-            return r"$A(t) = \frac{C(t)}{e^{-m t} - e^{-m (T-t)}}$"
-        elif Ct.model_type in ["exp", "double-exp"]:
-            return r"$A(t) = \frac{C(t)}{e^{-m t}}$"
-        else:
-            raise Exception("Label for effective amplitude not found") 
-        
-    def _get_amplitude_fit_label(self, Ct):
-        if Ct.model_type in ["cosh", "double-cosh"]:
-            return r"$A(t) = \frac{C_{fit}(t)}{e^{-m t} + e^{-m (T-t)}}$"
-        elif Ct.model_type in ["sinh", "double-sinh"]:
-            return r"$A(t) = \frac{C_{fit}(t)}{e^{-m t} - e^{-m (T-t)}}$"
-        elif Ct.model_type in ["exp", "double-exp"]:
-            return r"$A(t) = \frac{C_{fit}(t)}{e^{-m t}}$"
-        else:
-            raise Exception("Label for effective amplitude not found") 
-
-    def _get_effective_mass_label(self, Ct):
-        if Ct.model_type in ["cosh", "double-cosh", "sinh", "double-sinh"]:
-            return r"$m(t) = cosh^{-1}\left( \frac{C(t+1) + C(t-1)}{2 C(t)} \right)$"
-        elif Ct.model_type in ["exp", "double-exp"]:
-            return r"$m(t) = log\left( \frac{C(t)}{C(t+1)} \right)$"
-        else:
-            raise Exception("Label for effective mass not found") 
-    
-    def _get_mass_fit_label(self, Ct):
-        if Ct.model_type in ["cosh", "double-cosh", "sinh", "double-sinh"]:
-            return r"$m(t) = cosh^{-1}\left( \frac{C_{fit}(t+1) + C_{fit}(t-1)}{2 C_{fit}(t)} \right)$"
-        elif Ct.model_type in ["exp", "double-exp"]:
-            return r"$m(t) = log\left( \frac{C_{fit}(t)}{C_{fit}(t+1)} \right)$"
-        else:
-            raise Exception("Label for effective mass not found") 
+        return Ct_arr.mean(axis=0) 
