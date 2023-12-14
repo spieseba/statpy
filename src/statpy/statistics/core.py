@@ -2,8 +2,6 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from ..fitting.core import Fitter, model_prediction_var
-from iminuit import Minuit
 
 # standard error
 def ste(data, tau_int=0.5):
