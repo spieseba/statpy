@@ -281,9 +281,10 @@ class LatticeCharmSpectroscopy():
             model_type_PSA4I = "exp"
         best_lf = Leaf(mean=None, jks=None, sample=None,
                        misc={"fit_range_PSPS":fit_range_PSPS, "fit_range_PSA4I":fit_range_PSA4I, 
-                             "model": model_type_combined, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
+                             "model_type": model_type_combined, "model_type_PSPS": model_type_PSPS, "model_type_PSA4I": model_type_PSA4I,
+                             "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
                              "fit_method": self.fit_method, "fit_params": self.fit_params, "res_fit_method": self.res_fit_method, "res_fit_params": self.res_fit_params,
-                             "best_parameter": {}, "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
+                             "best_parameter": {}, "best_parameter_jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
         for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
             self.db.message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
@@ -300,7 +301,7 @@ class LatticeCharmSpectroscopy():
             best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, sorting_key=None))
             # store jks fit results in db
             best_lf.misc["best_parameter"][b] = best_parameter
-            best_lf.misc["jks"][b] = best_parameter_jks
+            best_lf.misc["best_parameter_jks"][b] = best_parameter_jks
             best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
             if b == 1:
                 best_lf.mean = best_parameter
@@ -325,23 +326,12 @@ class LatticeCharmSpectroscopy():
                 best_lf.misc["bss"] = best_parameter_bss 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
-            ## plot fit result for binsize b = B
-            #if b == binsize:
-            #    best_parameter_PSPS = np.array([best_parameter[0], best_parameter[2]])
-            #    best_parameter_jks_PSPS = {cfg:np.array([best_parameter_jks[cfg][0], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
-            #    Ct_data_PSPS = CorrelatorData(mean_PSPS, jks_PSPS, model_type_PSPS, None, fit_range_PSPS, None, best_parameter_PSPS, best_parameter_jks_PSPS)
-            #    best_parameter_PSA4I = np.array([best_parameter[1], best_parameter[2]])
-            #    best_parameter_jks_PSA4I = {cfg:np.array([best_parameter_jks[cfg][1], best_parameter_jks[cfg][2]]) for cfg in best_parameter_jks}
-            #    Ct_data_PSA4I = CorrelatorData(mean_PSA4I, jks_PSA4I, model_type_PSA4I, None, fit_range_PSA4I, None, best_parameter_PSA4I, best_parameter_jks_PSA4I)
-            #    if make_plot:
-            #        lcp = LatticeCharmPlots()
-            #        lcp.make_plot(Ct_data_PSPS, Ct_data_PSA4I, f"Combined fit for {tag_PSPS} and {tag_PSA4I} ", figsize, Ct_scale)
         self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"] = best_lf
         # store mass as separate leaf
         m_mean = self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].mean[2]
         m_jks = {}
         for b in range(1, binsize+1):
-            m_jks[b] = {j:p[2] for j,p in self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].misc["jks"][b].items()} 
+            m_jks[b] = {j:p[2] for j,p in self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].misc["best_parameter_jks"][b].items()} 
         m_bss = np.array([p[2] for p in best_lf.misc["bss"]])
         self.db.add_Leaf(tag=f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit/m", mean=m_mean, jks=None, sample=None, misc={"jks":m_jks, "bss":m_bss})
         # compute decay constant
@@ -355,7 +345,7 @@ class LatticeCharmSpectroscopy():
         f_bare = bare_decay_constant(*combined_lf.mean)   
         f_bare_jks = {}
         for b in range(1,B+1):
-            f_bare_jks[b] = {j:bare_decay_constant(*combined_lf.misc["jks"][b][j]) for j in combined_lf.misc["jks"][b]}
+            f_bare_jks[b] = {j:bare_decay_constant(*combined_lf.misc["best_parameter_jks"][b][j]) for j in combined_lf.misc["best_parameter_jks"][b]}
         f_bare_var = jackknife.variance_jks(self.db.as_array(f_bare_jks[B], sorting_key=None))
         f_bare_bss = np.array([bare_decay_constant(*combined_lf.misc["bss"][k]) for k in range(len(combined_lf.misc["bss"]))])
         self.db.message(f"f_bare = sqrt(2) A_A4I / sqrt(m A_PS) = {f_bare:.8f} (sample mean)")
@@ -434,7 +424,7 @@ class LatticeCharmSpectroscopy():
         var = jackknife.variance_jks(jks_arr)
         Nt = len(mean)
         model = self._get_model(model_type, Nt)
-        fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "model": model_type, "fit_type": "uncorrelated"})
+        fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "model_type": model_type, "fit_type": "uncorrelated"})
         for t in fit_ranges:
             self.db.message(f"INITIAL FIT RANGE: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks_arr)}; cov = np.diag(var[t]) 
@@ -462,23 +452,24 @@ class LatticeCharmSpectroscopy():
                 self.db.message(f"REDUCED FIT RANGE {reduced_t}", verbosity)
             if len(reduced_t) < len(fit_range_lf.misc["fit_range"]): 
                 fit_range_lf.misc["initial_fit_range"] = t; fit_range_lf.misc["fit_range"] = reduced_t
-                fit_range_lf.mean = best_parameter; fit_range_lf.jks = best_parameter_jks
+                fit_range_lf.misc["best_parameter"] = {binsize: best_parameter}
+                fit_range_lf.misc["best_parameter_jks"] = {binsize: best_parameter_jks}
                 fit_range_lf.misc["chi2"] = chi2
                 fit_range_lf.misc["chi2 / dof"] = chi2/dof 
                 fit_range_lf.misc["p"] = pval
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
         self.db.database[f"{tag}/fit_range_fit"] = fit_range_lf
-        return fit_range_lf.misc["fit_range"], fit_range_lf.mean[:2]
+        return fit_range_lf.misc["fit_range"], fit_range_lf.misc["best_parameter"][binsize][:2]
     
     def _spectroscopy(self, tag, binsize, fit_range, p0, model_type, correlated, verbosity):
         self.db.message(f"CORRELATOR: {tag}")
         self.db.message(f"P0 = {p0}")
         self.db.message(f"FIT RANGE {fit_range}") 
         best_lf = Leaf(mean=None, jks=None, sample=None,
-                       misc={"fit_range":fit_range, "model": model_type, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
+                       misc={"fit_range":fit_range, "model_type": model_type, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
                              "fit_method": self.fit_method, "fit_params": self.fit_params, "res_fit_method": self.res_fit_method, "res_fit_params": self.res_fit_params,
-                             "best_parameter": {}, "jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
+                             "best_parameter": {}, "best_parameter_jks":{}, "chi2": {}, "chi2 / dof":{}, "p":{}})
         for b in range(1, binsize+1):
             self.db.message(f"BINSIZE = {b}", verbosity)
             self.db.message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
@@ -494,7 +485,7 @@ class LatticeCharmSpectroscopy():
             best_parameter_cov = jackknife.covariance_jks(self.db.as_array(best_parameter_jks, sorting_key=None))
             # store jks fit results in db
             best_lf.misc["best_parameter"][b] = best_parameter
-            best_lf.misc["jks"][b] = best_parameter_jks
+            best_lf.misc["best_parameter_jks"][b] = best_parameter_jks
             best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
             if b == 1:
                 best_lf.mean = best_parameter
@@ -518,17 +509,12 @@ class LatticeCharmSpectroscopy():
                 best_lf.misc["bss"] = best_parameter_bss 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
             self.db.message("---------------------------------------------------------------------------------", verbosity) 
-            ## plot fit result for binsize b = B
-            #if b == binsize and make_plot:
-            #    Ct_data_PSPS = CorrelatorData(mean_full, jks_arr_full, model_type, None, fit_range, None, best_parameter, best_parameter_jks)
-            #    lcp = LatticeCharmPlots()
-            #    lcp.make_plot(Ct_data_PSPS, None, f"Fit {tag} with fit range [{fit_range[0],fit_range[-1]}]", figsize, Ct_scale)
         self.db.database[f"{tag}/fit"] = best_lf
         # store mass as separate leaf
         m_mean = self.db.database[f"{tag}/fit"].mean[1]
         m_jks = {}
         for b in range(1, binsize+1):
-            m_jks[b] = {j:p[1] for j,p in self.db.database[f"{tag}/fit"].misc["jks"][b].items()} 
+            m_jks[b] = {j:p[1] for j,p in self.db.database[f"{tag}/fit"].misc["best_parameter_jks"][b].items()} 
         m_bss = np.array([p[1] for p in best_lf.misc["bss"]])
         self.db.add_Leaf(tag=f"{tag}/fit/m", mean=m_mean, jks=None, sample=None, misc={"jks":m_jks, "bss":m_bss})
     
