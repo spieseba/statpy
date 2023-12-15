@@ -478,7 +478,7 @@ class LatticeCharmSpectroscopy():
             jks_arr = self.db.sample_jks(tag, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), check_nrwf=True)[:,fit_range]
             jks = {cfg:jk for cfg,jk in enumerate(jks_arr)}
             mean = np.mean(jks_arr, axis=0)
-            Nt = len(mean)
+            Nt = len(mean_full)
             model = self._get_model(model_type, Nt)
             cov = jackknife.covariance_jks(jks_arr) if correlated else np.diag(jackknife.variance_jks(jks_arr))
             best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(fit_range, mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params) 
