@@ -3,7 +3,7 @@
 import os, copy
 import numpy as np
 from time import time
-from functools import reduce, partial
+from functools import reduce
 from operator import ior
 from . import custom_json as json
 from .leafs import Leaf 

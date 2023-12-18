@@ -6,7 +6,7 @@ authors = [
 description = "Database system with statistics library for Lattice QCD simulations"
 requires-python=">=3.11"
 readme="README.md"
-dependencies=["numpy", "scipy", "matplotlib", "iminuit", "h5py", "dill"]
+dependencies=["numpy", "scipy", "iminuit", "h5py", "dill"]
 
 version="0.1"
 

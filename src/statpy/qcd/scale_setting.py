@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from ..statistics.jackknife import variance_jks
 
 
 class gradient_flow_scale:

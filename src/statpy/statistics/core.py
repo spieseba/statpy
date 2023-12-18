@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 # standard error
 def ste(data, tau_int=0.5):

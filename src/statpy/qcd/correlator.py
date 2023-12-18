@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import matplotlib.pyplot as plt
 from ..fitting.core import Fitter, ConvergenceError, fit, fit_multiple
 from ..statistics import jackknife, bootstrap
 from ..database.leafs import Leaf
