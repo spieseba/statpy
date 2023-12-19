@@ -131,7 +131,7 @@ class GPT_IO:
            raise
 
 def load_CLS(fn, rwf_fn, tags, branch_tag):
-    assert os.path.isfile(fn)
+    assert os.path.isfile(fn), f"{fn} not found!"
     # data
     f = h5py.File(fn, "r")
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
