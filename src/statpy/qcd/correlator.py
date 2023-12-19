@@ -310,7 +310,12 @@ class LatticeCharmSpectroscopy():
                 self.db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             # perform bootstrap fit for binsize = 1
-            if b == 1:
+            try:
+                tmp = self.db.database[tag_PSPS].misc["bss"]
+                do_bss = True if tmp is not None else False
+            except TypeError:
+                do_bss = False
+            if b == 1 and do_bss:
                 self.db.message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
                 bss = np.array([np.hstack((bss_PSPS[k][fit_range_PSPS],bss_PSA4I[k][fit_range_PSA4I])) for k in range(len(bss_PSPS))])
@@ -331,7 +336,7 @@ class LatticeCharmSpectroscopy():
         m_jks = {}
         for b in range(1, binsize+1):
             m_jks[b] = {j:p[2] for j,p in self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"].misc["best_parameter_jks"][b].items()} 
-        m_bss = np.array([p[2] for p in best_lf.misc["bss"]])
+        m_bss = np.array([p[2] for p in best_lf.misc["bss"]]) if "bss" in best_lf.misc else None
         self.db.add_Leaf(tag=f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit/m", mean=m_mean, jks=None, sample=None, misc={"jks":m_jks, "bss":m_bss})
         # compute decay constant
         self.db.message(f"BARE DECAY CONSTANT ESTIMATE:")
@@ -346,7 +351,7 @@ class LatticeCharmSpectroscopy():
         for b in range(1,B+1):
             f_bare_jks[b] = {j:bare_decay_constant(*combined_lf.misc["best_parameter_jks"][b][j]) for j in combined_lf.misc["best_parameter_jks"][b]}
         f_bare_var = jackknife.variance_jks(self.db.as_array(f_bare_jks[B], sorting_key=None))
-        f_bare_bss = np.array([bare_decay_constant(*combined_lf.misc["bss"][k]) for k in range(len(combined_lf.misc["bss"]))])
+        f_bare_bss = np.array([bare_decay_constant(*combined_lf.misc["bss"][k]) for k in range(len(combined_lf.misc["bss"]))]) if "bss" in combined_lf.misc else None
         self.db.message(f"f_bare = sqrt(2) A_A4I / sqrt(m A_PS) = {f_bare:.8f} (sample mean)")
         self.db.message(f"                                      = {np.mean(self.db.as_array(f_bare_jks[B], sorting_key=None)):.8f} +- {f_bare_var**.5:.8f} (jackknife, binsize = {B})")
         self.db.add_Leaf(tag=f"{combined_fit_tag}/f_bare", mean=f_bare, jks=None, sample=None, 
@@ -494,7 +499,12 @@ class LatticeCharmSpectroscopy():
                 self.db.message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             self.db.message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             # perform bootstrap fit for binsize = 1
-            if b == 1:
+            try:
+                tmp = self.db.database[tag].misc["bss"]
+                do_bss = True if tmp is not None else False
+            except TypeError:
+                do_bss = False
+            if b == 1 and do_bss:
                 self.db.message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.database[tag].misc["bss"][:,fit_range]
                 #mean_bss = np.mean(bss, axis=0)
@@ -514,7 +524,7 @@ class LatticeCharmSpectroscopy():
         m_jks = {}
         for b in range(1, binsize+1):
             m_jks[b] = {j:p[1] for j,p in self.db.database[f"{tag}/fit"].misc["best_parameter_jks"][b].items()} 
-        m_bss = np.array([p[1] for p in best_lf.misc["bss"]])
+        m_bss = np.array([p[1] for p in best_lf.misc["bss"]]) if "bss" in best_lf.misc else None
         self.db.add_Leaf(tag=f"{tag}/fit/m", mean=m_mean, jks=None, sample=None, misc={"jks":m_jks, "bss":m_bss})
     
     def _avg_obc_srcs(self, srcs, tmin, tmax, *Cts, antiperiodic=False):
