@@ -242,7 +242,7 @@ class LatticeCharmSpectroscopy():
         self.db.init_sample_means(tag_PSA4I, check_nrwf=True)
         self.db.init_sample_jks(tag_PSA4I, check_nrwf=True)
 
-    def fit_PSA4I(self, tag, binsize, fit_ranges, p0, bc, spectroscopy=False, verbosity=0):
+    def fit_PSA4I(self, tag, binsize, fit_ranges, p0, bc, spectroscopy=False, fit_range=None, verbosity=0):
         if bc == "pbc":
             fit_range_model_type = "double-sinh"
             spectroscopy_model_type = "sinh"
@@ -264,12 +264,6 @@ class LatticeCharmSpectroscopy():
             self._spectroscopy(tag, binsize, fit_range, self.p0_PSA4I, spectroscopy_model_type, False, verbosity)
     
     def fit_combined(self, tag_PSPS, fit_range_PSPS, tag_PSA4I, fit_range_PSA4I, binsize, p0, bc, correlated=False, verbosity=0):
-        self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
-        self.db.message(f"PSPS correlator: {tag_PSPS}")
-        self.db.message(f"PSPS - REDUCED FIT RANGE {fit_range_PSPS}") 
-        self.db.message(f"PSA4I correlator: {tag_PSA4I}")
-        self.db.message(f"PSA4I - REDUCED FIT RANGE {fit_range_PSA4I}") 
-        self.db.message(f"P0 = {p0}")
         if bc == "pbc":
             model_type_combined = "combined-cosh-sinh"
             model_type_PSPS = "cosh"
@@ -278,6 +272,15 @@ class LatticeCharmSpectroscopy():
             model_type_combined = "combined-exp"
             model_type_PSPS = "exp"
             model_type_PSA4I = "exp"
+        self.db.message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
+        self.db.message(f"PSPS correlator: {tag_PSPS}")
+        self.db.message(f"PSPS - REDUCED FIT RANGE {fit_range_PSPS}") 
+        self.db.message(f"PSPS - model: {model_type_PSPS}")
+        self.db.message(f"PSA4I correlator: {tag_PSA4I}")
+        self.db.message(f"PSA4I - REDUCED FIT RANGE {fit_range_PSA4I}") 
+        self.db.message(f"PSA4I - model: {model_type_PSA4I}")
+        self.db.message(f"combined model: {model_type_combined}")
+        self.db.message(f"P0 = {p0}")
         best_lf = Leaf(mean=None, jks=None, sample=None,
                        misc={"fit_range_PSPS":fit_range_PSPS, "fit_range_PSA4I":fit_range_PSA4I, 
                              "model_type": model_type_combined, "model_type_PSPS": model_type_PSPS, "model_type_PSA4I": model_type_PSA4I,
@@ -293,6 +296,9 @@ class LatticeCharmSpectroscopy():
             jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
+            print(f"mean = {mean}")
+            print(f"mean_PSPS = {mean_PSPS[fit_range_PSPS]}")
+            print(f"mean_PSA4I = {mean_PSA4I[fit_range_PSA4I]}")
             cov = jackknife.covariance_jks(jks_arr) if correlated else np.diag(jackknife.variance_jks(jks_arr))
             Nt = len(mean_PSPS)
             model = self._get_model(model_type_combined, Nt, fit_range_PSPS, fit_range_PSA4I)

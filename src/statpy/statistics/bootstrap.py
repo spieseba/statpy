@@ -41,22 +41,28 @@ class LatticeCharmBootstrap():
     def __init__(self, bs_fn, db, bootstrap_tag):
         self.db = db
         self.bs_fn = bs_fn
-        self.bootstraps, self.configlist = self.get_bootstraps(self.bs_fn)
-        self.bootstrap_tag = bootstrap_tag
-        self.db.database[self.bootstrap_tag] = Leaf(self.bootstraps, None, None, misc={"configlist": self.configlist})
+        if self.bs_fn is not None:
+            self.bootstraps, self.configlist = self.get_bootstraps(self.bs_fn)
+            self.bootstrap_tag = bootstrap_tag
+            self.db.database[self.bootstrap_tag] = Leaf(self.bootstraps, None, None, misc={"configlist": self.configlist})
+        else:
+            self.db.message(f"NO BOOTSTRAP FILE AVAILABLE - SAMPLES ARE NOT DETERMINED")
 
     def __call__(self, tag, nrwf_tag, check_nrwf=True):
-        lf = self.db.database[tag]; x = np.array([lf.sample[cfg] for cfg in self.configlist])
-        if nrwf_tag is not None:
-            nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
-            bss = sample(lambda y: y, x, self.bootstraps, nrwf)
+        if self.bs_fn is None:
+            pass
         else:
-            if check_nrwf: self.message(f"!NRWF FOR BOOTSTRAP OF {tag} NOT FOUND!")
-            bss = sample(lambda y: y, x, self.bootstraps)
-        if lf.misc is None:
-            lf.misc = {"bss": bss}
-        else:
-            lf.misc["bss"] = bss
+            lf = self.db.database[tag]; x = np.array([lf.sample[cfg] for cfg in self.configlist])
+            if nrwf_tag is not None:
+                nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
+                bss = sample(lambda y: y, x, self.bootstraps, nrwf)
+            else:
+                if check_nrwf: self.message(f"!NRWF FOR BOOTSTRAP OF {tag} NOT FOUND!")
+                bss = sample(lambda y: y, x, self.bootstraps)
+            if lf.misc is None:
+                lf.misc = {"bss": bss}
+            else:
+                lf.misc["bss"] = bss
 
     def get_bootstraps(self, bs_fn):
         def get_line(bs_fn, n):
