@@ -296,9 +296,6 @@ class LatticeCharmSpectroscopy():
             jks_arr = np.array([np.hstack((jks_PSPS[cfg][fit_range_PSPS], jks_PSA4I[cfg][fit_range_PSA4I])) for cfg in range(len(jks_PSPS))])
             jks = {cfg:jks_arr[cfg] for cfg in range(len(jks_arr))}
             mean = np.mean(jks_arr, axis=0)
-            print(f"mean = {mean}")
-            print(f"mean_PSPS = {mean_PSPS[fit_range_PSPS]}")
-            print(f"mean_PSA4I = {mean_PSA4I[fit_range_PSA4I]}")
             cov = jackknife.covariance_jks(jks_arr) if correlated else np.diag(jackknife.variance_jks(jks_arr))
             Nt = len(mean_PSPS)
             model = self._get_model(model_type_combined, Nt, fit_range_PSPS, fit_range_PSA4I)
@@ -429,6 +426,7 @@ class LatticeCharmSpectroscopy():
         self.db.message(f"CORRELATOR: {tag}")
         self.db.message(f"P0 = {p0}")
         self.db.message(f"BINSIZE = {binsize}", verbosity)
+        self.db.message(f"MODEL = {model_type}")
         jks_arr = self.db.sample_jks(tag, binsize, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), check_nrwf=True)
         mean = np.mean(jks_arr, axis=0)
         var = jackknife.variance_jks(jks_arr)
@@ -476,6 +474,7 @@ class LatticeCharmSpectroscopy():
         self.db.message(f"CORRELATOR: {tag}")
         self.db.message(f"P0 = {p0}")
         self.db.message(f"FIT RANGE {fit_range}") 
+        self.db.message(f"MODEL = {model_type}")
         best_lf = Leaf(mean=None, jks=None, sample=None,
                        misc={"fit_range":fit_range, "model_type": model_type, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
                              "fit_method": self.fit_method, "fit_params": self.fit_params, "res_fit_method": self.res_fit_method, "res_fit_params": self.res_fit_params,
