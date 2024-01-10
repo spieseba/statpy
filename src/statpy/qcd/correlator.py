@@ -195,13 +195,12 @@ class LatticeCharmSpectroscopy():
         self.res_fit_params = res_fit_params
         self.num_proc = num_proc
  
-    def obc_tsrc_avg(self, Ctsrc_tags, tmin, tmax, dst_tag, cleanup=True, check_nrwf=True):
-        srcs = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
+    def obc_tsrc_avg(self, Ctsrc_tags, dst_tag, check_nrwf=True):
+        srcs_pos = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
+        tmin = min(srcs_pos); tmax = max(srcs_pos)
         A4_in_tag = "A4" in Ctsrc_tags[0]
-        self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag,
+        self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs_pos, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag,
                                sorting_key=lambda x: int(x[0].split("-")[-1]))
-        if cleanup:
-            self.db.remove(*Ctsrc_tags)
         self.db.init_sample_means(dst_tag, check_nrwf=check_nrwf)
         self.db.init_sample_jks(dst_tag, check_nrwf=check_nrwf)
 
