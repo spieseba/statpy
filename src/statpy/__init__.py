@@ -4,3 +4,4 @@ import statpy.database
 import statpy.fitting
 import statpy.qcd
 import statpy.statistics
+from .log import message

@@ -5,6 +5,7 @@ import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
+from ..log import message
 from . import custom_json as json
 from .leafs import Leaf 
 from ..statistics import core as statistics
@@ -43,7 +44,7 @@ class JKS_DB:
     def add_src(self, *srcs):
         for src in srcs:
             assert os.path.isfile(src)
-            self.message(f"LOAD {src}")
+            message(f"LOAD {src}")
             with open(src) as f:
                 src_db = json.load(f)
             for t, lf in src_db.items():
@@ -58,17 +59,13 @@ class JKS_DB:
     def rename_Leaf(self, old, new):
         if old in self.database:
             self.database[new] = self.database.pop(old)
-
-    def message(self, s, verbosity=None):
-        if verbosity is None: verbosity = self.verbosity
-        if verbosity >= 0: print(f"{self.db_type}:\t\t{time()-self.t0:.6f}s: " + s)
-    
+ 
     def save(self, dst):
         with open(dst, "w") as f:
             json.dump(self.database, f)
 
     def print(self, key="", verbosity=0):
-        self.message(self.__str__(key, verbosity))    
+        message(self.__str__(key, verbosity))    
 
     def __str__(self, key, verbosity):
         s = '\n\n\tDATABASE CONSISTS OF\n\n'
@@ -87,7 +84,7 @@ class JKS_DB:
         return s
 
     def print_misc(self, tag):
-        self.message(self.__misc_str__(tag))
+        message(self.__misc_str__(tag))
 
     def __misc_str__(self, tag):
         s = f'\n\n\tMISC DICT OF {tag}\n\n'
@@ -100,7 +97,7 @@ class JKS_DB:
             try:
                 del self.database[tag]
             except KeyError:
-                self.message(f"{tag} not in database", verbosity)
+                message(f"{tag} not in database", verbosity)
 
     def get_tags(self, key="", verbosity=0):
         return [tag for tag in self.database.keys() if key in tag]
@@ -142,7 +139,7 @@ class JKS_DB:
         else:
             def wrapped_f(cfg, *x):
                 return cfg, f(*x)
-            self.message(f"Spawn {num_proc} processes to compute jackknife sample", verbosity=self.verbosity-1)
+            message(f"Spawn {num_proc} processes to compute jackknife sample", verbosity=self.verbosity-1)
             with multiprocessing.Pool(num_proc) as pool:
                 jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
         if dst_tag is None:
@@ -192,7 +189,7 @@ class JKS_DB:
         return np.mean(cov, axis=0)
 
     def binning_study(self, tag, binsizes, pavg=False):
-        self.message(f"Unbinned sample size: {len(self.database[tag].jks)}")
+        message(f"Unbinned sample size: {len(self.database[tag].jks)}")
         var = {}
         for b in binsizes:
             var[b] = self.jackknife_variance(tag, b, pavg)
@@ -252,7 +249,7 @@ class JKS_DB:
             s += f"   {self.jackknife_variance(tag, binsize, pavg)**.5} (STAT)\n"
             for sys_tag in self.get_sys_tags(tag):
                 s += f"   {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
-        self.message(s, verbosity)
+        message(s, verbosity)
         
     def get_estimate(self, tag, binsize, pavg=False):
         return self.database[tag].mean, self.get_tot_var(tag, binsize, pavg)
@@ -299,7 +296,7 @@ class Sample_DB(JKS_DB):
             nrwf = self.get_nrwf(tag)
             if lf.sample is not None:
                 if nrwf is None:
-                    if check_nrwf: self.message(f"!NRWF FOR MEAN COMPUTATION OF {tag} NOT FOUND!")
+                    if check_nrwf: message(f"!NRWF FOR MEAN COMPUTATION OF {tag} NOT FOUND!")
                     lf.mean = np.mean(self.as_array(lf.sample), axis=0)
                 else:
                     lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
@@ -312,7 +309,7 @@ class Sample_DB(JKS_DB):
             if lf.sample is None: continue
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
-                if check_nrwf: self.message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
+                if check_nrwf: message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
                 jks = {}
                 for cfg in lf.sample:
                     jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
@@ -360,7 +357,7 @@ class Sample_DB(JKS_DB):
         else:
             nrwf = self.get_nrwf(tag)
             if nrwf is None:
-                if check_nrwf: self.message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
+                if check_nrwf: message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
                 bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize)
                 jks = jackknife.sample(f, bsample)
             else:
@@ -377,7 +374,7 @@ class Sample_DB(JKS_DB):
         return jackknife.covariance_jks(jks)
     
     def sample_binning_study(self, tag, binsizes):
-        self.message(f"Unbinned sample size: {len(self.database[tag].sample)}")
+        message(f"Unbinned sample size: {len(self.database[tag].sample)}")
         var = {}
         for b in binsizes:
             var[b] = self.sample_jackknife_variance(tag, b)

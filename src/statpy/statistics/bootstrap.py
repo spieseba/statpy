@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
+from ..log import message
 from ..database.leafs import Leaf
 
 # compute bootstrap sample from sample x with bootstraps and function f
@@ -46,7 +47,7 @@ class LatticeCharmBootstrap():
             self.bootstrap_tag = bootstrap_tag
             self.db.database[self.bootstrap_tag] = Leaf(self.bootstraps, None, None, misc={"configlist": self.configlist})
         else:
-            self.db.message(f"NO BOOTSTRAP FILE AVAILABLE - SAMPLES ARE NOT DETERMINED")
+            message(f"NO BOOTSTRAP FILE AVAILABLE - SAMPLES ARE NOT DETERMINED")
 
     def __call__(self, tag, nrwf_tag, check_nrwf=True):
         if self.bs_fn is None:
@@ -57,7 +58,7 @@ class LatticeCharmBootstrap():
                 nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
                 bss = sample(lambda y: y, x, self.bootstraps, nrwf)
             else:
-                if check_nrwf: self.message(f"!NRWF FOR BOOTSTRAP OF {tag} NOT FOUND!")
+                if check_nrwf: message(f"!NRWF FOR BOOTSTRAP OF {tag} NOT FOUND!")
                 bss = sample(lambda y: y, x, self.bootstraps)
             if lf.misc is None:
                 lf.misc = {"bss": bss}
