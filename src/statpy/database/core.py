@@ -150,7 +150,7 @@ class JKS_DB:
             self.database[dst_tag] = Leaf(None, jks, None)
 
     ################################## STATISTICS ######################################
-
+    ## check
     def jks(self, tag, binsize, shift=0, verbose=False):
         lf = self.database[tag]
         if binsize == 1 or not lf.jks:
@@ -348,7 +348,7 @@ class Sample_DB(JKS_DB):
 
     ################################## STATISTICS ######################################
 
-    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1]), f=lambda x: x, check_nrwf=False):
+    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1]), check_nrwf=False):
         lf = self.database[tag]
         if binsize == 1:
             if lf.jks is None:
@@ -359,18 +359,18 @@ class Sample_DB(JKS_DB):
             if nrwf is None:
                 if check_nrwf: message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
                 bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize)
-                jks = jackknife.sample(f, bsample)
+                jks = jackknife.sample(bsample)
             else:
                 bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize, self.as_array(nrwf, sorting_key=sorting_key)); bnrwf = statistics.bin(self.as_array(nrwf, sorting_key=sorting_key), binsize)
-                jks = jackknife.sample(f, bsample, bnrwf[:, None])
+                jks = jackknife.sample(bsample, bnrwf[:, None])
         return jks
     
-    def sample_jackknife_variance(self, tag, binsize, f=lambda x: x):
-        jks = self.sample_jks(tag, binsize, f)
+    def sample_jackknife_variance(self, tag, binsize):
+        jks = self.sample_jks(tag, binsize)
         return jackknife.variance_jks(jks)
 
-    def sample_jackknife_covariance(self, tag, binsize, f=lambda x: x):
-        jks = self.sample_jks(tag, binsize, f)
+    def sample_jackknife_covariance(self, tag, binsize):
+        jks = self.sample_jks(tag, binsize)
         return jackknife.covariance_jks(jks)
     
     def sample_binning_study(self, tag, binsizes):

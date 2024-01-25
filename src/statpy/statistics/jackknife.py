@@ -4,7 +4,7 @@ import numpy as np
 
 ################################################ functions of means ################################################
 
-def sample(f, x, *argv): 
+def sample(x, *argv, f=lambda x: x): 
     N = len(x)
     if len(argv) != 0:
         weights = argv[0]
@@ -29,7 +29,7 @@ def covariance_jks(jks, mean=None):
         return np.outer(a,a)
     return np.sum(np.array([outer_sqr(jks[j] - mean) for j in range(N)]), axis=0) * (N-1) / N  
 
-def variance(f, x, *argv):
+def variance(x, *argv, f=lambda x: x):
     N = len(x)
     mean = np.mean(x, axis=0)
     f_mean = f(mean)
@@ -39,7 +39,7 @@ def variance(f, x, *argv):
         return np.sum(np.array([(f_samples[j] - f_mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
     return np.mean([ ( f( (N * mean - x[k]) / (N - 1) ) - f_mean )**2 for k in range(N) ], axis=0) * (N-1)
 
-def covariance(f, x, *argv):
+def covariance(x, *argv, f=lambda x: x):
     N = len(x)
     mean = np.mean(x, axis=0)
     f_mean = f(mean)
