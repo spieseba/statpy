@@ -150,14 +150,15 @@ class JKS_DB:
             self.database[dst_tag] = Leaf(None, jks, None)
 
     ################################## STATISTICS ######################################
-    ## check
-    def jks(self, tag, binsize, shift=0, verbose=False):
+    
+    def jks(self, tag, binsize, shift=0):
         lf = self.database[tag]
         if binsize == 1 or not lf.jks:
             return lf.jks
-        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1])); branch_tag = jks_tags[0].split("-")[0]
-        if verbose:
-            print(jks_tags)
+        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1]))
+        branch_tags = np.unique([t.split("-")[0] for t in jks_tags])
+        assert len(branch_tags) < 2, "Delayed binning not implemented for multiple branch tags" 
+        branch_tag = branch_tags[0]
         N = len(jks_tags)
         Nb = N // binsize 
         jks_tags = jks_tags[:Nb*binsize] # cut off excess data
