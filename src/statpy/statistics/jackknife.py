@@ -2,8 +2,6 @@
 
 import numpy as np
 
-################################################ functions of means ################################################
-
 def sample(x, *argv, f=lambda x: x): 
     N = len(x)
     if len(argv) != 0:
@@ -17,49 +15,14 @@ def sample(x, *argv, f=lambda x: x):
     mean = np.mean(x, axis=0)
     return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
 
-def variance_jks(jks, mean=None):
+def variance(jks, mean=None):
     if mean is None: mean = np.mean(jks, axis=0)
     N = len(jks)
     return np.sum(np.array([(jks[j] - mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
 
-def covariance_jks(jks, mean=None):
+def covariance(jks, mean=None):
     if mean is None: mean = np.mean(jks, axis=0)
     N = len(jks)
     def outer_sqr(a):
         return np.outer(a,a)
     return np.sum(np.array([outer_sqr(jks[j] - mean) for j in range(N)]), axis=0) * (N-1) / N  
-
-def variance(x, *argv, f=lambda x: x):
-    N = len(x)
-    mean = np.mean(x, axis=0)
-    f_mean = f(mean)
-    if len(argv) != 0:
-        f_samples = argv[0]
-        N = len(f_samples)
-        return np.sum(np.array([(f_samples[j] - f_mean)**2 for j in range(N)]), axis=0) * (N-1) / N  
-    return np.mean([ ( f( (N * mean - x[k]) / (N - 1) ) - f_mean )**2 for k in range(N) ], axis=0) * (N-1)
-
-def covariance(x, *argv, f=lambda x: x):
-    N = len(x)
-    mean = np.mean(x, axis=0)
-    f_mean = f(mean)
-    def outer_sqr(a):
-        return np.outer(a,a)
-    if len(argv) != 0:
-        f_samples = argv[0]
-        return np.sum(np.array([outer_sqr(f_samples[j] - f_mean) for j in range(N)]), axis=0) * (N-1) / N 
-    return np.mean( [outer_sqr( f( (N * mean - x[k]) / (N - 1) ) - f_mean  ) for k in range(N)], axis=0) * (N-1) 
-      
-################################################ arbitrary functions ################################################
-
-def variance_general(f, x, data_axis=0):
-    N = len(x)
-    f_x = f(x)
-    return np.mean([ (f(np.delete(x, k, axis=data_axis)) - f_x)**2 for k in range(N)], axis=0) * (N-1)
-        
-def covariance_general(f, x, data_axis=0):
-    N = len(x)
-    f_x = f(x)
-    def outer_sqr(a):
-        return np.outer(a,a)
-    return np.mean([outer_sqr( (f(np.delete(x, k, axis=data_axis)) - f_x) ) for k in range(N)], axis=0) * (N-1) 
