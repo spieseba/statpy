@@ -107,48 +107,6 @@ class DB:
     
     ################################## FUNCTIONS #######################################
 
-    ################################ JKS ######################################
-
-    def combine(self, *tags, f=lambda x: x, dst_tag=None, num_proc=None):
-        if num_proc is None: num_proc = self.num_proc
-        mean = self.combine_mean(*tags, f=f)
-        jks = self.combine_jks(*tags, f=f, num_proc=num_proc)
-        if dst_tag is None:
-            return Leaf(mean, jks, None)
-        self.database[dst_tag] = Leaf(mean, jks, None)
-
-    def combine_mean(self, *tags, f=lambda x: x, dst_tag=None):
-        lfs = [self.database[tag] for tag in tags]
-        mean = f(*[lf.mean for lf in lfs])
-        if dst_tag is None:
-            return mean
-        try:
-            self.database[dst_tag].mean = mean
-        except KeyError:
-            self.database[dst_tag] = Leaf(mean, None, None)
-
-    def combine_jks(self, *tags, f=lambda x: x, dst_tag=None, num_proc=None):
-        if num_proc is None: num_proc = self.num_proc
-        lfs = [self.database[tag] for tag in tags]
-        cfgs = np.unique(np.concatenate([list(lf.jks.keys()) for lf in lfs]))
-        xs = {cfg:[lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs] for cfg in cfgs}
-        if num_proc is None:
-            jks = {cfg:f(*x) for cfg,x in xs.items()}
-        else:
-            def wrapped_f(cfg, *x):
-                return cfg, f(*x)
-            message(f"Spawn {num_proc} processes to compute jackknife sample", verbosity=self.verbosity-1)
-            with multiprocessing.Pool(num_proc) as pool:
-                jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
-        if dst_tag is None:
-            return jks
-        try:
-            self.database[dst_tag].jks = jks
-        except KeyError:
-            self.database[dst_tag] = Leaf(None, jks, None)
-
-    ############################### SAMPLE ####################################
-            
     def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, sorting_key=None):
         lfs = [self.database[tag] for tag in tags]
         f_sample = {}
@@ -161,7 +119,7 @@ class DB:
             return Leaf(None, None, f_sample)
         self.database[dst_tag] = Leaf(None, None, f_sample)
 
-    def merge_sample(self, *tags, dst_tag=None, sorting_key=None, dst_cfgs=None):
+    def concatenate_samples(self, *tags, dst_tag=None, sorting_key=None, dst_cfgs=None):
         lfs = [self.database[tag] for tag in tags]
         if dst_cfgs is None:
             sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=sorting_key))
@@ -172,36 +130,36 @@ class DB:
         else:
             self.database[dst_tag] = Leaf(None, None, sample)
     
-    def init_sample_means(self, *tags, check_nrwf=False):
+    def compute_nrwf(self, tag):
+        rwf = self.database[tag].sample; n = np.mean(self.as_array(rwf, None))
+        self.add_Leaf(tag.replace("rwf","nrwf"), None, None, {cfg:rwf/n for cfg,rwf in rwf.items()}, None)
+    
+    def get_nrwf(self, tag):
+        lf = self.database.get(f"{tag.split('/')[0]}/nrwf") 
+        if (lf == None) or ("rwf" in tag):
+            return None
+        return lf.sample 
+    
+    def init_sample_means(self, *tags):
         if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
             nrwf = self.get_nrwf(tag)
-            if lf.sample is not None:
-                if nrwf is None:
-                    if check_nrwf: message(f"!NRWF FOR MEAN COMPUTATION OF {tag} NOT FOUND!")
-                    lf.mean = np.mean(self.as_array(lf.sample), axis=0)
-                else:
-                    lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
+            lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
 
-    def init_sample_jks(self, *tags, check_nrwf=False):
+    def init_sample_jks(self, *tags, binsizes=[1]):
         if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
             if lf.sample is None: continue
-            nrwf = self.get_nrwf(tag)
-            if nrwf is None:
-                if check_nrwf: message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
-                jks = {}
-                for cfg in lf.sample:
-                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
-            else:
-                jks = {}
-                for cfg in lf.sample:
-                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
-            lf.jks = jks
+            lf.jks = {}
+            for b in binsizes:
+                lf.jks = self.jks(tag, b)
+    
+    def cfgs(self, tag):
+        return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
  
     def remove_cfgs(self, tag, cfgs, dst_tag=None):
         sample = copy.deepcopy(self.database[tag].sample)
@@ -212,155 +170,27 @@ class DB:
         else:
             self.add_Leaf(dst_tag, None, None, sample, None)
 
-    def compute_nrwf(self, tag):
-        rwf = self.database[tag].sample; n = np.mean(self.as_array(rwf, None))
-        self.add_Leaf(tag.replace("rwf","nrwf"), None, None, {cfg:rwf/n for cfg,rwf in rwf.items()}, None)
-    
-    def cfgs(self, tag):
-        return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
-     
-    def get_nrwf(self, tag):
-        lf = self.database.get(f"{tag.split('/')[0]}/nrwf") 
-        if (lf == None) or ("rwf" in tag):
-            return None
-        return lf.sample 
-
     ################################## STATISTICS ######################################
-    
-    def jks(self, tag, binsize, shift=0):
+
+    def jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1])):
         lf = self.database[tag]
-        if binsize == 1 or not lf.jks:
-            return lf.jks
-        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1]))
-        branch_tags = np.unique([t.split("-")[0] for t in jks_tags])
-        assert len(branch_tags) < 2, "Delayed binning not implemented for multiple branch tags" 
-        branch_tag = branch_tags[0]
-        N = len(jks_tags)
-        Nb = N // binsize 
-        jks_tags = jks_tags[:Nb*binsize] # cut off excess data
-        jks_bin = {}
-        for i in range(Nb):
-            s = sum([lf.jks[np.roll(jks_tags, shift)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
-            jks_bin[f"{branch_tag}/binsize{binsize}-{i}"] = lf.mean + s * (N-1) / (N-binsize)
-        return jks_bin
-
-    def jackknife_variance(self, tag, binsize, pavg=False):
-        permutations = np.arange(1)
-        if pavg:
-            permutations = np.arange(binsize)
-        var = []
-        for p in permutations:
-            jks = self.as_array(self.jks(tag, binsize, p))
-            if len(jks) == 0: return 0.0
-            var.append(jackknife.variance(jks))
-        return np.mean(var, axis=0)
-    
-    def jackknife_covariance(self, tag, binsize, pavg=False):
-        permutations = np.arange(1)
-        if pavg:
-            permutations = np.arange(binsize)
-        cov = []
-        for p in permutations:
-            jks = self.as_array(self.jks(tag, binsize, p))
-            cov.append(jackknife.covariance(jks))
-        return np.mean(cov, axis=0)
-
-    def binning_study(self, tag, binsizes, pavg=False):
-        message(f"Unbinned sample size: {len(self.database[tag].jks)}")
-        var = {}
-        for b in binsizes:
-            var[b] = self.jackknife_variance(tag, b, pavg)
-        return var
-    
-    def AMA(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_tag):
-        self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x-y, dst_tag=dst_tag+"_bias")
-        self.combine(sloppy_sloppy_tag, dst_tag+"_bias", f=lambda x,y: x+y, dst_tag=dst_tag)
-    
-    ############################### SAMPLE ####################################
-
-    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1]), check_nrwf=False):
-        lf = self.database[tag]
-        if binsize == 1:
-            if lf.jks is None:
-                self.init_sample_jks(tag, check_nrwf=check_nrwf)
-            jks = self.as_array(lf.jks)
-        else:
-            nrwf = self.get_nrwf(tag)
-            if nrwf is None:
-                if check_nrwf: message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
-                bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize)
-                jks = jackknife.sample(bsample)
-            else:
-                bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize, self.as_array(nrwf, sorting_key=sorting_key)); bnrwf = statistics.bin(self.as_array(nrwf, sorting_key=sorting_key), binsize)
-                jks = jackknife.sample(bsample, bnrwf[:, None])
+        nrwf = self.get_nrwf(tag)
+        bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize, self.as_array(nrwf, sorting_key=sorting_key))
+        bnrwf = statistics.bin(self.as_array(nrwf, sorting_key=sorting_key), binsize)
+        jks = jackknife.sample(bsample, bnrwf[:, None])
         return jks
     
-    def sample_jackknife_variance(self, tag, binsize):
-        jks = self.sample_jks(tag, binsize)
+    def jackknife_variance(self, tag, binsize):
+        jks = self.jks(tag, binsize)
         return jackknife.variance(jks)
 
-    def sample_jackknife_covariance(self, tag, binsize):
-        jks = self.sample_jks(tag, binsize)
+    def jackknife_covariance(self, tag, binsize):
+        jks = self.jks(tag, binsize)
         return jackknife.covariance(jks)
     
-    def sample_binning_study(self, tag, binsizes):
+    def binning_study(self, tag, binsizes):
         message(f"Unbinned sample size: {len(self.database[tag].sample)}")
         var = {}
         for b in binsizes:
-            var[b] = self.sample_jackknife_variance(tag, b)
+            var[b] = self.jackknife_variance(tag, b)
         return var
- 
-    ############################# SYSTEMATICS #################################
-
-    def get_mean_shifted(self, *tags, f=lambda x: x , sys_tag=None):
-        assert sys_tag != None
-        x = []
-        for tag in tags:
-            try: 
-                x.append(self.database[tag].misc[f"MEAN_SHIFTED_{sys_tag}"])
-            except (TypeError, KeyError):
-                x.append(self.database[tag].mean)
-        return f(*x)
-
-    def propagate_sys_var(self, mean_shifted, dst_tag, sys_tag=None):
-        assert sys_tag != None
-        sys_var = (self.database[dst_tag].mean - mean_shifted)**2.
-        if self.database[dst_tag].misc is None:
-            self.database[dst_tag].misc = {}
-        self.database[dst_tag].misc[f"MEAN_SHIFTED_{sys_tag}"] = mean_shifted
-        self.database[dst_tag].misc[f"SYS_VAR_{sys_tag}"] = sys_var
-
-    def get_sys_tags(self, *tags):
-        sys_tags = []
-        for tag in tags:
-            if self.database[tag].misc is not None:
-                for k in self.database[tag].misc:
-                    if "MEAN_SHIFTED" in k:
-                        sys_tag = k.split("MEAN_SHIFTED_")[1] 
-                        if sys_tag not in sys_tags:
-                            sys_tags.append(k.split("MEAN_SHIFTED_")[1])
-        return sys_tags
-
-    def get_sys_var(self, tag):
-        sys_var = np.zeros_like(self.database[tag].mean)
-        if self.database[tag].misc != None:
-            for k,v in self.database[tag].misc.items():
-                if "SYS_VAR" in k:
-                    sys_var += v
-        return sys_var
-    
-    def get_tot_var(self, tag, binsize, pavg=False):
-        return self.jackknife_variance(tag, binsize, pavg) + self.get_sys_var(tag)
-    
-    def print_estimate(self, tag, binsize, pavg=False, verbosity=0):
-        s = f"\n ESTIMATE of {tag}:\n"
-        s += f"   {self.database[tag].mean} +- {self.get_tot_var(tag, binsize, pavg)**.5} (STAT + SYS)\n"
-        if verbosity > 0:
-            s += " ERRORS:\n"
-            s += f"   {self.jackknife_variance(tag, binsize, pavg)**.5} (STAT)\n"
-            for sys_tag in self.get_sys_tags(tag):
-                s += f"   {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
-        message(s, verbosity)
-        
-    def get_estimate(self, tag, binsize, pavg=False):
-        return self.database[tag].mean, self.get_tot_var(tag, binsize, pavg)
