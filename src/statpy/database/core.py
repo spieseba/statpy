@@ -172,35 +172,23 @@ class DB:
         else:
             self.database[dst_tag] = Leaf(None, None, sample)
     
-    def init_sample_means(self, *tags, check_nrwf=False):
+    def init_sample_means(self, *tags):
         if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
-            nrwf = self.get_nrwf(tag)
             if lf.sample is not None:
-                if nrwf is None:
-                    if check_nrwf: message(f"!NRWF FOR MEAN COMPUTATION OF {tag} NOT FOUND!")
-                    lf.mean = np.mean(self.as_array(lf.sample), axis=0)
-                else:
-                    lf.mean = np.mean(self.as_array(nrwf)[:,None] * self.as_array(lf.sample), axis=0)
+                lf.mean = np.mean(self.as_array(lf.sample), axis=0)
 
-    def init_sample_jks(self, *tags, check_nrwf=False):
+    def init_sample_jks(self, *tags):
         if len(tags) == 0:
             tags = self.database.keys()
         for tag in tags:
             lf = self.database[tag]
             if lf.sample is None: continue
-            nrwf = self.get_nrwf(tag)
-            if nrwf is None:
-                if check_nrwf: message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
-                jks = {}
-                for cfg in lf.sample:
-                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
-            else:
-                jks = {}
-                for cfg in lf.sample:
-                    jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) * nrwf[cfg] / (len(lf.sample) - nrwf[cfg])
+            jks = {}
+            for cfg in lf.sample:
+                jks[cfg] = lf.mean + (lf.mean - lf.sample[cfg]) / (len(lf.sample) - 1)
             lf.jks = jks
  
     def remove_cfgs(self, tag, cfgs, dst_tag=None):
@@ -212,19 +200,9 @@ class DB:
         else:
             self.add_Leaf(dst_tag, None, None, sample, None)
 
-    def compute_nrwf(self, tag):
-        rwf = self.database[tag].sample; n = np.mean(self.as_array(rwf, None))
-        self.add_Leaf(tag.replace("rwf","nrwf"), None, None, {cfg:rwf/n for cfg,rwf in rwf.items()}, None)
-    
     def cfgs(self, tag):
         return sorted([int(x.split("-")[-1]) for x in self.database[tag].sample.keys()])
      
-    def get_nrwf(self, tag):
-        lf = self.database.get(f"{tag.split('/')[0]}/nrwf") 
-        if (lf == None) or ("rwf" in tag):
-            return None
-        return lf.sample 
-
     ################################## STATISTICS ######################################
     
     def jks(self, tag, binsize, shift=0):
@@ -278,21 +256,15 @@ class DB:
     
     ############################### SAMPLE ####################################
 
-    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1]), check_nrwf=False):
+    def sample_jks(self, tag, binsize, sorting_key=lambda x: int(x[0].split("-")[-1])):
         lf = self.database[tag]
         if binsize == 1:
             if lf.jks is None:
-                self.init_sample_jks(tag, check_nrwf=check_nrwf)
+                self.init_sample_jks(tag)
             jks = self.as_array(lf.jks)
         else:
-            nrwf = self.get_nrwf(tag)
-            if nrwf is None:
-                if check_nrwf: message(f"!NRWF FOR JKS COMPUTATION OF {tag} NOT FOUND!")
-                bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize)
-                jks = jackknife.sample(bsample)
-            else:
-                bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize, self.as_array(nrwf, sorting_key=sorting_key)); bnrwf = statistics.bin(self.as_array(nrwf, sorting_key=sorting_key), binsize)
-                jks = jackknife.sample(bsample, bnrwf[:, None])
+            bsample = statistics.bin(self.as_array(lf.sample, sorting_key=sorting_key), binsize)
+            jks = jackknife.sample(bsample)
         return jks
     
     def sample_jackknife_variance(self, tag, binsize):
