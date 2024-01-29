@@ -5,18 +5,6 @@ python.install_sources(
 )
 
 python.install_sources(
-  'algorithms/__init__.py',
-  pure: true,
-  subdir: 'statpy/algorithms'
-)
-
-python.install_sources(
-  'algorithms/markov/__init__.py', 'algorithms/markov/hmc.py',
-  pure: true,
-  subdir: 'statpy/algorithms/markov'
-)
-
-python.install_sources(
   'database/__init__.py', 'database/core.py', 'database/custom_json.py', 'database/io.py', 'database/leafs.py',
   pure: true,
   subdir: 'statpy/database'
@@ -29,7 +17,7 @@ python.install_sources(
 )
 
 python.install_sources(
-  'qcd/__init__.py', 'qcd/correlator.py', 'qcd/scale_setting.py',
+  'qcd/__init__.py', 'qcd/correlator.py',
   pure: true,
   subdir: 'statpy/qcd'
 )
