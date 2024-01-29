@@ -288,20 +288,14 @@ class Spectroscopy():
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            # perform bootstrap fit for binsize = 1
-            try:
-                tmp = self.db.database[tag_PSPS].misc["bss"]
-                do_bss = True if tmp is not None else False
-            except TypeError:
-                do_bss = False
-            if b == 1 and do_bss:
+            if b == 1 and (("bss" in self.db.database[tag_PSPS].misc) if (self.db.database[tag_PSPS].misc is not None) else False):
                 message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
                 bss = np.array([np.hstack((bss_PSPS[k][fit_range_PSPS],bss_PSA4I[k][fit_range_PSA4I])) for k in range(len(bss_PSPS))])
                 #mean_bss = np.mean(bss, axis=0)
-                cov_bss = bootstrap.covariance_bss(bss) if correlated else np.diag(bootstrap.variance_bss(bss))
+                cov_bss = bootstrap.covariance(bss) if correlated else np.diag(bootstrap.variance(bss))
                 best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
-                best_parameter_cov_bss = bootstrap.covariance_bss(best_parameter_bss)
+                best_parameter_cov_bss = bootstrap.covariance(best_parameter_bss)
                 # print bs fit results
                 for i in range(len(best_parameter_bs)):
                     message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)
@@ -476,19 +470,13 @@ class Spectroscopy():
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            # perform bootstrap fit for binsize = 1
-            try:
-                tmp = self.db.database[tag].misc["bss"]
-                do_bss = True if tmp is not None else False
-            except TypeError:
-                do_bss = False
-            if b == 1 and do_bss:
+            if b == 1 and (("bss" in self.db.database[tag].misc) if (self.db.database[tag].misc is not None) else False):
                 message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.database[tag].misc["bss"][:,fit_range]
                 #mean_bss = np.mean(bss, axis=0)
-                cov_bss = bootstrap.covariance_bss(bss) if correlated else np.diag(bootstrap.variance_bss(bss))
+                cov_bss = bootstrap.covariance(bss) if correlated else np.diag(bootstrap.variance(bss))
                 best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(fit_range, mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
-                best_parameter_cov_bss = bootstrap.covariance_bss(best_parameter_bss)
+                best_parameter_cov_bss = bootstrap.covariance(best_parameter_bss)
                 # print bs fit results
                 for i in range(len(best_parameter_bs)):
                     message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)

@@ -19,27 +19,26 @@ def sample(f, x, bootstraps, *argv):
         bss[b] = f(np.average(x[bs], axis=0, weights=nrwf_bs))
     return bss
 
-def variance_bss(bss, mean=None):
+def variance(bss, mean=None):
     if mean is None: mean = np.mean(bss, axis=0)
     B = len(bss)
     return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / (B-1) 
 
-def covariance_bss(bss, mean=None):
+def covariance(bss, mean=None):
     if mean is None: mean = np.mean(bss, axis=0)
     B = len(bss)
     def outer_sqr(a):
         return np.outer(a,a)
     return np.sum(np.array([outer_sqr(bss[b] - mean) for b in range(B)]), axis=0) / B 
 
-def rescale_bss(bss, s):
+def rescale(bss, s):
     mean = np.mean(bss, axis=0)
     if isinstance(np.mean(bss, axis=0), np.float64):
         return mean + s * (bss - mean) 
     return mean[None,:] + s * (bss - mean[None,:])
 
-
-class LatticeCharmBootstrap():
-    def __init__(self, bs_fn, db, bootstrap_tag):
+class Bootstrap():
+    def __init__(self, db, bs_fn, bootstrap_tag):
         self.db = db
         self.bs_fn = bs_fn
         if self.bs_fn is not None:
@@ -49,17 +48,11 @@ class LatticeCharmBootstrap():
         else:
             message(f"NO BOOTSTRAP FILE AVAILABLE - SAMPLES ARE NOT DETERMINED")
 
-    def __call__(self, tag, nrwf_tag, check_nrwf=True):
-        if self.bs_fn is None:
-            pass
-        else:
+    def __call__(self, tag, nrwf_tag):
+        if self.bs_fn is not None:
             lf = self.db.database[tag]; x = np.array([lf.sample[cfg] for cfg in self.configlist])
-            if nrwf_tag is not None:
-                nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
-                bss = sample(lambda y: y, x, self.bootstraps, nrwf)
-            else:
-                if check_nrwf: message(f"!NRWF FOR BOOTSTRAP OF {tag} NOT FOUND!")
-                bss = sample(lambda y: y, x, self.bootstraps)
+            nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
+            bss = sample(lambda y: y, x, self.bootstraps, nrwf)
             if lf.misc is None:
                 lf.misc = {"bss": bss}
             else:
