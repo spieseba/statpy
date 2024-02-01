@@ -158,7 +158,7 @@ class Spectroscopy():
         self.res_fit_params = res_fit_params
         self.num_proc = num_proc
 
-    def pbc_tsrc_avg(self, Ct_tag, dst_tag):
+    def src_avg(self, Ct_tag, dst_tag):
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag, sorting_key=lambda x: int(x[0].split("-")[-1]))
         self.db.init_sample_means(dst_tag)
         self.db.init_sample_jks(dst_tag)
