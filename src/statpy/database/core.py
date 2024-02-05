@@ -205,14 +205,8 @@ class DB:
      
     ################################## STATISTICS ######################################
     
-    def jks(self, tag, binsize, shift=0):
-        lf = self.database[tag]
-        if binsize == 1 or not lf.jks:
-            return lf.jks
-        jks_tags = sorted(list(lf.jks.keys()), key=lambda x: int(x.split("-")[-1]))
-        branch_tags = np.unique([t.split("-")[0] for t in jks_tags])
-        assert len(branch_tags) < 2, "Delayed binning not implemented for multiple branch tags" 
-        branch_tag = branch_tags[0]
+    def delayed_binning(self, lf, binsize, branch_tag="", shift=0):
+        jks_tags = sorted([t for t in list(lf.jks.keys()) if branch_tag in t], key=lambda x: int(x.split("-")[-1]))
         N = len(jks_tags)
         Nb = N // binsize 
         jks_tags = jks_tags[:Nb*binsize] # cut off excess data
@@ -221,7 +215,22 @@ class DB:
             s = sum([lf.jks[np.roll(jks_tags, shift)[idx]] for idx in np.arange(i*binsize, (i+1)*binsize)]) - binsize * lf.mean
             jks_bin[f"{branch_tag}/binsize{binsize}-{i}"] = lf.mean + s * (N-1) / (N-binsize)
         return jks_bin
-
+    
+    def jks(self, tag, binsize, shift=0):
+        lf = self.database[tag]
+        if binsize == 1 or not lf.jks:
+            return lf.jks
+        branch_tags = np.unique([t.split("-")[0] for t in list(lf.jks.keys())])
+        if isinstance(binsize, int):
+            binsizes = len(branch_tags) * [binsize]
+        elif isinstance(binsize, list):
+            binsizes = binsize
+        assert len(branch_tags) == len(binsizes)
+        jks_bin = {}
+        for b,branch_tag in zip(binsizes, branch_tags):
+            jks_bin.update(self.delayed_binning(lf, b, branch_tag, shift))
+        return jks_bin
+ 
     def jackknife_variance(self, tag, binsize, pavg=False):
         permutations = np.arange(1)
         if pavg:
