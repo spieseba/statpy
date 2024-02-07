@@ -221,20 +221,24 @@ class DB:
         if binsize == 1 or not lf.jks:
             return lf.jks
         branch_tags = np.unique([t.split("-")[0] for t in list(lf.jks.keys())])
-        if isinstance(binsize, int):
-            binsizes = len(branch_tags) * [binsize]
-        elif isinstance(binsize, list):
-            binsizes = binsize
-        assert len(branch_tags) == len(binsizes)
+        def get_arr(v):
+            if isinstance(v, (int, np.int64)):
+                vs = len(branch_tags) * [v]
+            elif isinstance(v, list):
+                vs = v
+            assert len(branch_tags) == len(vs)
+            return vs
+        binsizes = get_arr(binsize)
+        shifts = get_arr(shift)
         jks_bin = {}
-        for b,branch_tag in zip(binsizes, branch_tags):
-            jks_bin.update(self.delayed_binning(lf, b, branch_tag, shift))
+        for b,branch_tag,s in zip(binsizes, branch_tags, shifts):
+            jks_bin.update(self.delayed_binning(lf, b, branch_tag, s))
         return jks_bin
  
     def jackknife_variance(self, tag, binsize, pavg=False):
         permutations = np.arange(1)
         if pavg:
-            permutations = np.arange(binsize)
+            permutations = np.arange(np.min(binsize))
         var = []
         for p in permutations:
             jks = self.as_array(self.jks(tag, binsize, p))
@@ -245,7 +249,7 @@ class DB:
     def jackknife_covariance(self, tag, binsize, pavg=False):
         permutations = np.arange(1)
         if pavg:
-            permutations = np.arange(binsize)
+            permutations = np.arange(np.min(binsize))
         cov = []
         for p in permutations:
             jks = self.as_array(self.jks(tag, binsize, p))
