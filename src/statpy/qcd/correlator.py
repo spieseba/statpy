@@ -421,8 +421,8 @@ class Spectroscopy():
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             criterion = np.abs([model(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
             reduced_t = t[criterion]
-            if len(reduced_t) < 1:
-                message(f"REDUCED FIT RANGE {reduced_t} IS EMPTY -> JUMP TO NEXT FIT RANGE", verbosity)
+            if len(reduced_t) < 3:
+                message(f"REDUCED FIT RANGE {reduced_t} HAS FEWER THAN 3 ELEMENTS -> JUMP TO NEXT FIT RANGE", verbosity)
                 message("---------------------------------------------------------------------------------", verbosity) 
                 message("---------------------------------------------------------------------------------", verbosity) 
                 continue
