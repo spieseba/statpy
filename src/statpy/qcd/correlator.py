@@ -289,7 +289,7 @@ class Spectroscopy():
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            if b == 1: 
+            if b == 1 or b == binsize: 
                 if best_lf.misc["fit_type"] == "uncorrelated":
                     message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
                     cov_corr = jackknife.covariance(jks_arr)
@@ -305,7 +305,7 @@ class Spectroscopy():
                         message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
                     except ConvergenceError as ce:
                         message(f"{ce} for correlated mean fit")
-                if (("bss" in self.db.database[tag_PSPS].misc) if (self.db.database[tag_PSPS].misc is not None) else False):
+                if b == 1 and (("bss" in self.db.database[tag_PSPS].misc) if (self.db.database[tag_PSPS].misc is not None) else False):
                     message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                     bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
                     bss = np.array([np.hstack((bss_PSPS[k][fit_range_PSPS],bss_PSA4I[k][fit_range_PSA4I])) for k in range(len(bss_PSPS))])
@@ -501,7 +501,7 @@ class Spectroscopy():
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            if b == 1:
+            if b == 1 or b == binsize:
                 if best_lf.misc["fit_type"] == "uncorrelated":
                     message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
                     cov_corr = jackknife.covariance(jks_arr)
@@ -517,7 +517,7 @@ class Spectroscopy():
                         message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
                     except ConvergenceError as ce:
                         message(f"{ce} for correlated mean fit")
-                if (("bss" in self.db.database[tag].misc) if (self.db.database[tag].misc is not None) else False):
+                if b==1 and (("bss" in self.db.database[tag].misc) if (self.db.database[tag].misc is not None) else False):
                     message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                     bss = self.db.database[tag].misc["bss"][:,fit_range]
                     #mean_bss = np.mean(bss, axis=0)
