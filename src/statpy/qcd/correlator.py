@@ -278,7 +278,8 @@ class Spectroscopy():
             cov = jackknife.covariance(jks_arr) if correlated else np.diag(jackknife.variance(jks_arr))
             Nt = len(mean_PSPS)
             model = self._get_model(model_type_combined, Nt, fit_range_PSPS, fit_range_PSA4I)
-            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+            combined_fit_range = np.hstack((fit_range_PSPS, fit_range_PSA4I))
+            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(combined_fit_range, mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
             best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks, sorting_key=None))
             # store jks fit results in db
             best_lf.mean[b] = best_parameter
@@ -288,19 +289,35 @@ class Spectroscopy():
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            if b == 1 and (("bss" in self.db.database[tag_PSPS].misc) if (self.db.database[tag_PSPS].misc is not None) else False):
-                message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
-                bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
-                bss = np.array([np.hstack((bss_PSPS[k][fit_range_PSPS],bss_PSA4I[k][fit_range_PSA4I])) for k in range(len(bss_PSPS))])
-                #mean_bss = np.mean(bss, axis=0)
-                cov_bss = bootstrap.covariance(bss) if correlated else np.diag(bootstrap.variance(bss))
-                best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
-                best_parameter_cov_bss = bootstrap.covariance(best_parameter_bss)
-                # print bs fit results
-                for i in range(len(best_parameter_bs)):
-                    message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)
-                message(f"chi2 / dof = {chi2_bss} / {dof_bss} = {chi2_bss/dof_bss}, i.e., p = {pval_bss}", verbosity)
-                best_lf.misc["bss"] = best_parameter_bss 
+            if b == 1: 
+                if best_lf.misc["fit_type"] == "uncorrelated":
+                    message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
+                    cov_corr = jackknife.covariance(jks_arr)
+                    fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
+                    try:
+                        best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(combined_fit_range, fitter.chi_squared, mean, best_parameter)
+                        dof_corr = len(combined_fit_range) - len(best_parameter_corr)
+                        pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
+                        # store correlated fit results in db
+                        best_lf.misc["correlated_mean_fit"] = {"best_parameter": best_parameter_corr, "chi2": chi2_corr, "chi2 / dof": chi2_corr/dof_corr, "p": pval_corr, "binsize": b}
+                        # print correlated mean fit results
+                        message(f"parameter = {best_parameter_corr}")
+                        message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
+                    except ConvergenceError as ce:
+                        message(f"{ce} for correlated mean fit")
+                if (("bss" in self.db.database[tag_PSPS].misc) if (self.db.database[tag_PSPS].misc is not None) else False):
+                    message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
+                    bss_PSPS = self.db.database[tag_PSPS].misc["bss"]; bss_PSA4I = self.db.database[tag_PSA4I].misc["bss"]
+                    bss = np.array([np.hstack((bss_PSPS[k][fit_range_PSPS],bss_PSA4I[k][fit_range_PSA4I])) for k in range(len(bss_PSPS))])
+                    #mean_bss = np.mean(bss, axis=0)
+                    cov_bss = bootstrap.covariance(bss) if correlated else np.diag(bootstrap.variance(bss))
+                    best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(np.hstack((fit_range_PSPS, fit_range_PSA4I)), mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+                    best_parameter_cov_bss = bootstrap.covariance(best_parameter_bss)
+                    # print bs fit results
+                    for i in range(len(best_parameter_bs)):
+                        message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)
+                    message(f"chi2 / dof = {chi2_bss} / {dof_bss} = {chi2_bss/dof_bss}, i.e., p = {pval_bss}", verbosity)
+                    best_lf.misc["bss"] = best_parameter_bss 
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         self.db.database[f"{tag_PSPS};{tag_PSA4I.split('/')[1]}/combined_fit"] = best_lf 
@@ -419,6 +436,20 @@ class Spectroscopy():
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
+            message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
+            cov_corr = jackknife.covariance(jks_arr)[t][:,t]
+            fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
+            try:
+                best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
+                dof_corr = len(t) - len(best_parameter_corr)
+                pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
+                # store correlated fit results in db
+                fit_range_lf.misc["correlated_mean_fit"] = {"best_parameter": best_parameter_corr, "chi2": chi2_corr, "chi2 / dof": chi2_corr/dof_corr, "p": pval_corr, "binsize": binsize}
+                # print correlated mean fit results
+                message(f"parameter = {best_parameter_corr}")
+                message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
+            except ConvergenceError as ce:
+                message(f"{ce} for correlated mean fit")
             criterion = np.abs([model(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
             reduced_t = t[criterion]
             if len(reduced_t) < 3:
@@ -470,18 +501,35 @@ class Spectroscopy():
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-            if b == 1 and (("bss" in self.db.database[tag].misc) if (self.db.database[tag].misc is not None) else False):
-                message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
-                bss = self.db.database[tag].misc["bss"][:,fit_range]
-                #mean_bss = np.mean(bss, axis=0)
-                cov_bss = bootstrap.covariance(bss) if correlated else np.diag(bootstrap.variance(bss))
-                best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(fit_range, mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
-                best_parameter_cov_bss = bootstrap.covariance(best_parameter_bss)
-                # print bs fit results
-                for i in range(len(best_parameter_bs)):
-                    message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)
-                message(f"chi2 / dof = {chi2_bss} / {dof_bss} = {chi2_bss/dof_bss}, i.e., p = {pval_bss}", verbosity)
-                best_lf.misc["bss"] = best_parameter_bss 
+            if b == 1:
+                if best_lf.misc["fit_type"] == "uncorrelated":
+                    message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
+                    cov_corr = jackknife.covariance(jks_arr)
+                    fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
+                    try:
+                        best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(fit_range, fitter.chi_squared, mean, p0)
+                        dof_corr = len(fit_range) - len(best_parameter_corr)
+                        pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
+                        # store correlated fit results in db
+                        best_lf.misc["correlated_mean_fit"] = {"best_parameter": best_parameter_corr, "chi2": chi2_corr, "chi2 / dof": chi2_corr/dof_corr, "p": pval_corr, "binsize": b}
+                        # print correlated mean fit results
+                        message(f"parameter = {best_parameter_corr}")
+                        message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
+                    except ConvergenceError as ce:
+                        message(f"{ce} for correlated mean fit")
+                if (("bss" in self.db.database[tag].misc) if (self.db.database[tag].misc is not None) else False):
+                    message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
+                    bss = self.db.database[tag].misc["bss"][:,fit_range]
+                    #mean_bss = np.mean(bss, axis=0)
+                    cov_bss = bootstrap.covariance(bss) if correlated else np.diag(bootstrap.variance(bss))
+                    best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(fit_range, mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+                    best_parameter_cov_bss = bootstrap.covariance(best_parameter_bss)
+                    # store bs fit results in db
+                    best_lf.misc["bss"] = best_parameter_bss 
+                    # print bs fit results
+                    for i in range(len(best_parameter_bs)):
+                        message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)
+                    message(f"chi2 / dof = {chi2_bss} / {dof_bss} = {chi2_bss/dof_bss}, i.e., p = {pval_bss}", verbosity)
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         self.db.database[f"{tag}/fit"] = best_lf
