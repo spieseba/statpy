@@ -14,12 +14,14 @@ multiprocessing.reduction.dump = dill.dump
 ########################################### EFFECTIVE MASS CURVES ###########################################
 
 # open boundary conditions
-def effective_mass_log(Ct, tmin, tmax):
-    return np.array([np.log(Ct[t] / Ct[t+1]) for t in range(tmin,tmax)]) 
+def effective_mass_log(Ct):
+    return np.log(Ct / np.roll(Ct, -1))
+    #return np.array([np.log(Ct[t] / Ct[t+1]) for t in range(tmin,tmax)]) 
 
 # periodic boundary conditions
-def effective_mass_acosh(Ct, tmin, tmax):
-    return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(tmin,tmax)])
+def effective_mass_acosh(Ct):
+    return np.arccosh(0.5 * (np.roll(Ct, -1) + np.roll(Ct, 1)) / Ct)
+    #return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(tmin,tmax)])
 
 ########################################### EFFECTIVE AMPLITUDE CURVES ###########################################
 
@@ -194,16 +196,16 @@ class Spectroscopy():
         else:
             raise ValueError(bc)         
         message("-------------------- DETERMINE FIT RANGE FOR PSPS CORRELATOR --------------------")  
-        self.fit_range_PSPS, self.p0_PSPS  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, verbosity)   
+        fit_range_PSPS, p0_PSPS  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, verbosity)   
         message("---------------------------------------------------------------------------------") 
-        message(f"REDUCED PSPS FIT RANGE: {self.fit_range_PSPS}")
+        message(f"DETERMINED PSPS FIT RANGE: {fit_range_PSPS}")
         if spectroscopy:
-            fit_range = self.fit_range_PSPS if fit_range is None else fit_range
+            fit_range = fit_range_PSPS if fit_range is None else fit_range
             message("---------------------------------------------------------------------------------") 
             message("---------------------------------------------------------------------------------") 
             message("---------------------------------------------------------------------------------\n") 
-            message("------------------ FIT PSPS CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self._spectroscopy(tag, binsize, fit_range, self.p0_PSPS, spectroscopy_model_type, False, verbosity)
+            message("---------------- FIT PSPS CORRELATOR WITH DETERMINED FIT RANGE -------------------") 
+            self._spectroscopy(tag, binsize, fit_range, p0_PSPS, spectroscopy_model_type, False, verbosity)
  
     def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
         # https://arxiv.org/pdf/1502.04999.pdf
@@ -231,16 +233,16 @@ class Spectroscopy():
         else:
             raise ValueError(bc)         
         message("-------------------- DETERMINE FIT RANGE FOR PSA4I CORRELATOR --------------------")  
-        self.fit_range_PSA4I, self.p0_PSA4I  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, verbosity) 
+        fit_range_PSA4I, p0_PSA4I  = self._get_fit_range(tag, binsize, fit_ranges, p0, fit_range_model_type, verbosity) 
         message("---------------------------------------------------------------------------------") 
-        message(f"REDUCED FIT RANGE: {self.fit_range_PSA4I}")
+        message(f"DETERMINED FIT RANGE: {fit_range_PSA4I}")
         if spectroscopy:
-            fit_range = self.fit_range_PSA4I if fit_range is None else fit_range
+            fit_range = fit_range_PSA4I if fit_range is None else fit_range
             message("---------------------------------------------------------------------------------") 
             message("---------------------------------------------------------------------------------") 
             message("---------------------------------------------------------------------------------\n") 
-            message("------------------ FIT PSA4I CORRELATOR WITH REDUCED FIT RANGE --------------------") 
-            self._spectroscopy(tag, binsize, fit_range, self.p0_PSA4I, spectroscopy_model_type, False, verbosity)
+            message("--------------- FIT PSA4I CORRELATOR WITH DETERMINED FIT RANGE ------------------") 
+            self._spectroscopy(tag, binsize, fit_range, p0_PSA4I, spectroscopy_model_type, False, verbosity)
     
     def fit_combined(self, tag_PSPS, fit_range_PSPS, tag_PSA4I, fit_range_PSA4I, binsize, p0, bc, correlated=False, verbosity=0):
         if bc == "pbc":
@@ -251,12 +253,12 @@ class Spectroscopy():
             model_type_combined = "combined-exp"
             model_type_PSPS = "exp"
             model_type_PSA4I = "exp"
-        message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs WITH REDUCED FIT RANGES --------------------") 
+        message("------------------ COMBINED FIT PSPS/PSA4I CORRELATORs --------------------") 
         message(f"PSPS correlator: {tag_PSPS}")
-        message(f"PSPS - REDUCED FIT RANGE {fit_range_PSPS}") 
+        message(f"PSPS - FIT RANGE {fit_range_PSPS}") 
         message(f"PSPS - model: {model_type_PSPS}")
         message(f"PSA4I correlator: {tag_PSA4I}")
-        message(f"PSA4I - REDUCED FIT RANGE {fit_range_PSA4I}") 
+        message(f"PSA4I - FIT RANGE {fit_range_PSA4I}") 
         message(f"PSA4I - model: {model_type_PSA4I}")
         message(f"combined model: {model_type_combined}")
         message(f"P0 = {p0}")
@@ -437,9 +439,9 @@ class Spectroscopy():
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
             message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
             message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
-            cov_corr = jackknife.covariance(jks_arr)[t][:,t]
-            fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
             try:
+                cov_corr = jackknife.covariance(jks_arr)[t][:,t]
+                fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
                 best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
                 dof_corr = len(t) - len(best_parameter_corr)
                 pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
@@ -451,25 +453,25 @@ class Spectroscopy():
             except ConvergenceError as ce:
                 message(f"{ce} for correlated mean fit")
             criterion = np.abs([model(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
-            reduced_t = t[criterion]
-            if len(reduced_t) < 3:
-                message(f"REDUCED FIT RANGE {reduced_t} HAS FEWER THAN 3 ELEMENTS -> JUMP TO NEXT FIT RANGE", verbosity)
+            t_crit = t[criterion]
+            if len(t_crit) < 3:
+                message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 3 ELEMENTS -> JUMP TO NEXT FIT RANGE", verbosity)
                 message("---------------------------------------------------------------------------------", verbosity) 
                 message("---------------------------------------------------------------------------------", verbosity) 
                 continue
             else:
-                message(f"REDUCED FIT RANGE {reduced_t}", verbosity)
-            if len(reduced_t) < len(fit_range_lf.misc["fit_range"]): 
-                fit_range_lf.misc["initial_fit_range"] = t; fit_range_lf.misc["fit_range"] = reduced_t
-                fit_range_lf.misc["best_parameter"] = {binsize: best_parameter}
-                fit_range_lf.misc["best_parameter_jks"] = {binsize: best_parameter_jks}
+                message(f"DETERMINED FIT RANGE {t_crit}", verbosity)
+            if len(t_crit) < len(fit_range_lf.misc["fit_range"]): 
+                fit_range_lf.misc["initial_fit_range"] = t; fit_range_lf.misc["fit_range"] = t_crit
+                fit_range_lf.mean = {binsize: best_parameter}
+                fit_range_lf.jks = {binsize: best_parameter_jks}
                 fit_range_lf.misc["chi2"] = chi2
                 fit_range_lf.misc["chi2 / dof"] = chi2/dof 
                 fit_range_lf.misc["p"] = pval
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         self.db.database[f"{tag}/fit_range_fit"] = fit_range_lf
-        return fit_range_lf.misc["fit_range"], fit_range_lf.misc["best_parameter"][binsize][:2]
+        return fit_range_lf.misc["fit_range"], fit_range_lf.mean[binsize][:2]
     
     def _spectroscopy(self, tag, binsize, fit_range, p0, model_type, correlated, verbosity):
         message(f"CORRELATOR: {tag}")
