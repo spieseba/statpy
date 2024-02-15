@@ -421,9 +421,9 @@ class Spectroscopy():
         var = jackknife.variance(jks_arr)
         Nt = len(mean)
         model = self._get_model(model_type, Nt)
-        fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "model_type": model_type, "fit_type": "uncorrelated"})
+        fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "fit_range_crit": np.arange(Nt), "model_type": model_type, "fit_type": "uncorrelated"})
         for t in fit_ranges:
-            message(f"INITIAL FIT RANGE: {t}", verbosity)
+            message(f"FIT RANGE: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks_arr)}; cov = np.diag(var[t]) 
             try:
                 best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
@@ -461,8 +461,8 @@ class Spectroscopy():
                 continue
             else:
                 message(f"DETERMINED FIT RANGE {t_crit}", verbosity)
-            if len(t_crit) < len(fit_range_lf.misc["fit_range"]): 
-                fit_range_lf.misc["initial_fit_range"] = t; fit_range_lf.misc["fit_range"] = t_crit
+            if len(t_crit) < len(fit_range_lf.misc["fit_range_crit"]): 
+                fit_range_lf.misc["fit_range"] = t; fit_range_lf.misc["fit_range_crit"] = t_crit
                 fit_range_lf.mean = {binsize: best_parameter}
                 fit_range_lf.jks = {binsize: best_parameter_jks}
                 fit_range_lf.misc["chi2"] = chi2
@@ -471,7 +471,7 @@ class Spectroscopy():
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         self.db.database[f"{tag}/fit_range_fit"] = fit_range_lf
-        return fit_range_lf.misc["fit_range"], fit_range_lf.mean[binsize][:2]
+        return fit_range_lf.misc["fit_range_crit"], fit_range_lf.mean[binsize][:2]
     
     def _spectroscopy(self, tag, binsize, fit_range, p0, model_type, correlated, verbosity):
         message(f"CORRELATOR: {tag}")
