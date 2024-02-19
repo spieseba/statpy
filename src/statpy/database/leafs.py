@@ -28,6 +28,7 @@ class Leaf:
                 raise Exception("Data corrupted!")
         else:
             message("Checksum missing. Data may be corrupt.") 
+            return cls(**data)
 
     
 def calculate_checksum(data):
