@@ -311,9 +311,9 @@ class Spectroscopy():
                         dof_corr = len(combined_fit_range) - len(best_parameter_corr)
                         pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
                         # store correlated fit results in db
-                        best_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr,
-                        best_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr, 
-                        best_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr, 
+                        best_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
+                        best_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+                        best_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr
                         best_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr 
                         # print correlated mean fit results
                         message(f"parameter = {best_parameter_corr}")
@@ -459,9 +459,9 @@ class Spectroscopy():
                 dof_corr = len(t) - len(best_parameter_corr)
                 pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
                 # store correlated fit results in db
-                fit_range_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr,
-                fit_range_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr, 
-                fit_range_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr, 
+                fit_range_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
+                fit_range_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+                fit_range_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr
                 fit_range_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr
                 # print correlated mean fit results
                 message(f"parameter = {best_parameter_corr}")
@@ -529,9 +529,9 @@ class Spectroscopy():
                         dof_corr = len(fit_range) - len(best_parameter_corr)
                         pval_corr = fitter.get_pvalue(chi2_corr, dof_corr)
                         # store correlated fit results in db
-                        best_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr,
-                        best_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr, 
-                        best_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr, 
+                        best_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
+                        best_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+                        best_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr
                         best_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr 
                         # print correlated mean fit results
                         message(f"parameter = {best_parameter_corr}")
