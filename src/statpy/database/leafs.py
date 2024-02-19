@@ -14,12 +14,12 @@ class Leaf:
     
     def to_dict(self):
         data = self._to_dict()
-        data['checksum'] = calculate_checksum(data)
+        data["checksum"] = calculate_checksum(data)
         return data
 
     @classmethod
     def from_dict(cls, data):
-        cksum = data.pop('checksum', None)
+        cksum = data.pop("checksum", None)
         if cksum:
             cksumcomp = calculate_checksum(data)
             if cksum == cksumcomp:
