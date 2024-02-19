@@ -8,13 +8,13 @@ def to_json(obj):
     if isinstance(obj, (np.ndarray, np.generic)):
         if isinstance(obj, np.ndarray):
             return {
-                '__ndarray__': base64.b64encode(obj.tobytes()).decode("ascii"),
+                '__ndarray__': base64.b64encode(obj.tobytes()).decode("utf-8"), 
                 'dtype': obj.dtype.str,
                 'shape': obj.shape,
             }
         elif isinstance(obj, (np.bool_, np.number)):
             return {
-                '__npgeneric__': base64.b64encode(obj.tobytes()).decode("ascii"),
+                '__npgeneric__': base64.b64encode(obj.tobytes()).decode("utf-8"),
                 'dtype': obj.dtype.str,
             }
     if isinstance(obj, set):
