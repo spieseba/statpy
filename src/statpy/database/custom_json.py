@@ -28,7 +28,6 @@ def to_json(obj):
     raise TypeError('Unable to serialise object of type {}'.format(type(obj)))
 
 def from_json(obj):
-    # check for numpy
     if isinstance(obj, dict):
         if '__ndarray__' in obj:
             return np.fromstring(
