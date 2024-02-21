@@ -22,6 +22,11 @@ def effective_mass_acosh2(Ct, a=1):
     Nt = len(Ct)
     return np.abs((np.arccosh(np.roll(Ct,a)/Ct[Nt//2]) - np.arccosh(np.roll(Ct,-a)/Ct[Nt//2]))) / (2. * a)
 
+def effective_mass_asinh(Ct):
+    Nt = len(Ct)
+    eff_m = np.arcsinh(Ct/Ct[Nt-1])
+    return np.abs(np.roll(eff_m, -1) - eff_m)
+
 ### open boundary conditions ###
 def effective_mass_log1(Ct):
     return np.log(Ct / np.roll(Ct, -1))
