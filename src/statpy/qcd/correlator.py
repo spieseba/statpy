@@ -282,7 +282,7 @@ class Spectroscopy():
                              "model_type": model_type_combined, "model_type_PSPS": model_type_PSPS, "model_type_PSA4I": model_type_PSA4I,
                              "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
                              "fit_method": self.fit_method, "fit_params": self.fit_params, "res_fit_method": self.res_fit_method, "res_fit_params": self.res_fit_params,
-                             "chi2": {}, "chi2 / dof":{}, "p":{}, "correlated_mean_fit": {"best_parameter": {}, "chi2": {}, "chi2 / dof": {}, "p": {}}})
+                             "chi2": {}, "dof":{}, "chi2 / dof":{}, "p":{}, "correlated_mean_fit": {"best_parameter": {}, "chi2": {}, "dof":{}, "chi2 / dof": {}, "p": {}}})
         for b in range(1, binsize+1):
             message(f"BINSIZE = {b}", verbosity)
             message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
@@ -301,7 +301,7 @@ class Spectroscopy():
             # store jks fit results in db
             best_lf.mean[b] = best_parameter
             best_lf.jks[b] = best_parameter_jks
-            best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
+            best_lf.misc["chi2"][b] = chi2; best_lf.misc["dof"][b] = dof; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
             # print jk fit results
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
@@ -318,6 +318,7 @@ class Spectroscopy():
                         # store correlated fit results in db
                         best_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
                         best_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+                        best_lf.misc["correlated_mean_fit"]["dof"][binsize] = dof_corr
                         best_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr
                         best_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr 
                         # print correlated mean fit results
@@ -439,7 +440,7 @@ class Spectroscopy():
         var = jackknife.variance(jks_arr)
         Nt = len(mean)
         model = self._get_model(model_type, Nt)
-        fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "fit_range_crit": np.arange(Nt), "model_type": model_type, "fit_type": "uncorrelated", "correlated_mean_fit": {"best_parameter": {}, "chi2": {}, "chi2 / dof": {}, "p": {}}})
+        fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "fit_range_crit": np.arange(Nt), "model_type": model_type, "fit_type": "uncorrelated", "correlated_mean_fit": {"best_parameter": {}, "chi2": {}, "dof":{}, "chi2 / dof": {}, "p": {}}})
         for t in fit_ranges:
             message(f"FIT RANGE: {t}", verbosity)
             y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks_arr)}; cov = np.diag(var[t]) 
@@ -460,12 +461,13 @@ class Spectroscopy():
             try:
                 cov_corr = jackknife.covariance(jks_arr)[t][:,t]
                 fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
-                best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0)
+                best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0); best_parameter_corr = self._sort_params(best_parameter_corr)
                 dof_corr = len(t) - len(best_parameter_corr)
                 pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
                 # store correlated fit results in db
                 fit_range_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
                 fit_range_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+                fit_range_lf.misc["correlated_mean_fit"]["dof"][binsize] = dof_corr
                 fit_range_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr
                 fit_range_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr
                 # print correlated mean fit results
@@ -487,6 +489,7 @@ class Spectroscopy():
                 fit_range_lf.mean = {binsize: best_parameter}
                 fit_range_lf.jks = {binsize: best_parameter_jks}
                 fit_range_lf.misc["chi2"] = {binsize: chi2}
+                fit_range_lf.misc["dof"] = {binsize: dof}
                 fit_range_lf.misc["chi2 / dof"] = {binsize: chi2/dof}
                 fit_range_lf.misc["p"] = {binsize: pval}
             message("---------------------------------------------------------------------------------", verbosity) 
@@ -502,7 +505,7 @@ class Spectroscopy():
         best_lf = Leaf(mean={}, jks={}, sample=None,
                        misc={"fit_range":fit_range, "model_type": model_type, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
                              "fit_method": self.fit_method, "fit_params": self.fit_params, "res_fit_method": self.res_fit_method, "res_fit_params": self.res_fit_params,
-                             "chi2": {}, "chi2 / dof":{}, "p":{}, "correlated_mean_fit": {"best_parameter": {}, "chi2": {}, "chi2 / dof": {}, "p": {}}})
+                             "chi2":{}, "dof":{}, "chi2 / dof":{}, "p":{}, "correlated_mean_fit": {"best_parameter":{}, "chi2":{}, "dof":{}, "chi2 / dof": {}, "p": {}}})
         for b in range(1, binsize+1):
             message(f"BINSIZE = {b}", verbosity)
             message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
@@ -519,7 +522,7 @@ class Spectroscopy():
             # store jks fit results in db
             best_lf.mean[b] = best_parameter
             best_lf.jks[b] = best_parameter_jks
-            best_lf.misc["chi2"][b] = chi2; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
+            best_lf.misc["chi2"][b] = chi2; best_lf.misc["dof"][b] = dof; best_lf.misc["chi2 / dof"][b] = chi2/dof; best_lf.misc["p"][b] = pval
             # print jk fit results
             for i in range(len(best_parameter)):
                 message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
@@ -536,6 +539,7 @@ class Spectroscopy():
                         # store correlated fit results in db
                         best_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
                         best_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+                        best_lf.misc["correlated_mean_fit"]["dof"][binsize] = dof_corr
                         best_lf.misc["correlated_mean_fit"]["chi2 / dof"][binsize] = chi2_corr/dof_corr
                         best_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr 
                         # print correlated mean fit results
