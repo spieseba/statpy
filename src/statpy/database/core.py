@@ -44,6 +44,7 @@ class DB:
             with open(src) as f:
                 src_db = json.load(f)
             for t, lf in src_db.items():
+                if t in self.database: message(f"{t} superseded by new data.")
                 self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.misc)
 
     def add_Leaf(self, tag, mean, jks, sample, misc):
