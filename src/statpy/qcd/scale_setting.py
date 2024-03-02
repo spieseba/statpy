@@ -1,5 +1,5 @@
 import numpy as np 
-from ..log import message
+from statpy.log import message
 
 
 class gradient_flow_scale:

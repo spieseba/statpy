@@ -1,6 +1,6 @@
 import numpy as np
-from ..log import message
-from ..fitting.core import fit, fit_multiple
+from statpy.log import message
+from statpy.fitting.core import fit, fit_multiple
 
 ########################################### EFFECTIVE MASS CURVES ###########################################
 
