@@ -1,5 +1,5 @@
-from ..log import message
-from . import custom_json as json
+from statpy.log import message
+from statpy.database import custom_json as json
 import zlib
 
 class Leaf:

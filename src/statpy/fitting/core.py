@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
-
 import numpy as np
 import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
 from iminuit import Minuit
-from .levenberg_marquardt import LevenbergMarquardt 
+
+from statpy.fitting.levenberg_marquardt import LevenbergMarquardt 
 
 # default Nelder-Mead parameter
 nm_parameter = {

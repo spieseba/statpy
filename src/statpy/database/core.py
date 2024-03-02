@@ -1,20 +1,20 @@
-#!/usr/bin/env python3
-
 import os, copy
 import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
-from ..log import message
-from . import custom_json as json
-from .leafs import Leaf 
-from ..statistics import core as statistics
-from ..statistics import jackknife
+
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
 dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
 multiprocessing.reduction.ForkingPickler = dill.Pickler
 multiprocessing.reduction.dump = dill.dump
+
+from statpy.log import message 
+from statpy.database import custom_json as json
+from statpy.database.leafs import Leaf
+from statpy.statistics import core as statistics
+from statpy.statistics import jackknife 
 
 ##############################################################################################################################################################
 ##############################################################################################################################################################

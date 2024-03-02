@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
-
-import binascii, h5py, os, re, struct, sys
+import binascii, os, re, struct, sys
 import numpy as np
 from statpy.database import custom_json as json
-from .leafs import Leaf
+from statpy.database.leafs import Leaf 
 
 class Database_IO:
     def __init__(self):

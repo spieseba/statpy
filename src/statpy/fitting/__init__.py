@@ -1,3 +1,2 @@
-#!/usr/bin/env python3
-
 import statpy.fitting.core
+import statpy.fitting.levenberg_marquardt
