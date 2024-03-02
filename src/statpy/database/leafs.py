@@ -20,17 +20,16 @@ class Leaf:
 
     @classmethod
     def from_dict(cls, data):
-        tag = data["misc"].pop("tag", None) if data["misc"] is not None else None
         cksum = data.pop("checksum", None)
+        tag = data["misc"].get("tag") if data["misc"] is not None else None
         if cksum:
             cksumcomp = calculate_checksum(data)
-            if cksum == cksumcomp:
-                return cls(**data)
-            else:
+            if cksum != cksumcomp:
                 raise Exception(f"{tag}: Data corrupted!")
         else:
             message(f"{tag}: Checksum missing. Data may be corrupt.") 
-            return cls(**data)
+        if "misc" in data: del data["misc"]["tag"]
+        return cls(**data)
 
     
 def calculate_checksum(data):
