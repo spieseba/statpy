@@ -7,7 +7,8 @@ class Leaf:
         self.mean = mean
         self.jks = jks
         self.sample = sample
-        self.misc = misc
+        assert misc is None or isinstance(misc, dict)
+        self.misc = {} if misc is None else misc
 
     def _to_dict(self):
         return {"mean": self.mean, "jks": self.jks, "sample": self.sample, "misc": self.misc}
@@ -19,15 +20,16 @@ class Leaf:
 
     @classmethod
     def from_dict(cls, data):
+        tag = data["misc"].pop("tag", None) if data["misc"] is not None else None
         cksum = data.pop("checksum", None)
         if cksum:
             cksumcomp = calculate_checksum(data)
             if cksum == cksumcomp:
                 return cls(**data)
             else:
-                raise Exception("Data corrupted!")
+                raise Exception(f"{tag}: Data corrupted!")
         else:
-            message("Checksum missing. Data may be corrupt.") 
+            message(f"{tag}: Checksum missing. Data may be corrupt.") 
             return cls(**data)
 
     
