@@ -60,6 +60,8 @@ class DB:
             self.database[new] = self.database.pop(old)
  
     def save(self, dst):
+        for tag in self.database:
+            self.database[tag].misc["tag"] = tag
         with open(dst, "w") as f:
             json.dump(self.database, f)
 
