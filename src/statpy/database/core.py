@@ -3,6 +3,7 @@ import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
+import subprocess
 
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
@@ -27,7 +28,8 @@ class DB:
         self.t0 = time()
         self.num_proc = num_proc
         self.verbosity = verbosity
-        self.database = {}
+        self.database = {} 
+        self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
         for src in args:
             # init db using src files
             if isinstance(src, str):
