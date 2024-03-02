@@ -55,7 +55,7 @@ class const_plus_exp_model:
 def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, cov, p0, bc, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
    assert bc in ["pbc", "obc"]
    model = {"pbc": cosh_model(len(db.database[tag].mean)), "obc": exp_model()}[bc]
-   for t0 in range(t0_min, t0_max):
+   for t0 in range(t0_min, t0_max+1):
        t = np.arange(dt) + t0
        if verbosity >=0: message(f"fit window: {t}")
        fit(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag + f"={t0}", sys_tags, verbosity)
