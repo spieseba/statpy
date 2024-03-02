@@ -28,7 +28,7 @@ class Leaf:
                 raise Exception(f"{tag}: Data corrupted!")
         else:
             message(f"{tag}: Checksum missing. Data may be corrupt.") 
-        if "misc" in data: del data["misc"]["tag"]
+        if tag is not None: data["misc"].pop("tag", None) 
         return cls(**data)
 
     
