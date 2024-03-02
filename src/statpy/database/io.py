@@ -1,9 +1,6 @@
-#!/usr/bin/env python3
-
-import binascii, h5py, os, re, struct, sys
+import h5py, os
 import numpy as np
-from statpy.database import custom_json as json
-from .leafs import Leaf
+from statpy.database.leafs import Leaf 
 
 def load_CLS(fn, rwf_fn, tags, branch_tag):
     assert os.path.isfile(fn), f"{fn} not found!"

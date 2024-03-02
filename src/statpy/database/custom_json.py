@@ -1,8 +1,6 @@
-#!/usr/bin/env python3
-
 import numpy as np
 import json, base64
-from .leafs import Leaf 
+from statpy.database.leafs import Leaf 
 
 def to_json(obj):
     if isinstance(obj, (np.ndarray, np.generic)):

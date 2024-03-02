@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 from time import time
 
 t0 = time()

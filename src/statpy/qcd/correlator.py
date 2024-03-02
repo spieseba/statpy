@@ -1,15 +1,15 @@
-#!/usr/bin/env python3
-
 import numpy as np
-from ..log import message
-from ..fitting.core import Fitter, ConvergenceError
-from ..statistics import jackknife, bootstrap
-from ..database.leafs import Leaf
+
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
 dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
 multiprocessing.reduction.ForkingPickler = dill.Pickler
 multiprocessing.reduction.dump = dill.dump
+
+from statpy.log import message
+from statpy.fitting.core import Fitter, ConvergenceError
+from statpy.statistics import jackknife, bootstrap
+from statpy.database.leafs import Leaf
 
 ########################################### EFFECTIVE MASS CURVES ###########################################
 

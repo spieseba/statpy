@@ -1,26 +1,21 @@
-#!/usr/bin/env python3
-
 import os, copy
 import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
-from ..log import message
-from . import custom_json as json
-from .leafs import Leaf 
-from ..statistics import core as statistics
-from ..statistics import jackknife
+import subprocess
+
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
 dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
 multiprocessing.reduction.ForkingPickler = dill.Pickler
 multiprocessing.reduction.dump = dill.dump
 
-##############################################################################################################################################################
-##############################################################################################################################################################
-###################################### DATABASE SYSTEM USING LEAFS CONTAINING MEAN AND JKS (SECONDARY OBSERVABLES) ###########################################
-##############################################################################################################################################################
-##############################################################################################################################################################
+from statpy.log import message 
+from statpy.database import custom_json as json
+from statpy.database.leafs import Leaf
+from statpy.statistics import core as statistics
+from statpy.statistics import jackknife 
 
 class DB:
     def __init__(self, *args, num_proc=None, verbosity=0):
@@ -28,6 +23,7 @@ class DB:
         self.num_proc = num_proc
         self.verbosity = verbosity
         self.database = {}
+        self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
         for src in args:
             # init db using src files
             if isinstance(src, str):

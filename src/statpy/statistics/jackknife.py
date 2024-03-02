@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import numpy as np
 
 def sample(x, *argv, f=lambda x: x): 

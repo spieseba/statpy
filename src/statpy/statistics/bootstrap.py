@@ -1,8 +1,6 @@
-#!/usr/bin/env python3
-
 import numpy as np
-from ..log import message
-from ..database.leafs import Leaf
+from statpy.log import message
+from statpy.database.leafs import Leaf
 
 # compute bootstrap sample from sample x with bootstraps and function f
 def sample(f, x, bootstraps, *argv):
