@@ -74,15 +74,14 @@ def effective_mass_fit(db, ts, tags, cov, model_type, p0, fit_method, fit_params
     ## cleanup t Leafs
     db.remove(*[f"tmp_t{t}" for t in ts])
 
-def spectroscopy(db, tag, bc, t0_min, t0_max, dt, effective_mass_model_type, ts, p0, binsize, fit_method="Nelder-Mead", fit_params={"tol":1e-7, "maxiter":1000}, jks_fit_method="Migrad", jks_fit_params=None, verbosity=-1):
+def spectroscopy(db, tag, bc, t0_min, t0_max, dt, effective_mass_model_type, ts, p0, binsize, fit_method="Nelder-Mead", fit_params={"tol":1e-12, "maxiter":5000}, jks_fit_method="Nelder-Mead", jks_fit_params={"tol":1e-11, "maxiter":5000}, verbosity=-1):
     effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, np.diag(db.jackknife_variance(tag, binsize=1)), p0, bc,
                              fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, 
                              dst_tag=f"{tag}/am_t", sys_tags=db.get_sys_tags(tag), verbosity=verbosity-1)
     p0_m = {"const": p0[1], "const_plus_exp": [p0[1], 1.0, p0[1]]}[effective_mass_model_type]
     dst_tag = f"{tag}/am"
     fit_tag = {"const": dst_tag, "const_plus_exp": f"{tag}/const_plus_exp_fit"}[effective_mass_model_type]
-    effective_mass_fit(db, ts, [f"{tag}/am_t={t}" for t in ts], np.diag([db.jackknife_variance(f"{tag}/am_t={t}", binsize=1) for t in ts]), effective_mass_model_type, p0_m, 
-                             fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag=fit_tag, sys_tags=db.get_sys_tags(*[f"{tag}/am_t={t}" for t in ts]), verbosity=verbosity)
+    effective_mass_fit(db, ts, [f"{tag}/am_t={t}" for t in ts], np.diag([db.jackknife_variance(f"{tag}/am_t={t}", binsize=1) for t in ts]), effective_mass_model_type, p0_m, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag=fit_tag, sys_tags=db.get_sys_tags(*[f"{tag}/am_t={t}" for t in ts]), verbosity=verbosity)
     db.add_Leaf(tag=dst_tag,
         mean = db.database[fit_tag].mean[0],
         jks = {cfg:val[0] for cfg, val in db.database[fit_tag].jks.items()},
