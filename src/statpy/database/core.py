@@ -30,6 +30,7 @@ class DB:
         self.verbosity = verbosity
         self.database = {} 
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
+        message(f"Initialized database with statpy commit hash {self.commit_hash}")
         for src in args:
             # init db using src files
             if isinstance(src, str):
@@ -69,7 +70,7 @@ class DB:
         message(self.__str__(key, verbosity))    
 
     def __str__(self, key, verbosity):
-        s = '\n\n\tDATABASE CONSISTS OF\n\n'
+        s = '\n\n\tDatabase consists of\n\n'
         for tag, lf in self.database.items():
             if key in tag:
                 s += f'\t{tag:20s}\n'
@@ -88,7 +89,7 @@ class DB:
         message(self.__misc_str__(tag))
 
     def __misc_str__(self, tag):
-        s = f'\n\n\tMISC DICT OF {tag}\n\n'
+        s = f'\n\n\tMisc dict for {tag} consists of\n\n'
         for k, i in self.database[tag].misc.items():
             s += f'\t{k:20s}: {i}\n'
         return s
