@@ -24,6 +24,7 @@ class DB:
         self.verbosity = verbosity
         self.database = {}
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
+        message(f"Initialized database with statpy commit hash {self.commit_hash}")
         for src in args:
             # init db using src files
             if isinstance(src, str):
@@ -36,11 +37,11 @@ class DB:
     def add_src(self, *srcs):
         for src in srcs:
             assert os.path.isfile(src)
-            message(f"LOAD {src}")
+            message(f"Load {src}")
             with open(src) as f:
                 src_db = json.load(f)
             for t, lf in src_db.items():
-                if t in self.database: message(f"{t} superseded by new data.")
+                if t in self.database: message(f"{t} superseded by new data")
                 self.database[t] = Leaf(lf.mean, lf.jks, lf.sample, lf.misc)
 
     def add_Leaf(self, tag, mean, jks, sample, misc):
@@ -63,7 +64,7 @@ class DB:
         message(self.__str__(key, verbosity))    
 
     def __str__(self, key, verbosity):
-        s = '\n\n\tDATABASE CONSISTS OF\n\n'
+        s = '\n\n\tDatabase consists of\n\n'
         for tag, lf in self.database.items():
             if key in tag:
                 s += f'\t{tag:20s}\n'
@@ -82,7 +83,7 @@ class DB:
         message(self.__misc_str__(tag))
 
     def __misc_str__(self, tag):
-        s = f'\n\n\tMISC DICT OF {tag}\n\n'
+        s = f'\n\n\tMisc dict for {tag} consists of\n\n'
         for k, i in self.database[tag].misc.items():
             s += f'\t{k:20s}: {i}\n'
         return s
