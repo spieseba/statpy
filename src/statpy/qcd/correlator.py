@@ -52,19 +52,29 @@ class const_plus_exp_model:
         def parameter_gradient(self, t, p):
             return np.array([1.0, np.exp(-p[2]*t), p[1] * np.exp(-p[2]*t) * (-t)], dtype=object)
 
-def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, cov, p0, bc, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
-   assert bc in ["pbc", "obc"]
-   model = {"pbc": cosh_model(len(db.database[tag].mean)), "obc": exp_model()}[bc]
-   for t0 in range(t0_min, t0_max+1):
-       t = np.arange(dt) + t0
-       if verbosity >=0: message(f"fit window: {t}")
-       fit(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag + f"={t0}", sys_tags, verbosity)
-       db.database[dst_tag + f"={t0}"].mean = db.database[dst_tag + f"={t0}"].mean[1]
-       db.database[dst_tag + f"={t0}"].jks = {cfg:val[1] for cfg, val in db.database[dst_tag + f"={t0}"].jks.items()} 
-       db.database[dst_tag + f"={t0}"].misc["best_parameter_cov"] = db.database[dst_tag + f"={t0}"].misc["best_parameter_cov"][1][1]
-       for sys in sys_tags:
-           db.database[dst_tag + f"={t0}"].misc[f"MEAN_SHIFTED_{sys}"] = db.database[dst_tag + f"={t0}"].misc[f"MEAN_SHIFTED_{sys}"][1]
-           db.database[dst_tag + f"={t0}"].misc[f"SYS_VAR_{sys}"] = db.database[dst_tag + f"={t0}"].misc[f"SYS_VAR_{sys}"][1]
+def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, cov, p0, bc, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
+    assert bc in ["pbc", "obc"]
+    model = {"pbc": cosh_model(len(db.database[tag].mean)), "obc": exp_model()}[bc]
+
+    ts = []
+    if (dt is not None) and (tmax is None):
+        for t0 in range(t0_min, t0_max+1):
+            ts.append(np.arange(dt) + t0)
+    elif (dt is None) and (tmax is not None):
+        for t0 in range(t0_min, t0_max+1):
+            ts.append(np.arange(t0, tmax+1))
+    else:
+        raise AssertionError
+
+    for t in ts: 
+        message(f"effective curve fit window: {t}")
+        fit(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag + f"={t[0]}", sys_tags, verbosity-1)
+        db.database[dst_tag + f"={t[0]}"].mean = db.database[dst_tag + f"={t[0]}"].mean[1]
+        db.database[dst_tag + f"={t[0]}"].jks = {cfg:val[1] for cfg, val in db.database[dst_tag + f"={t[0]}"].jks.items()} 
+        db.database[dst_tag + f"={t[0]}"].misc["best_parameter_cov"] = db.database[dst_tag + f"={t[0]}"].misc["best_parameter_cov"][1][1]
+        for sys in sys_tags:
+            db.database[dst_tag + f"={t[0]}"].misc[f"MEAN_SHIFTED_{sys}"] = db.database[dst_tag + f"={t[0]}"].misc[f"MEAN_SHIFTED_{sys}"][1]
+            db.database[dst_tag + f"={t[0]}"].misc[f"SYS_VAR_{sys}"] = db.database[dst_tag + f"={t[0]}"].misc[f"SYS_VAR_{sys}"][1]
 
 def effective_mass_fit(db, ts, tags, cov, model_type, p0, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     model = {"const": const_model(), "const_plus_exp": const_plus_exp_model()}[model_type]
@@ -74,10 +84,10 @@ def effective_mass_fit(db, ts, tags, cov, model_type, p0, fit_method, fit_params
     ## cleanup t Leafs
     db.remove(*[f"tmp_t{t}" for t in ts])
 
-def spectroscopy(db, tag, bc, t0_min, t0_max, dt, effective_mass_model_type, ts, p0, binsize, fit_method="Nelder-Mead", fit_params={"tol":1e-12, "maxiter":5000}, jks_fit_method="Nelder-Mead", jks_fit_params={"tol":1e-11, "maxiter":5000}, verbosity=-1):
-    effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, np.diag(db.jackknife_variance(tag, binsize=1)), p0, bc,
+def spectroscopy(db, tag, bc, t0_min, t0_max, dt, tmax, effective_mass_model_type, ts, p0, binsize, fit_method="Nelder-Mead", fit_params={"tol":1e-10, "maxiter":5000}, jks_fit_method="Nelder-Mead", jks_fit_params={"tol":1e-10, "maxiter":5000}, verbosity=-1):
+    effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, np.diag(db.jackknife_variance(tag, binsize=1)), p0, bc,
                              fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, 
-                             dst_tag=f"{tag}/am_t", sys_tags=db.get_sys_tags(tag), verbosity=verbosity-1)
+                             dst_tag=f"{tag}/am_t", sys_tags=db.get_sys_tags(tag), verbosity=verbosity)
     p0_m = {"const": p0[1], "const_plus_exp": [p0[1], 1.0, p0[1]]}[effective_mass_model_type]
     dst_tag = f"{tag}/am"
     fit_tag = {"const": dst_tag, "const_plus_exp": f"{tag}/const_plus_exp_fit"}[effective_mass_model_type]
