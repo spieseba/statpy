@@ -76,7 +76,6 @@ def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, cov, p0, bc, fit
             db.database[mass_tag].misc[f"MEAN_SHIFTED_{sys}"] = db.database[fit_tag].misc[f"MEAN_SHIFTED_{sys}"][1]
             db.database[mass_tag].misc[f"SYS_VAR_{sys}"] = db.database[fit_tag].misc[f"SYS_VAR_{sys}"][1]
         db.remove(fit_tag)
-        #db.database[mass_tag].misc["best_parameter_cov"] = db.database[dst_tag + f"={t[0]}"].misc["best_parameter_cov"][1][1]
 
 def effective_mass_plateau_fit(db, ts, tags, cov, model_type, p0, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     model = {"const": const_model(), "const_plus_exp": const_plus_exp_model()}[model_type]
