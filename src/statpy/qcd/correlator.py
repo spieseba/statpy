@@ -68,36 +68,28 @@ def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, cov, p0, bc, fit
 
     for t in ts: 
         message(f"effective curve fit window: {t}")
-        fit(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag + f"={t[0]}", sys_tags, verbosity-1)
-        db.database[dst_tag + f"={t[0]}"].mean = db.database[dst_tag + f"={t[0]}"].mean[1]
-        db.database[dst_tag + f"={t[0]}"].jks = {cfg:val[1] for cfg, val in db.database[dst_tag + f"={t[0]}"].jks.items()} 
-        db.database[dst_tag + f"={t[0]}"].misc["best_parameter_cov"] = db.database[dst_tag + f"={t[0]}"].misc["best_parameter_cov"][1][1]
+        fit_tag = dst_tag + f"curve_fit_t={t[0]}"
+        mass_tag = dst_tag + f"={t[0]}"
+        fit(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, fit_tag, sys_tags, verbosity-1)
+        db.add_Leaf(tag=mass_tag, mean=db.database[fit_tag].mean[1], jks={cfg:val[1] for cfg, val in db.database[fit_tag].jks.items()}, sample=None, misc=None)
         for sys in sys_tags:
-            db.database[dst_tag + f"={t[0]}"].misc[f"MEAN_SHIFTED_{sys}"] = db.database[dst_tag + f"={t[0]}"].misc[f"MEAN_SHIFTED_{sys}"][1]
-            db.database[dst_tag + f"={t[0]}"].misc[f"SYS_VAR_{sys}"] = db.database[dst_tag + f"={t[0]}"].misc[f"SYS_VAR_{sys}"][1]
+            db.database[mass_tag].misc[f"MEAN_SHIFTED_{sys}"] = db.database[fit_tag].misc[f"MEAN_SHIFTED_{sys}"][1]
+            db.database[mass_tag].misc[f"SYS_VAR_{sys}"] = db.database[fit_tag].misc[f"SYS_VAR_{sys}"][1]
+        db.remove(fit_tag)
+        #db.database[mass_tag].misc["best_parameter_cov"] = db.database[dst_tag + f"={t[0]}"].misc["best_parameter_cov"][1][1]
 
-def effective_mass_fit(db, ts, tags, cov, model_type, p0, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
+def effective_mass_plateau_fit(db, ts, tags, cov, model_type, p0, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     model = {"const": const_model(), "const_plus_exp": const_plus_exp_model()}[model_type]
     # add t Leafs
     for t in ts: db.add_Leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, misc=None)
     fit_multiple(db, [f"tmp_t{t}" for t in ts], tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags, verbosity)
-    ## cleanup t Leafs
+    # cleanup Leafs
     db.remove(*[f"tmp_t{t}" for t in ts])
 
-def spectroscopy(db, tag, bc, t0_min, t0_max, dt, tmax, effective_mass_model_type, ts, p0, binsize, fit_method="Nelder-Mead", fit_params={"tol":1e-10, "maxiter":5000}, jks_fit_method="Nelder-Mead", jks_fit_params={"tol":1e-10, "maxiter":5000}, verbosity=-1):
-    effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, np.diag(db.jackknife_variance(tag, binsize=1)), p0, bc,
+def spectroscopy(db, tag, bc, t0_min, t0_max, dt, tmax, effective_mass_model_type, ts, p0, binsize, fit_method="Nelder-Mead", fit_params={"tol":1e-11, "maxiter":5000}, jks_fit_method="Nelder-Mead", jks_fit_params={"tol":1e-11, "maxiter":5000}, verbosity=-1):
+    effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, np.diag(db.jackknife_variance(tag, binsize)), p0, bc,
                              fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, 
                              dst_tag=f"{tag}/am_t", sys_tags=db.get_sys_tags(tag), verbosity=verbosity)
-    p0_m = {"const": p0[1], "const_plus_exp": [p0[1], 1.0, p0[1]]}[effective_mass_model_type]
-    dst_tag = f"{tag}/am"
-    fit_tag = {"const": dst_tag, "const_plus_exp": f"{tag}/const_plus_exp_fit"}[effective_mass_model_type]
-    effective_mass_fit(db, ts, [f"{tag}/am_t={t}" for t in ts], np.diag([db.jackknife_variance(f"{tag}/am_t={t}", binsize=1) for t in ts]), effective_mass_model_type, p0_m, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag=fit_tag, sys_tags=db.get_sys_tags(*[f"{tag}/am_t={t}" for t in ts]), verbosity=verbosity)
-    db.add_Leaf(tag=dst_tag,
-        mean = db.database[fit_tag].mean[0],
-        jks = {cfg:val[0] for cfg, val in db.database[fit_tag].jks.items()},
-        sample = None,
-        misc = {"best_parameter_cov": np.array([[db.database[fit_tag].misc["best_parameter_cov"][0][0]]]),
-                "chi2": db.database[fit_tag].misc["chi2"], "dof": db.database[fit_tag].misc["dof"], "pval": db.database[fit_tag].misc["pval"]})
-    for sys in db.get_sys_tags(fit_tag):
-        db.database[dst_tag].misc[f"MEAN_SHIFTED_{sys}"] = db.database[fit_tag].misc[f"MEAN_SHIFTED_{sys}"][0]
-        db.database[dst_tag].misc[f"SYS_VAR_{sys}"] = db.database[fit_tag].misc[f"SYS_VAR_{sys}"][0]
+    p0_am_fit = {"const": [p0[1]], "const_plus_exp": [p0[1], 0.1, 0.1]}[effective_mass_model_type]
+    am_fit_tag = {"const": f"{tag}/am_t/const_fit", "const_plus_exp": f"{tag}/am_t/const_plus_exp_fit"}[effective_mass_model_type]
+    effective_mass_plateau_fit(db, ts, [f"{tag}/am_t={t}" for t in ts], np.diag([db.jackknife_variance(f"{tag}/am_t={t}", binsize) for t in ts]), effective_mass_model_type, p0_am_fit, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag=am_fit_tag, sys_tags=db.get_sys_tags(*[f"{tag}/am_t={t}" for t in ts]), verbosity=verbosity)
