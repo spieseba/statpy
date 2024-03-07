@@ -1,9 +1,8 @@
-import os, copy
+import os, copy, subprocess
 import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
-import subprocess
 
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
