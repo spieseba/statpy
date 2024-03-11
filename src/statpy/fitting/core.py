@@ -89,7 +89,7 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ##############################################################################################################################
 ##############################################################################################################################
 
-def fit(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
+def fit(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     fitter = Fitter(cov, model, fit_method, fit_params)
     best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0]) 
     jks_fitter = Fitter(cov, model, jks_fit_method, jks_fit_params)
@@ -108,7 +108,7 @@ def fit(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
  
     
-def fit_multiple(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
+def fit_multiple(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     tags = np.concatenate((t_tags, y_tags))
     fitter = Fitter(cov, model, fit_method, fit_params)
     jks_fitter = Fitter(cov, model, jks_fit_method, jks_fit_params)
