@@ -23,14 +23,16 @@ from statpy.statistics import jackknife
 ##############################################################################################################################################################
 
 class DB:
-    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: int(x[0].split("-")[-1])):
+    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: int(x[0].split("-")[-1]), debug=False):
         self.t0 = time()
         self.num_proc = num_proc
         self.verbosity = verbosity
         self.sorting_key = sorting_key
+        self.debug = debug
         self.database = {} 
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
+        if debug: message(f"DEBUG MODE")
         for src in args:
             # init db using src files
             if isinstance(src, str):
@@ -59,7 +61,7 @@ class DB:
 
     def add_leaf(self, tag, mean, jks, sample, misc, database=None):
         db = self.database if database is None else database
-        if tag not in db:
+        if tag not in db or self.debug:
             assert (isinstance(sample, dict) or sample==None)
             assert (isinstance(jks, dict) or jks==None)
             assert (isinstance(misc, dict) or misc==None)
