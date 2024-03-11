@@ -71,19 +71,21 @@ def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, cov, p0, bc, fit
         fit_tag = dst_tag + f"curve_fit_t={t[0]}"
         mass_tag = dst_tag + f"={t[0]}"
         fit(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, fit_tag, sys_tags, verbosity-1)
-        db.add_Leaf(tag=mass_tag, mean=db.database[fit_tag].mean[1], jks={cfg:val[1] for cfg, val in db.database[fit_tag].jks.items()}, sample=None, misc=None)
+        misc = {}
         for sys in sys_tags:
-            db.database[mass_tag].misc[f"MEAN_SHIFTED_{sys}"] = db.database[fit_tag].misc[f"MEAN_SHIFTED_{sys}"][1]
-            db.database[mass_tag].misc[f"SYS_VAR_{sys}"] = db.database[fit_tag].misc[f"SYS_VAR_{sys}"][1]
-        db.remove(fit_tag)
+            misc[f"MEAN_SHIFTED_{sys}"] = db.database[fit_tag].misc[f"MEAN_SHIFTED_{sys}"][1]
+            misc[f"SYS_VAR_{sys}"] = db.database[fit_tag].misc[f"SYS_VAR_{sys}"][1]
+        db.add_leaf(tag=mass_tag, mean=db.database[fit_tag].mean[1], jks={cfg:val[1] for cfg, val in db.database[fit_tag].jks.items()}, sample=None, misc=misc)
+        db.remove_leaf(fit_tag, verbosity=-1)
 
 def effective_mass_plateau_fit(db, ts, tags, cov, model_type, p0, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     model = {"const": const_model(), "const_plus_exp": const_plus_exp_model()}[model_type]
     # add t Leafs
-    for t in ts: db.add_Leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, misc=None)
+    for t in ts: db.add_leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, misc=None)
     fit_multiple(db, [f"tmp_t{t}" for t in ts], tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags, verbosity)
     # cleanup Leafs
-    db.remove(*[f"tmp_t{t}" for t in ts])
+    for t in ts:
+        db.remove_leaf(f"tmp_t{t}", verbosity=-1)
 
 def spectroscopy(db, tag, bc, t0_min, t0_max, dt, tmax, effective_mass_model_type, ts, p0, binsize, fit_method="Nelder-Mead", fit_params={"tol":1e-11, "maxiter":5000}, jks_fit_method="Nelder-Mead", jks_fit_params={"tol":1e-11, "maxiter":5000}, verbosity=-1):
     effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, np.diag(db.jackknife_variance(tag, binsize)), p0, bc,

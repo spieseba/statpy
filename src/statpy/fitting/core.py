@@ -91,29 +91,23 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 
 def fit(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     fitter = Fitter(cov, model, fit_method, fit_params)
-    db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], dst_tag=dst_tag) 
-    best_parameter = db.database[dst_tag].mean
+    best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0]) 
     jks_fitter = Fitter(cov, model, jks_fit_method, jks_fit_params)
-    db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0], dst_tag=dst_tag) 
-    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
-    if sys_tags is not None:
-        for sys_tag in sys_tags:
-            mean_shifted = db.get_mean_shifted(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0], sys_tag=sys_tag)
-            db.propagate_sys_var(mean_shifted, dst_tag=dst_tag, sys_tag=sys_tag)
-    if verbosity >=1: 
-        print(f"jackknife parameter covariance is ", best_parameter_cov) 
+    best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0]) 
+    misc = db.propagate_systematics(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0])
     chi2 = fitter.chi_squared(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
-    if db.database[dst_tag].misc == None: db.database[dst_tag].misc = {}
-    db.database[dst_tag].misc["t"] = t
-    db.database[dst_tag].misc["best_parameter_cov"] = best_parameter_cov 
-    db.database[dst_tag].misc["chi2"] = chi2; db.database[dst_tag].misc["dof"] = dof; db.database[dst_tag].misc["pval"] = pval
+    misc["t"] = t
+    misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
+    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, average_permutations=True)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
-
+ 
+    
 def fit_multiple(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     tags = np.concatenate((t_tags, y_tags))
     fitter = Fitter(cov, model, fit_method, fit_params)
@@ -121,24 +115,17 @@ def fit_multiple(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks
     def estimate_parameters(f, t, y, p):
         t = np.array(t); y = np.array(y)
         return f.estimate_parameters(t, f.chi_squared, y, p)[0]
-    db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0), dst_tag=dst_tag) 
-    best_parameter = db.database[dst_tag].mean
-    db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter), dst_tag=dst_tag) 
-    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, pavg=True)
-    if sys_tags is not None:
-        for sys_tag in sys_tags:
-            mean_shifted = db.get_mean_shifted(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0) , sys_tag=sys_tag)
-            db.propagate_sys_var(mean_shifted, dst_tag=dst_tag, sys_tag=sys_tag)
-    if verbosity >=1: 
-        print(f"jackknife parameter covariance is ", best_parameter_cov) 
+    best_parameter = db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
+    best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
+    misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
     chi2 = fitter.chi_squared(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
     dof = len(t_tags) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
-    if db.database[dst_tag].misc == None: db.database[dst_tag].misc = {}
-    db.database[dst_tag].misc["t_tags"] = t_tags
-    db.database[dst_tag].misc["y_tags"] = y_tags
-    db.database[dst_tag].misc["best_parameter_cov"] = best_parameter_cov 
-    db.database[dst_tag].misc["chi2"] = chi2; db.database[dst_tag].misc["dof"] = dof; db.database[dst_tag].misc["pval"] = pval
+    misc["t_tags"] = t_tags
+    misc["y_tags"] = y_tags
+    misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
+    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, average_permutations=True)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
