@@ -1,14 +1,15 @@
 from statpy.log import message
 from statpy.database import custom_json as json
 import zlib
+from dataclasses import dataclass
 
+@dataclass(frozen=True)
 class Leaf:
-    def __init__(self, mean, jks, sample, misc=None):
+    def __init__(self, mean, jks, sample, misc):
         self.mean = mean
         self.jks = jks
         self.sample = sample
-        assert misc is None or isinstance(misc, dict)
-        self.misc = {} if misc is None else misc
+        self.misc = misc 
 
     def _to_dict(self):
         return {"mean": self.mean, "jks": self.jks, "sample": self.sample, "misc": self.misc}
