@@ -55,6 +55,7 @@ class DB:
         db = {}
         for tag, lf in self.database.items():
             sample = lf.sample if with_sample else None
+            misc = dict(lf.misc); misc["tag"] = tag
             self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db)
         with open(dst, "w") as f:
             json.dump(db, f)

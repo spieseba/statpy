@@ -30,18 +30,19 @@ class Leaf:
         data = self._to_dict()
         data["checksum"] = calculate_checksum(data)
         return data
-
+    
     @classmethod
     def from_dict(cls, data):
         cksum = data.pop("checksum", None)
+        tag = data["misc"].get("tag") if data["misc"] is not None else None
         if cksum:
             cksumcomp = calculate_checksum(data)
             if cksum != cksumcomp:
-                raise Exception(f"Data corrupted!")
+                raise Exception(f"{tag}: Data corrupted!")
         else:
-            message(f"Checksum missing. Data may be corrupt.") 
+            message(f"{tag}: Checksum missing. Data may be corrupt.") 
+        if tag is not None: del data["misc"]["tag"]
         return cls(**data)
-
     
 def calculate_checksum(data):
     data_json = json.dumps(data).encode('utf-8')  # Serialize as JSON first
