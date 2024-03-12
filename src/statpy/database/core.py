@@ -95,7 +95,7 @@ class DB:
  
     ################################## VERBOSITY #######################################
     
-    def print_content(self, filter_key="", verbosity=None):
+    def print(self, filter_key="", verbosity=None):
         verbosity = self.verbosity if verbosity is None else verbosity
         message(self.__str__(filter_key, verbosity))    
 
