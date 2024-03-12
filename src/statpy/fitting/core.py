@@ -90,6 +90,7 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ##############################################################################################################################
 
 def fit(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
+    assert len(p0) == len(model.parameter_gradient(t, p0)), f"len(p0) = {len(p0)} != len(best_parameter) = {len(model.parameter_gradient(t, p0))}"
     fitter = Fitter(cov, model, fit_method, fit_params)
     best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0]) 
     jks_fitter = Fitter(cov, model, jks_fit_method, jks_fit_params)
@@ -109,6 +110,7 @@ def fit(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_
  
     
 def fit_multiple(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
+    assert len(p0) == len(model.parameter_gradient(np.ones(len(t_tags)), p0)), f"len(p0) = {len(p0)} != len(best_parameter) = {len(model.parameter_gradient(np.ones(len(t_tags)), p0))}"
     tags = np.concatenate((t_tags, y_tags))
     fitter = Fitter(cov, model, fit_method, fit_params)
     jks_fitter = Fitter(cov, model, jks_fit_method, jks_fit_params)
