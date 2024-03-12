@@ -102,7 +102,7 @@ def fit(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_
     misc["t"] = t
     misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
-    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, average_permutations=True)
+    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
@@ -127,7 +127,7 @@ def fit_multiple(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks
     misc["y_tags"] = y_tags
     misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
-    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize, average_permutations=True)
+    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
