@@ -336,10 +336,7 @@ class DB:
             for sys_tag in self.get_sys_tags(tag):
                 sys_var += self.database[tag].misc[f"SYS_VAR_{sys_tag}"]
         return sys_var
-    
-    def get_tot_var(self, tag, binsize, average_permutations=False):
-        return self.jackknife_variance(tag, binsize, average_permutations) + self.get_sys_var(tag)
-    
+     
     ############################# ESTIMATES #################################
     
     def print_estimate(self, tag, binsize, average_permutations=False):
@@ -353,3 +350,6 @@ class DB:
         
     def get_estimate(self, tag, binsize, average_permutations=False):
         return self.database[tag].mean, self.get_tot_var(tag, binsize, average_permutations)
+
+    def get_tot_var(self, tag, binsize, average_permutations=False):
+        return self.jackknife_variance(tag, binsize, average_permutations) + self.get_sys_var(tag)
