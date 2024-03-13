@@ -1,8 +1,11 @@
 import numpy as np
 from statpy.log import message
-from statpy.fitting.core import fit, fit_multiple
+from statpy.fitting.core import fitV1, fitMultipleV1
+from numba import jit
 
-########################################### EFFECTIVE MASS CURVES ###########################################
+#########################################################################################################################
+################################################# EFFECTIVE MASS CURVES #################################################
+#########################################################################################################################
 
 # open boundary conditions
 def effective_mass_log(Ct, tmin, tmax):
@@ -12,9 +15,18 @@ def effective_mass_log(Ct, tmin, tmax):
 def effective_mass_acosh(Ct, tmin, tmax):
     return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(tmin,tmax)])
 
-################################################## FITTING #################################################
 
-#################################### FIT MODELS ############################################
+
+
+
+#########################################################################################################################
+##################################################### FITTING ###########################################################
+#########################################################################################################################
+
+
+#################################################### FIT MODELS #########################################################
+
+############################## cosh model to fit correlator with periodic boundary conditions ###########################
 
 # C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1] 
 class cosh_model:
@@ -23,34 +35,62 @@ class cosh_model:
     def __call__(self, t, p):
         return p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)) )
     def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))], dtype=object)    
+        return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))])    
 
-# C(t) = A * exp(-mt); A = p[0]; m = p[1] 
+@jit(nopython=True)
+def cosh_chi2(t, p, y, W, Nt):
+    return ( (p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )) - y ) @ W @ ( (p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )) - y )
+
+
+################################ exp model to fit correlator with open boundary conditions ##############################
+
+# f(t) = A * exp(-mt); A = p[0]; m = p[1] 
 class exp_model:
     def __init__(self):
         pass   
     def __call__(self, t, p):
         return p[0] * np.exp(-p[1]*t)
     def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)], dtype=object)
+        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)])
     
-######### const model to fit effective mass plateau #########
+@jit(nopython=True)
+def exp_chi2(t, p, y, W):
+    return ( (p[0] * np.exp(-p[1]*t)) - y ) @ W @ ( (p[0] * np.exp(-p[1]*t)) - y )
+
+
+####################################### const model to fit effective mass plateau #######################################
+
 class const_model:
         def __init__(self):
             pass  
         def __call__(self, t, p):
             return p[0]
         def parameter_gradient(self, t, p):
-            return np.array([1.0], dtype=object)
+            return np.array([np.ones_like(t)])
+        
+@jit(nopython=True)
+def const_chi2(t, p, y, W):
+    return (p[0] - y) @ W @ (p[0] - y)
 
-########## exp + const model to fit effective mass ##########
+
+######################################## exp + const model to fit effective mass ########################################
+
+
 class const_plus_exp_model:
         def __init__(self):
             pass  
         def __call__(self, t, p):
             return p[0] + p[1] * np.exp(-p[2]*t)
         def parameter_gradient(self, t, p):
-            return np.array([1.0, np.exp(-p[2]*t), p[1] * np.exp(-p[2]*t) * (-t)], dtype=object)
+            return np.array([np.ones_like(t), np.exp(-p[2]*t), p[1] * np.exp(-p[2]*t) * (-t)])
+
+@jit(nopython=True)
+def const_plus_exp_chi2(t, p, y, W):
+    return ( (p[0] + p[1] * np.exp(-p[2]*t)) - y ) @ W @ ( (p[0] + p[1] * np.exp(-p[2]*t)) - y )
+
+
+
+################################################ MASS DETERMINATION #####################################################
 
 def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, cov, p0, bc, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags=None, verbosity=0):
     assert bc in ["pbc", "obc"]
@@ -70,7 +110,7 @@ def effective_mass_curve_fit(db, tag, t0_min, t0_max, dt, tmax, cov, p0, bc, fit
         message(f"effective curve fit window: {t}")
         fit_tag = dst_tag + f"curve_fit_t={t[0]}"
         mass_tag = dst_tag + f"={t[0]}"
-        fit(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, fit_tag, sys_tags, verbosity-1)
+        fitV1(db, t, tag, cov[t][:,t], p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, fit_tag, sys_tags, verbosity-1)
         misc = {}
         for sys in sys_tags:
             misc[f"MEAN_SHIFTED_{sys}"] = db.database[fit_tag].misc[f"MEAN_SHIFTED_{sys}"][1]
@@ -82,7 +122,7 @@ def effective_mass_plateau_fit(db, ts, tags, cov, model_type, p0, fit_method, fi
     model = {"const": const_model(), "const_plus_exp": const_plus_exp_model()}[model_type]
     # add t Leafs
     for t in ts: db.add_leaf(f"tmp_t{t}", mean=t, jks={}, sample=None, misc=None)
-    fit_multiple(db, [f"tmp_t{t}" for t in ts], tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags, verbosity)
+    fitMultipleV1(db, [f"tmp_t{t}" for t in ts], tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, sys_tags, verbosity)
     # cleanup Leafs
     for t in ts:
         db.remove_leaf(f"tmp_t{t}", verbosity=-1)
