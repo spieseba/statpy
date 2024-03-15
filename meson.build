@@ -1,4 +1,4 @@
-project('statpy', version:'0.1')
+project('statpy', version: dynamic)
 
 pymod = import('python')
 python = pymod.find_installation('python3')
