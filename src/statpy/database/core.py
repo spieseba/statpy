@@ -23,16 +23,16 @@ from statpy.statistics import jackknife
 ##############################################################################################################################################################
 
 class DB:
-    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: int(x[0].split("-")[-1]), debug=False):
+    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: int(x[0].split("-")[-1]), dev_mode=False):
         self.t0 = time()
         self.num_proc = num_proc
         self.verbosity = verbosity
         self.sorting_key = sorting_key
-        self.debug = debug
+        self.dev_mode = dev_mode
         self.database = {} 
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
-        if debug: message(f"DEBUG MODE")
+        if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED")
         for src in args:
             # init db using src files
             if isinstance(src, str):
