@@ -1,4 +1,4 @@
-import os
+import os, subprocess
 import numpy as np
 from time import time
 from functools import reduce
@@ -24,14 +24,14 @@ from statpy.statistics import jackknife
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: int(x[0].split("-")[-1]), dev_mode=False):
+    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: int(x[0].split("-")[-1]), dev_mode=False, repo_path=None):
         self.t0 = time()
         self.num_proc = num_proc
         self.verbosity = verbosity
         self.sorting_key = sorting_key
         self.dev_mode = dev_mode
         self.database = {} 
-        self.commit_hash = None
+        self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
         if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED")
         for src in args:

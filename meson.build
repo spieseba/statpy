@@ -1,5 +1,5 @@
-project('statpy')
+project('statpy', version: '1.0.0')
 
-py = import('python').find_installation('python3')
+python = import('python').find_installation('python3') 
 
 subdir('src/statpy/')
