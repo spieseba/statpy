@@ -137,11 +137,11 @@ class DB:
 
     ################################ JKS ######################################
     
-    def combine(self, *tags, f=lambda x: x, dst_tag=None):
+    def combine(self, *tags, f=lambda x: x, dst_tag=None, propagate_sys=True):
         mean = self.combine_mean(*tags, f=f)
         jks = self.combine_jks(*tags, f=f)
         # Propagate systematics
-        misc = self.propagate_systematics(*tags, f=f)
+        misc = self.propagate_systematics(*tags, f=f) if propagate_sys else None
         if dst_tag is None:
             return mean, jks, misc
         self.add_leaf(dst_tag, mean, jks, None, misc)
