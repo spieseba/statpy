@@ -8,10 +8,7 @@ requires-python=">=3.11"
 readme="README.md"
 dependencies=["numpy", "scipy", "iminuit", "dill", "frozendict", "numba"]
 
-[tool.setuptools]
-version = "{major}.{minor}.{patch}" 
-version_format = "{tag} ({full_version})" 
-local_scheme = "git"
+version="0.1"
 
 [project.urls]
 repository="https://github.com/spieseba/statpy"

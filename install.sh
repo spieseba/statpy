@@ -1,4 +1,5 @@
 #!/bin/bash
+ rm -rf ./dist
 
 # update commit hash
 new_commit_hash=$(git rev-parse HEAD)

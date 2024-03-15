@@ -3,7 +3,6 @@ import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
-import config
 
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
@@ -32,8 +31,8 @@ class DB:
         self.sorting_key = sorting_key
         self.dev_mode = dev_mode
         self.database = {} 
-        #self.commit_hash = COMMIT_HASH
-        #message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
+        self.commit_hash = None
+        message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
         if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED")
         for src in args:
             # init db using src files
@@ -64,7 +63,7 @@ class DB:
 
     def add_leaf(self, tag, mean, jks, sample, misc, database=None):
         db = self.database if database is None else database
-        if tag not in db or self.debug:
+        if tag not in db or self.dev_mode:
             assert (isinstance(sample, dict) or sample==None)
             assert (isinstance(jks, dict) or jks==None)
             assert (isinstance(misc, dict) or misc==None)
