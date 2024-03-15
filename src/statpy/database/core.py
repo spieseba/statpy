@@ -30,6 +30,7 @@ class DB:
         self.sorting_key = sorting_key
         self.dev_mode = dev_mode
         self.database = {} 
+        message(subprocess.call(['ls'], cwd=os.path.dirname(statistics.__file__)))
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
         if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED")
