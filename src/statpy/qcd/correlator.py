@@ -1,7 +1,7 @@
 import numpy as np
 from statpy.log import message
 from statpy.fitting.core import fitV1, fitMultipleV1
-from numba import jit
+from numba import njit
 
 #########################################################################################################################
 ################################################# EFFECTIVE MASS CURVES #################################################
@@ -37,7 +37,7 @@ class cosh_model:
     def parameter_gradient(self, t, p):
         return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))])    
 
-@jit(nopython=True)
+@njit
 def cosh_chi2(t, p, y, W, Nt):
     return ( (p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )) - y ) @ W @ ( (p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )) - y )
 
@@ -53,7 +53,7 @@ class exp_model:
     def parameter_gradient(self, t, p):
         return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)])
     
-@jit(nopython=True)
+@njit
 def exp_chi2(t, p, y, W):
     return ( (p[0] * np.exp(-p[1]*t)) - y ) @ W @ ( (p[0] * np.exp(-p[1]*t)) - y )
 
@@ -68,7 +68,7 @@ class const_model:
         def parameter_gradient(self, t, p):
             return np.array([np.ones_like(t)])
         
-@jit(nopython=True)
+@njit
 def const_chi2(t, p, y, W):
     return (p[0] - y) @ W @ (p[0] - y)
 
@@ -84,7 +84,7 @@ class const_plus_exp_model:
         def parameter_gradient(self, t, p):
             return np.array([np.ones_like(t), np.exp(-p[2]*t), p[1] * np.exp(-p[2]*t) * (-t)])
 
-@jit(nopython=True)
+@njit
 def const_plus_exp_chi2(t, p, y, W):
     return ( (p[0] + p[1] * np.exp(-p[2]*t)) - y ) @ W @ ( (p[0] + p[1] * np.exp(-p[2]*t)) - y )
 
