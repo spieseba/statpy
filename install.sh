@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# get git hash
-commit_hash=$(git rev-parse HEAD)
+# update commit hash
+new_commit_hash=$(git rev-parse HEAD)
+sed -i "s/^COMMIT_HASH = .*/COMMIT_HASH = \"${new_commit_hash}\"/" ./src/statpy/database/core.py
 
 # build wheel
 python3 -m build

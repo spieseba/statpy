@@ -1,4 +1,4 @@
-import os, copy, subprocess
+import os
 import numpy as np
 from time import time
 from functools import reduce
@@ -22,6 +22,8 @@ from statpy.statistics import jackknife
 ##############################################################################################################################################################
 ##############################################################################################################################################################
 
+COMMIT_HASH = "73af21f1c3ce2a5bb58bf17bcd750a1d8e2f02ba"
+
 class DB:
     def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: int(x[0].split("-")[-1]), dev_mode=False):
         self.t0 = time()
@@ -30,9 +32,8 @@ class DB:
         self.sorting_key = sorting_key
         self.dev_mode = dev_mode
         self.database = {} 
-        #message(subprocess.check_output(['ls'], cwd=os.path.dirname(os.path.abspath(__file__))))
-        #self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(statistics.__file__)).decode('utf-8').strip()
-        #message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
+        self.commit_hash = COMMIT_HASH
+        message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
         if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED")
         for src in args:
             # init db using src files
