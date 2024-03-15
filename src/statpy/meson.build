@@ -1,5 +1,5 @@
 python.install_sources(
-  '__init__.py',
+  '__init__.py', 'log.py',
   pure: true,
   subdir: 'statpy'
 )
