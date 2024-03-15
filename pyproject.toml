@@ -1,19 +1,14 @@
 [project]
 name="statpy"
+version="1.0.0"
+description = "Database system with statistics library for Lattice QCD simulations"
+readme="README.md"
+requires-python=">=3.11"
 authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
 ]
-description = "Database system with statistics library for Lattice QCD simulations"
-requires-python=">=3.11"
-readme="README.md"
 dependencies=["numpy", "scipy", "iminuit", "dill", "frozendict", "numba"]
 
-version="0.1"
-
-[project.urls]
-repository="https://github.com/spieseba/statpy"
-homepage="https://github.com/spieseba/statpy"
-
 [build-system]
-requires = ["meson", "toml", "ninja", "meson-python"]
 build-backend = 'mesonpy'
+requires = ["meson-python"]

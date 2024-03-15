@@ -1,6 +1,5 @@
-project('statpy', version: '0.1')
+project('statpy')
 
-pymod = import('python')
-python = pymod.find_installation('python3')
-pydep = python.dependency()
+py = import('python').find_installation('python3')
+
 subdir('src/statpy/')
