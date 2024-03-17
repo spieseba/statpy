@@ -1,3 +1,7 @@
+[build-system]
+build-backend = 'mesonpy'
+requires = ["meson-python"] #, "ninja"]
+
 [project]
 name="statpy"
 dynamic = ["version"] 
@@ -8,7 +12,3 @@ authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
 ]
 dependencies=["numpy", "scipy", "iminuit", "dill", "frozendict", "numba"]
-
-[build-system]
-build-backend = 'mesonpy'
-requires = ["meson-python", "ninja"]
