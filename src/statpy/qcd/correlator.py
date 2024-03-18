@@ -39,7 +39,8 @@ class cosh_model:
 
 @njit
 def cosh_chi2(t, p, y, W, Nt):
-    return ( (p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )) - y ) @ W @ ( (p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )) - y )
+    tmp = p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )
+    return (tmp - y) @ W @ (tmp - y)
 
 
 ################################ exp model to fit correlator with open boundary conditions ##############################
@@ -73,8 +74,7 @@ def const_chi2(t, p, y, W):
     return (p[0] - y) @ W @ (p[0] - y)
 
 
-######################################## exp + const model to fit effective mass ########################################
-
+######################################## const + exp model to fit effective mass ########################################
 
 class const_plus_exp_model:
         def __init__(self):
@@ -87,6 +87,23 @@ class const_plus_exp_model:
 @njit
 def const_plus_exp_chi2(t, p, y, W):
     return ( (p[0] + p[1] * np.exp(-p[2]*t)) - y ) @ W @ ( (p[0] + p[1] * np.exp(-p[2]*t)) - y )
+
+
+######################################## const + cosh model to fit effective mass ########################################
+
+class const_plus_cosh_model:
+        def __init__(self, Nt):
+            self.Nt = Nt
+            pass  
+        def __call__(self, t, p):
+            return p[0] + p[1] * ( np.exp(-p[2]*t) + np.exp(-p[2]*(self.Nt-t)) )
+        def parameter_gradient(self, t, p):
+            return np.array([np.ones_like(t), np.exp(-p[2]*t) + np.exp(-p[2]*(self.Nt-t)), p[1] * (np.exp(-p[2]*t) * (-t) + np.exp(-p[2]*t) * (self.Nt-t))])
+
+@njit
+def const_plus_cosh_chi2(t, p, y, W, Nt):
+    model = p[0] + p[1] * ( np.exp(-p[2]*t) + np.exp(-p[2]*(Nt-t)) )
+    return (model - y) @ W @ (model - y)
 
 
 
