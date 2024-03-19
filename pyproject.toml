@@ -11,4 +11,4 @@ requires-python=">=3.11"
 authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
 ]
-dependencies=["numpy", "scipy", "iminuit", "dill", "frozendict", "numba"]
+dependencies=["numpy", "scipy", "iminuit", "dill", "frozendict", "numba", "h5py"]
