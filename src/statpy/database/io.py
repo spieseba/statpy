@@ -1,13 +1,13 @@
 import h5py, os
 import numpy as np
-from statpy.database.leafs import Leaf 
+from statpy.database.core import DB
 
 def load_CLS(fn, rwf_fn, tags, branch_tag):
     assert os.path.isfile(fn), f"{fn} not found!"
     # data
     f = h5py.File(fn, "r")
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
-    measurements = {}
+    db = DB(verbosity=-1)
     # rwfs
     if rwf_fn is None:
         cfgs = f_cfgs 
@@ -18,11 +18,12 @@ def load_CLS(fn, rwf_fn, tags, branch_tag):
         rwf = np.loadtxt(rwf_fn)[:,1] 
         rwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, rwf)} 
         cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
-    measurements[f"{branch_tag}/rwf"] = Leaf(mean=None, jks=None, sample=rwf)
+    db.add_leaf(tag=f"{branch_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
+    db.add_nrwf(rwf_tag=f"{branch_tag}/rwf")
     # data
     for t in tags:
         for key in f.keys():
             if t in key:
                 sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(cfgs, f.get(key)[cfgs-1])}
-                measurements[f"{branch_tag}/{key}"] = Leaf(mean=None, jks=None, sample=sample)
-    return measurements
+                db.add_leaf(tag=f"{branch_tag}/{key}", mean=None, jks=None, sample=sample, misc=None)
+    return db

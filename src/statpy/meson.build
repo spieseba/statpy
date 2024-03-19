@@ -1,5 +1,5 @@
 python.install_sources(
-  '__init__.py',
+  '__init__.py', 'log.py',
   pure: true,
   subdir: 'statpy'
 )
@@ -23,7 +23,7 @@ python.install_sources(
 )
 
 python.install_sources(
-  'statistics/__init__.py', 'statistics/auto.py', 'statistics/bootstrap.py', 'statistics/core.py', 'statistics/jackknife.py',
+  'statistics/__init__.py', 'statistics/auto.py', 'statistics/core.py', 'statistics/jackknife.py',
   pure: true,
   subdir: 'statpy/statistics'
 )

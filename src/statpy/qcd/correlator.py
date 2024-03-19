@@ -1,5 +1,4 @@
 import numpy as np
-
 # import multiprocessing module and overwrite its Pickle class using dill
 import dill, multiprocessing
 dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
@@ -11,7 +10,8 @@ from statpy.fitting.core import Fitter, ConvergenceError
 from statpy.statistics import jackknife, bootstrap
 from statpy.database.leafs import Leaf
 
-########################################### EFFECTIVE MASS CURVES ###########################################
+from statpy.fitting.core import fitV1, fitMultipleV1
+from numba import njit
 
 ### periodic boundary conditions ###
 def effective_mass_acosh1(Ct):
@@ -35,7 +35,6 @@ def effective_mass_log1(Ct):
 def effective_mass_log2(Ct, a=2):
     return np.log(np.roll(Ct, a//2) / np.roll(Ct, -a//2)) / a
 
-########################################### EFFECTIVE AMPLITUDE CURVES ###########################################
 
 # cosh
 def effective_amplitude_cosh(Ct, m):
@@ -52,11 +51,14 @@ def effective_amplitude_exp(Ct, m):
     Nt = len(Ct)
     return Ct / np.array([(np.exp(-m*t)) for t in range(Nt)])
 
-################################################## FITTING #################################################
+#########################################################################################################################
+##################################################### FITTING ###########################################################
+#########################################################################################################################
 
-#################################### FIT MODELS ############################################
 
-############## periodic boundary conditions #############
+#################################################### FIT MODELS #########################################################
+
+############################## cosh model to fit correlator with periodic boundary conditions ###########################
 
 # C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1] 
 class cosh_model:
@@ -65,16 +67,15 @@ class cosh_model:
     def __call__(self, t, p):
         return p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)) )
     def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))], dtype=object)    
+        return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))])    
 
-# C(t) = A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]  
-class sinh_model:
-    def __init__(self, Nt):
-        self.Nt = Nt 
-    def __call__(self, t, p):
-        return p[0] * ( np.exp(-p[1]*t) - np.exp(-p[1]*(self.Nt-t)) )
-    def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t) - np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) - np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))], dtype=object)  
+@njit
+def cosh_chi2(t, p, y, W, Nt):
+    model = p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )
+    return (model - y) @ W @ (model - y)
+
+
+########################## double cosh model to fit correlator with periodic boundary conditions ########################
 
 # C(t) = A0 * [exp(-m0 t) + exp(-m0(Nt-t))] + A1 * [exp(-m1 t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3] 
 class double_cosh_model():
@@ -83,11 +84,33 @@ class double_cosh_model():
     def __call__(self, t, p):
         return p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)) ) + p[2] * ( np.exp(-p[3]*t) + np.exp(-p[3]*(self.Nt-t)) )
     def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), 
-                    p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt)),
-                    np.exp(-p[3]*t) + np.exp(-p[3]*(self.Nt-t)), 
-                    p[2] * (np.exp(-p[3]*t) * (-t) + np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))], dtype=object) 
+        return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt)),
+                         np.exp(-p[3]*t) + np.exp(-p[3]*(self.Nt-t)), p[2] * (np.exp(-p[3]*t) * (-t) + np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))]) 
     
+@njit
+def double_cosh_chi2(t, p, y, W, Nt):
+    model = p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) ) + p[2] * ( np.exp(-p[3]*t) + np.exp(-p[3]*(Nt-t)) )
+    return (model - y) @ W @ (model - y)
+
+############################## sinh model to fit correlator with periodic boundary conditions ###########################
+
+# C(t) = A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]  
+class sinh_model:
+    def __init__(self, Nt):
+        self.Nt = Nt 
+    def __call__(self, t, p):
+        return p[0] * ( np.exp(-p[1]*t) - np.exp(-p[1]*(self.Nt-t)) )
+    def parameter_gradient(self, t, p):
+        return np.array([np.exp(-p[1]*t) - np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) - np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))])  
+  
+@njit
+def sinh_chi2(t, p, y, W, Nt):
+    model = p[0] * ( np.exp(-p[1]*t) - np.exp(-p[1]*(Nt-t)) )
+    return (model - y) @ W @ (model - y)
+
+
+########################## double sinh model to fit correlator with periodic boundary conditions ########################
+
 # C(t) = A0 * [exp(-m0 t) - exp(-m0(Nt-t))] + A1 * [exp(-m1 t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3] 
 class double_sinh_model():
     def __init__(self, Nt):
@@ -98,19 +121,33 @@ class double_sinh_model():
         return np.array([np.exp(-p[1]*t) - np.exp(-p[1]*(self.Nt-t)), 
                     p[0] * (np.exp(-p[1]*t) * (-t) - np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt)),
                     np.exp(-p[3]*t) + np.exp(-p[3]*(self.Nt-t)), 
-                    p[2] * (np.exp(-p[3]*t) * (-t) - np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))], dtype=object) 
+                    p[2] * (np.exp(-p[3]*t) * (-t) - np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))]) 
+    
+@njit
+def double_sinh_chi2(t, p, y, W, Nt):
+    model = p[0] * ( np.exp(-p[1]*t) - np.exp(-p[1]*(Nt-t)) ) + p[2] * ( np.exp(-p[3]*t) - np.exp(-p[3]*(Nt-t)) )
+    return (model - y) @ W @ (model - y)
 
-################ open boundary conditions ###############
 
-# C(t) = A * exp(-mt); A = p[0]; m = p[1] 
+################################ exp model to fit correlator with open boundary conditions ##############################
+
+# f(t) = A * exp(-mt); A = p[0]; m = p[1] 
 class exp_model:
     def __init__(self):
         pass   
     def __call__(self, t, p):
         return p[0] * np.exp(-p[1]*t)
     def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)], dtype=object)
+        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)])
     
+@njit
+def exp_chi2(t, p, y, W):
+    model = p[0] * np.exp(-p[1]*t)
+    return (model - y) @ W @ (model - y)
+
+
+############################ double exp model to fit correlator with open boundary conditions ###########################
+
 # C(t) = A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3] 
 class double_exp_model:
     def __init__(self):
@@ -118,11 +155,29 @@ class double_exp_model:
     def __call__(self, t, p):
         return p[0] * np.exp(-p[1]*t) + p[2] * np.exp(-p[3]*t)
     def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t), np.exp(-p[3]*t), p[2] * np.exp(-p[3]*t) * (-t)], dtype=object)
+        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t), np.exp(-p[3]*t), p[2] * np.exp(-p[3]*t) * (-t)], dtype=object)  
     
-############################################## COMBINED FITTING ############################################
+@njit
+def doubleexp_chi2(t, p, y, W):
+    model = p[0] * np.exp(-p[1]*t) + p[2] * np.exp(-p[3]*t)
+    return (model - y) @ W @ (model - y)
 
-#################################### FIT MODELS ############################################
+
+####################################### const model to fit effective mass plateau #######################################
+
+class const_model:
+        def __init__(self):
+            pass  
+        def __call__(self, t, p):
+            return p[0]
+        def parameter_gradient(self, t, p):
+            return np.array([np.ones_like(t)])
+        
+@njit
+def const_chi2(t, p, y, W):
+    return (p[0] - y) @ W @ (p[0] - y)
+
+#################################################### combined models ####################################################
 
 ############## periodic boundary conditions #############
 
@@ -150,21 +205,144 @@ class combined_exp_model:
         f0 = p[0] * np.exp(-p[2]*self.t0) 
         f1 = p[1] * np.exp(-p[2]*self.t1)
         return np.hstack((f0,f1)) 
-    
-######### const model to fit effective mass plateau #########
-class const_model:
-        def __init__(self):
-            pass  
-        def __call__(self, t, p):
-            return p[0]
-        def parameter_gradient(self, t, p):
-            return np.array([1.0], dtype=object)
+
+
 
 ##############################################################################################################################
 ##############################################################################################################################
 ##################################################### LATTICE CHARM ##########################################################
 ##############################################################################################################################
 ##############################################################################################################################
+    
+class LatticeCharmSpectroscopy():
+    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, res_fit_method=None, res_fit_params=None):
+        self.db = db
+        self.fit_method = fit_method
+        self.fit_params = fit_params
+        self.res_fit_method = self.fit_method if res_fit_method is None else res_fit_method
+        self.res_fit_params = self.fit_params if res_fit_params is None else res_fit_params
+
+    # Wolfgangs hdf5 geometry 
+    def point_src_avg(self, Ct_tag, dst_tag):
+        self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
+
+    def tsrc_avg(self, Ctsrc_tags, dst_tag):
+        srcs_pos = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
+        tmin = min(srcs_pos); tmax = max(srcs_pos)
+        A4_in_tag = "A4" in Ctsrc_tags[0]
+        self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs_pos, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag)
+        self.db.init_sample_means(dst_tag)
+        self.db.init_sample_jks(dst_tag)
+
+    def _avg_obc_srcs(self, srcs, tmin, tmax, *Cts, antiperiodic=False):
+        Ct_arr = np.ma.empty((2 * len(Cts), max(tmax - srcs[0], srcs[-1] - tmin))); Ct_arr.mask = True    
+        # forward average
+        tmax_srcs_fw = tmax - np.array(srcs) 
+        for idx, Ct, tmax_src in zip(np.arange(len(Cts)), Cts, tmax_srcs_fw):
+            Ct_arr[idx, :tmax_src] = Ct[:tmax_src]
+        # backward average
+        tmax_srcs_bw = np.array(srcs) - tmin
+        for idx, Ct, tmax_src in zip(len(Cts) + np.arange(len(Cts)), Cts, tmax_srcs_bw):
+            Ct_arr[idx, :tmax_src] = np.roll(np.flip(Ct), 1)[:tmax_src]
+            if antiperiodic: Ct_arr[idx, 1:tmax_src] *= -1.
+        return Ct_arr.mean(axis=0) 
+
+    
+    # determine improved PSA4 according to https://arxiv.org/pdf/1502.04999.pdf
+    def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
+        def compute_cA(beta):
+            p0 = 9.2056; p1 = -13.9847
+            return - 0.006033 * 6./beta * (1 + np.exp(p0 + p1*beta/6.))
+        def derivative(f):
+            return 0.5 * (np.roll(f, -1) - np.roll(f, 1)) 
+        def compute_PSA4I(PS_A4, PS_PS, beta):
+            PS_A4I = PS_A4 - compute_cA(beta) * derivative(PS_PS)
+            PS_A4I[0] = 0.; PS_A4I[-1] = 0
+            return PS_A4I
+        tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
+        self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PSA4I(x, y, beta), dst_tag=tag_PSA4I)
+ 
+
+    # fit range determination
+    def _determine_fit_range(self, tag, binsize): #, initial_fit_ranges, p0, model_type, verbosity):
+        message(f"CORRELATOR: {tag}")
+        #message(f"P0 = {p0}")
+        #message(f"BINSIZE = {binsize}", verbosity)
+        #message(f"MODEL = {model_type}")
+
+        binned_tag = self.db.add_binned_leaf(tag, binsize)
+        print(binned_tag)
+        print(self.db.database[binned_tag].mean)
+        print(self.db.database[binned_tag].jks)
+        #for t in initial_fit_ranges:
+        #    message(f"INITIAL FIT RANGE: {t}", verbosity)
+
+
+
+
+
+
+
+
+        #model = self._get_model(model_type, Nt)
+        #fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "fit_range_crit": np.arange(Nt), "model_type": model_type, "fit_type": "uncorrelated", "correlated_mean_fit": {"best_parameter": {}, "chi2": {}, "dof":{}, "p": {}}})
+        #for t in fit_ranges:
+        #    message(f"FIT RANGE: {t}", verbosity)
+        #    y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks_arr)}; cov = np.diag(var[t]) 
+        #    try:
+        #        best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+        #    except ConvergenceError as ce:
+        #        message(f"{ce} -> JUMP TO NEXT FIT RANGE")
+        #        message("---------------------------------------------------------------------------------", verbosity) 
+        #        message("---------------------------------------------------------------------------------", verbosity) 
+        #        continue
+        #    best_parameter = self._sort_params(best_parameter)
+        #    best_parameter_jks = {cfg:self._sort_params(best_parameter_jks[cfg]) for cfg in best_parameter_jks}
+        #    best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks, sorting_key=None)) 
+        #    for i in range(len(best_parameter)):
+        #        message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
+        #    message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
+        #    message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
+        #    try:
+        #        cov_corr = jackknife.covariance(jks_arr)[t][:,t]
+        #        fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
+        #        best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0); best_parameter_corr = self._sort_params(best_parameter_corr)
+        #        dof_corr = len(t) - len(best_parameter_corr)
+        #        pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
+        #        # store correlated fit results in db
+        #        fit_range_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
+        #        fit_range_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+        #        fit_range_lf.misc["correlated_mean_fit"]["dof"][binsize] = dof_corr
+        #        fit_range_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr
+        #        # print correlated mean fit results
+        #        message(f"parameter = {best_parameter_corr}")
+        #        message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
+        #    except ConvergenceError as ce:
+        #        message(f"{ce} for correlated mean fit")
+        #    criterion = np.abs([model(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
+        #    t_crit = t[criterion]
+        #    if len(t_crit) < 3:
+        #        message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 3 ELEMENTS -> JUMP TO NEXT FIT RANGE", verbosity)
+        #        message("---------------------------------------------------------------------------------", verbosity) 
+        #        message("---------------------------------------------------------------------------------", verbosity) 
+        #        continue
+        #    else:
+        #        message(f"DETERMINED FIT RANGE {t_crit}", verbosity)
+        #    if len(t_crit) < len(fit_range_lf.misc["fit_range_crit"]): 
+        #        fit_range_lf.misc["fit_range"] = t; fit_range_lf.misc["fit_range_crit"] = t_crit
+        #        fit_range_lf.mean = {binsize: best_parameter}
+        #        fit_range_lf.jks = {binsize: best_parameter_jks}
+        #        fit_range_lf.misc["chi2"] = {binsize: chi2}
+        #        fit_range_lf.misc["dof"] = {binsize: dof}
+        #        fit_range_lf.misc["p"] = {binsize: pval}
+        #    message("---------------------------------------------------------------------------------", verbosity) 
+        #    message("---------------------------------------------------------------------------------", verbosity) 
+        #self.db.database[f"{tag}/fit_range_fit"] = fit_range_lf
+        #return fit_range_lf.misc["fit_range_crit"], fit_range_lf.mean[binsize][:2]
+
+
+
+
 
 class Spectroscopy():
     def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, res_fit_method="Migrad", res_fit_params=None, num_proc=None):
@@ -316,10 +494,6 @@ class Spectroscopy():
             return combined_exp_model(t0, t1)
         else:
             raise Exception("Model not available")
-        
-    def _sort_params(self, p):
-        if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
-        else: return p
 
     def _get_fit_range(self, tag, binsize, fit_ranges, p0, model_type, verbosity):
         message(f"CORRELATOR: {tag}")

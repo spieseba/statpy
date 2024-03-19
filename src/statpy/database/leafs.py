@@ -1,15 +1,28 @@
 from statpy.log import message
 from statpy.database import custom_json as json
 import zlib
+from frozendict import frozendict
 
 class Leaf:
-    def __init__(self, mean, jks, sample, misc=None):
-        self.mean = mean
-        self.jks = jks
-        self.sample = sample
-        assert misc is None or isinstance(misc, dict)
-        self.misc = {} if misc is None else misc
+    def __init__(self, mean, jks, sample, misc):
+        self._mean = mean
+        self._jks = frozendict(jks) if jks is not None else jks
+        self._sample = frozendict(sample) if sample is not None else sample
+        self._misc = frozendict(misc) if misc is not None else misc
 
+    @property
+    def mean(self):
+        return self._mean
+    @property
+    def jks(self):
+        return self._jks #.copy() if self._jks is not None else None
+    @property
+    def sample(self):
+        return self._sample
+    @property
+    def misc(self):
+        return self._misc
+     
     def _to_dict(self):
         return {"mean": self.mean, "jks": self.jks, "sample": self.sample, "misc": self.misc}
     
@@ -30,7 +43,6 @@ class Leaf:
             message(f"{tag}: Checksum missing. Data may be corrupt.") 
         if tag is not None: del data["misc"]["tag"]
         return cls(**data)
-
     
 def calculate_checksum(data):
     data_json = json.dumps(data).encode('utf-8')  # Serialize as JSON first
