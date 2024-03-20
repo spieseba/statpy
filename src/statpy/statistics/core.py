@@ -1,17 +1,14 @@
 import numpy as np
 
 # binning
-def bin(data, b, *argv):
+def bin(data, b, weights=None):
+    assert b is not None
     if b == 1:
         return data
-    if len(argv) != 0:
-        w = argv[0]
+    w = np.ones(len(data)) if weights is None else weights
     Nb = len(data) // b # cut off data of last incomplete bin
-    bata = []
+    binned_data = []
     for i in range(Nb):
-        if len(argv) != 0:
-            mean = np.average(data[i*b:(i+1)*b], weights=w[i*b:(i+1)*b], axis=0)
-        else:
-            mean = np.mean(data[i*b:(i+1)*b], axis=0)
-        bata.append(mean)
-    return np.array(bata) 
+        mean = np.average(data[i*b:(i+1)*b], axis=0, weights=w[i*b:(i+1)*b])
+        binned_data.append(mean)
+    return np.array(binned_data) 
