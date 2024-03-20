@@ -14,7 +14,7 @@ from statpy.log import message
 from statpy.database import custom_json as json
 from statpy.database.leafs import Leaf
 from statpy.statistics import core as statistics
-from statpy.statistics import jackknife 
+from statpy.statistics import jackknife, bootstrap
 
 
 class DB:
@@ -71,10 +71,13 @@ class DB:
                 db[tag] = Leaf(None, None, sample, None)
             else:
                 if sample is not None:
-                    if mean is None or jks is None:
-                        nrwf = self.get_nrwf(tag)
-                        mean = np.average(self.as_array(sample), axis=0, weights=self.as_array(nrwf))
-                        jks = {cfg:( mean + (mean - sample[cfg]) * nrwf[cfg] / (len(sample) - nrwf[cfg]) ) for cfg in sample}                    
+                    if jks is None:
+                        sample_arr = self.as_array(sample)
+                        nrwf_arr = self.as_array(self.get_nrwf(tag))
+                        jks_arr = jackknife.sample(sample_arr, weights=nrwf_arr); jks = {cfg:jk for cfg,jk in zip(sample,jks_arr)}
+                        if mean is None:
+                            mean = np.mean(jks_arr, axis=0)
+                        #jks = {cfg:( mean + (mean - sample[cfg] * nrwf[cfg])  / (np.sum(self.as_array(nrwf)) - nrwf[cfg]) ) for cfg in sample}                    
                 db[tag] = Leaf(mean, jks, sample, misc) 
         else:
             message(f"{tag} already in database. Leaf not added.")
@@ -139,6 +142,39 @@ class DB:
         sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
         return np.array(list(sorted_d.values()))
 
+    ################################ JKS ######################################
+    
+    def combine(self, *tags, f=lambda x: x, dst_tag=None, combine_bss=False):
+        mean = self.combine_mean(*tags, f=f)
+        jks = self.combine_jks(*tags, f=f)
+        # combine bootstrap
+        misc = self.combine_bss() if combine_bss else None
+        if dst_tag is None:
+            return mean, jks, misc
+        self.add_leaf(dst_tag, mean, jks, None, misc)
+
+    def combine_mean(self, *tags, f=lambda x: x):
+        lfs = [self.database[tag] for tag in tags]
+        mean = f(*[lf.mean for lf in lfs])
+        return mean
+
+    def combine_jks(self, *tags, f=lambda x: x):
+        lfs = [self.database[tag] for tag in tags]
+        cfgs = np.unique(np.concatenate([list(lf.jks.keys()) for lf in lfs]))
+        xs = {cfg:[lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs] for cfg in cfgs}
+        if self.num_proc is None:
+            jks = {cfg:f(*x) for cfg,x in xs.items()}
+        else:
+            def wrapped_f(cfg, *x):
+                return cfg, f(*x)
+            message(f"Spawn {self.num_proc} processes to compute jackknife sample.", verbosity=self.verbosity-1)
+            with multiprocessing.Pool(self.num_proc) as pool:
+                jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
+        return jks
+    
+    def combine_bss(self):
+        return None
+
     ############################### SAMPLE ####################################
             
     def combine_sample(self, *tags, f=lambda x: x, dst_tag=None):
@@ -157,7 +193,7 @@ class DB:
         jks = self.jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
-        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=None)
+        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=None)
         return binned_tag
 
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
@@ -198,19 +234,21 @@ class DB:
 
     def jks(self, tag, binsize):
         lf = self.database[tag]
-        nrwf = self.get_nrwf(tag)
-        bsample = statistics.bin(self.as_array(lf.sample), binsize, self.as_array(nrwf))
-        bnrwf = statistics.bin(self.as_array(nrwf), binsize)
-        jks = jackknife.sample(bsample, bnrwf[:, None])
+        nrwf_arr = self.as_array(self.get_nrwf(tag))
+        bsample = statistics.bin(self.as_array(lf.sample), binsize, weights=nrwf_arr)
+        bnrwf = statistics.bin(nrwf_arr, binsize=binsize)
+        jks = jackknife.sample(bsample, weights=bnrwf)
         return jks
 
     def jackknife_variance(self, tag, binsize):
-        jks = self.database[f"{tag}/binsize{binsize}"].jks if f"{tag}/binsize{binsize}" in self.database else self.jks(tag, binsize)
-        return jackknife.variance(jks)
+        tags = [tag for tag in self.get_tags(tag) if f"binsize{binsize}" in tag]
+        jks = self.database[tags[0]].jks if len(tags) == 1 else self.jks(tag, binsize)
+        return jackknife.variance(self.as_array(jks))
 
     def jackknife_covariance(self, tag, binsize):
-        jks = self.database[f"{tag}/binsize{binsize}"].jks if f"{tag}/binsize{binsize}" in self.database else self.jks(tag, binsize)
-        return jackknife.covariance(jks)
+        tags = [tag for tag in self.get_tags(tag) if f"binsize{binsize}" in tag]
+        jks = self.database[tags[0]].jks if len(tags) == 1 else self.jks(tag, binsize)
+        return jackknife.covariance(self.as_array(jks))
     
     def sample_binning_study(self, tag, binsizes):
         message(f"Binning study with unbinned sample size: {len(self.database[tag].sample)}")
@@ -218,3 +256,15 @@ class DB:
         for b in binsizes:
             var[b] = self.jackknife_variance(tag, b)
         return var
+    
+    def load_bootstrap(self, branch_tag, fn):
+        bootstraps = np.loadtxt(fn, dtype=int)
+        with open(fn, "r") as f:
+            configlist = f.readlines()[3][:-1].replace("n", "-").split(" ")[1:]
+        message(f"Add bootstraps for {branch_tag} from {fn} to database.")
+        self.add_leaf(f"{branch_tag}/bootstraps", mean=bootstraps, jks=None, sample=None, misc={"configlist": configlist})
+
+    def bss(self, tag):
+        lf = self.database[tag]
+        bootstraps = self.database[f"{tag.split('/')[0]}/bootstraps"].mean
+        return bootstrap.sample(self.as_array(lf.sample), bootstraps, weights=self.as_array(self.get_nrwf(tag))) 

@@ -10,7 +10,7 @@ from statpy.fitting.core import Fitter, ConvergenceError
 from statpy.statistics import jackknife, bootstrap
 from statpy.database.leafs import Leaf
 
-from statpy.fitting.core import fitV1, fitMultipleV1
+from statpy.fitting.core import fit
 from numba import njit
 
 ### periodic boundary conditions ###
@@ -158,7 +158,7 @@ class double_exp_model:
         return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t), np.exp(-p[3]*t), p[2] * np.exp(-p[3]*t) * (-t)], dtype=object)  
     
 @njit
-def doubleexp_chi2(t, p, y, W):
+def double_exp_chi2(t, p, y, W):
     model = p[0] * np.exp(-p[1]*t) + p[2] * np.exp(-p[3]*t)
     return (model - y) @ W @ (model - y)
 
@@ -214,7 +214,7 @@ class combined_exp_model:
 ##############################################################################################################################
 ##############################################################################################################################
     
-class LatticeCharmSpectroscopy():
+class LatticeCharmToolkit():
     def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, res_fit_method=None, res_fit_params=None):
         self.db = db
         self.fit_method = fit_method
@@ -223,7 +223,7 @@ class LatticeCharmSpectroscopy():
         self.res_fit_params = self.fit_params if res_fit_params is None else res_fit_params
 
     # Wolfgangs hdf5 geometry 
-    def point_src_avg(self, Ct_tag, dst_tag):
+    def ptsrc_avg(self, Ct_tag, dst_tag):
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
 
     def tsrc_avg(self, Ctsrc_tags, dst_tag):
@@ -231,8 +231,6 @@ class LatticeCharmSpectroscopy():
         tmin = min(srcs_pos); tmax = max(srcs_pos)
         A4_in_tag = "A4" in Ctsrc_tags[0]
         self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs_pos, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag)
-        self.db.init_sample_means(dst_tag)
-        self.db.init_sample_jks(dst_tag)
 
     def _avg_obc_srcs(self, srcs, tmin, tmax, *Cts, antiperiodic=False):
         Ct_arr = np.ma.empty((2 * len(Cts), max(tmax - srcs[0], srcs[-1] - tmin))); Ct_arr.mask = True    
@@ -264,20 +262,26 @@ class LatticeCharmSpectroscopy():
  
 
     # fit range determination
-    def _determine_fit_range(self, tag, binsize): #, initial_fit_ranges, p0, model_type, verbosity):
+    def _determine_fit_range(self, tag, binsize, initial_fit_ranges, p0, model_type, verbosity):
         message(f"CORRELATOR: {tag}")
-        #message(f"P0 = {p0}")
-        #message(f"BINSIZE = {binsize}", verbosity)
-        #message(f"MODEL = {model_type}")
+        message(f"P0 = {p0}")
+        message(f"BINSIZE = {binsize}", verbosity)
+        message(f"MODEL = {model_type}")
+
+
 
         binned_tag = self.db.add_binned_leaf(tag, binsize)
-        print(binned_tag)
-        print(self.db.database[binned_tag].mean)
-        print(self.db.database[binned_tag].jks)
-        #for t in initial_fit_ranges:
-        #    message(f"INITIAL FIT RANGE: {t}", verbosity)
+        cov = self.db.jackknife_covariance(binned_tag, binsize); var = np.diag(cov)
+
+        Nt = len(self.db.database[tag].mean)        
+        for t in initial_fit_ranges:
+            message(f"INITIAL FIT RANGE: {t}", verbosity)
+            W = np.linalg.inv(np.diag(var[t]))
+            chi2_func = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W, Nt),
+                        "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[model_type]
 
 
+            fit(self.db, t, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, binsize, dst_tag=f"{binned_tag}/fit_range_fit")
 
 
 

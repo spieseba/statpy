@@ -2,8 +2,17 @@ import numpy as np
 from statpy.log import message
 from statpy.database.leafs import Leaf
 
+def sample(x, bootstraps, weights=None, f=lambda x: x):
+    N = len(x); D = x.ndim - 1 
+    B = bootstraps.shape[0]
+    w = np.ones(N) if weights is None else weights
+    bss = np.zeros(shape=(B,D))
+    for k,bs in enumerate(bootstraps):
+        bss[k] = f(np.average(x[bs], axis=0, weights=w[bs]))
+    return bss 
+
 # compute bootstrap sample from sample x with bootstraps and function f
-def sample(f, x, bootstraps, *argv):
+def sample_old(f, x, bootstraps, *argv):
     B = bootstraps.shape[0]; I = x.shape[1]
     nrwf = None
     if len(argv) != 0:
@@ -50,7 +59,7 @@ class Bootstrap():
         if self.bs_fn is not None:
             lf = self.db.database[tag]; x = np.array([lf.sample[cfg] for cfg in self.configlist])
             nrwf_lf = self.db.database[nrwf_tag]; nrwf = np.array([nrwf_lf.sample[cfg] for cfg in self.configlist])
-            bss = sample(lambda y: y, x, self.bootstraps, nrwf)
+            bss = sample_old(lambda y: y, x, self.bootstraps, nrwf)
             if lf.misc is None:
                 lf.misc = {"bss": bss}
             else:

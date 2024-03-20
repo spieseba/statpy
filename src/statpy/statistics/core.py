@@ -1,14 +1,15 @@
 import numpy as np
 
 # binning
-def bin(data, b, weights=None):
-    assert b is not None
-    if b == 1:
+def bin(data, binsize, weights=None):
+    assert binsize is not None
+    if binsize == 1:
         return data
-    w = np.ones(len(data)) if weights is None else weights
-    Nb = len(data) // b # cut off data of last incomplete bin
+    N = len(data)
+    w = np.ones(N) if weights is None else weights
+    Nb = N // binsize # cut off data of last incomplete bin
     binned_data = []
     for i in range(Nb):
-        mean = np.average(data[i*b:(i+1)*b], axis=0, weights=w[i*b:(i+1)*b])
+        mean = np.average(data[i*binsize:(i+1)*binsize], axis=0, weights=w[i*binsize:(i+1)*binsize])
         binned_data.append(mean)
     return np.array(binned_data) 

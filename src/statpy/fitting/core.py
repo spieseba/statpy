@@ -67,17 +67,15 @@ def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_f
     fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
     best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t], p0)[0]) 
     best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, chi2_func, y[t], best_parameter)[0]) 
-    misc = db.propagate_systematics(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t], p0)[0])
     chi2 = chi2_func(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
-    misc["t"] = t
-    misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    misc = {"t": t, "chi2": chi2, "dof": dof, "pval": pval}
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
 def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
@@ -89,18 +87,15 @@ def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_f
         return f.estimate_parameters(t, chi2_func, y, p)[0]
     best_parameter = db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
     best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
-    misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
     chi2 = chi2_func(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
     dof = len(t_tags) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
-    misc["t_tags"] = t_tags
-    misc["y_tags"] = y_tags
-    misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    misc = {"t_tags": t_tags, "y_tags": y_tags, "chi2": chi2, "dof": dof, "pval": pval}
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
         print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
 
