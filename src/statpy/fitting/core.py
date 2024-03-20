@@ -4,6 +4,7 @@ from scipy.integrate import quad
 from scipy.special import gamma
 from iminuit import Minuit
 from statpy.fitting.levenberg_marquardt import LevenbergMarquardt 
+from statpy.log import message
 
 # default Nelder-Mead parameter
 nm_parameter = {
@@ -62,23 +63,25 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ########################################################################## STATPY DB #############################################################################
 ##################################################################################################################################################################
 
-def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
+def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, perform_jks_fit=True, dst_tag=None, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
     fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
     best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t], p0)[0]) 
-    best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, chi2_func, y[t], best_parameter)[0]) 
+    best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, chi2_func, y[t], best_parameter)[0]) if perform_jks_fit else None
     chi2 = chi2_func(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
     misc = {"t": t, "chi2": chi2, "dof": dof, "pval": pval}
+    if dst_tag is None:
+        return best_parameter, best_parameter_jks, misc
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
-def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
+def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, perform_jks_fit=True, dst_tag=None, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
     tags = np.concatenate((t_tags, y_tags))
     fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
@@ -86,17 +89,19 @@ def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_f
         t = np.array(t); y = np.array(y)
         return f.estimate_parameters(t, chi2_func, y, p)[0]
     best_parameter = db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
-    best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
+    best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) if perform_jks_fit else None
     chi2 = chi2_func(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
     dof = len(t_tags) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
     misc = {"t_tags": t_tags, "y_tags": y_tags, "chi2": chi2, "dof": dof, "pval": pval}
+    if dst_tag is None:
+        return best_parameter, best_parameter_jks, misc
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
 
 
@@ -191,8 +196,8 @@ def fitV1(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jk
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
  
 def fitMultipleV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     assert len(p0) == len(model.parameter_gradient(1, p0)), f"len(p0) = {len(p0)} != len(best_parameter) = {len(model.parameter_gradient(1, p0))}"
@@ -216,5 +221,5 @@ def fitMultipleV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jk
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  

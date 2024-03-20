@@ -135,8 +135,11 @@ class DB:
 
     ################################ HELPER ###################################
 
-    def get_tags(self, filter_key=""):
-        return [tag for tag in self.database.keys() if filter_key in tag]
+    def get_tags(self, filter_key="", ends_with=False):
+        tags = [tag for tag in self.database.keys() if filter_key in tag]
+        if ends_with:
+            tags = [tag for tag in tags if tag.endswith(filter_key)]
+        return tags
     
     def as_array(self, dictionary):
         sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
@@ -190,6 +193,9 @@ class DB:
         self.add_leaf(dst_tag, None, None, f_sample, None)
 
     def add_binned_leaf(self, tag, binsize):
+        if binsize == 1:
+            message(f"{tag} is already in database. Nothing to do.")
+            return tag
         jks = self.jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
@@ -241,14 +247,14 @@ class DB:
         return jks
 
     def jackknife_variance(self, tag, binsize):
-        tags = [tag for tag in self.get_tags(tag) if f"binsize{binsize}" in tag]
-        jks = self.database[tags[0]].jks if len(tags) == 1 else self.jks(tag, binsize)
-        return jackknife.variance(self.as_array(jks))
+        tags = [tag for tag in self.get_tags(tag, ends_with=True) if f"binsize{binsize}" in tag]
+        jks = self.as_array(self.database[tags[0]].jks) if len(tags) == 1 else self.jks(tag, binsize)
+        return jackknife.variance(jks)
 
     def jackknife_covariance(self, tag, binsize):
-        tags = [tag for tag in self.get_tags(tag) if f"binsize{binsize}" in tag]
-        jks = self.database[tags[0]].jks if len(tags) == 1 else self.jks(tag, binsize)
-        return jackknife.covariance(self.as_array(jks))
+        tags = [tag for tag in self.get_tags(tag, ends_with=True) if f"binsize{binsize}" in tag]
+        jks = self.as_array(self.database[tags[0]].jks) if len(tags) == 1 else self.jks(tag, binsize)
+        return jackknife.covariance(jks)
     
     def sample_binning_study(self, tag, binsizes):
         message(f"Binning study with unbinned sample size: {len(self.database[tag].sample)}")

@@ -262,87 +262,163 @@ class LatticeCharmToolkit():
  
 
     # fit range determination
-    def _determine_fit_range(self, tag, binsize, initial_fit_ranges, p0, model_type, verbosity):
+    def determine_fit_range(self, tag, binsize, initial_fit_ranges, p0, model_type, verbosity):
+        def _sort_params(p):
+            if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
+            else: return p
         message(f"CORRELATOR: {tag}")
         message(f"P0 = {p0}")
         message(f"BINSIZE = {binsize}", verbosity)
         message(f"MODEL = {model_type}")
-
-
-
         binned_tag = self.db.add_binned_leaf(tag, binsize)
-        cov = self.db.jackknife_covariance(binned_tag, binsize); var = np.diag(cov)
-
-        Nt = len(self.db.database[tag].mean)        
+        cov = self.db.jackknife_covariance(binned_tag, binsize); var = np.diag(cov)        
+        Nt = len(self.db.database[binned_tag].mean) 
+        model_func = {"double-cosh": double_cosh_model(Nt),
+                      "double-exp": lambda t,p,y: double_exp_model()}[model_type]       
+        fit_range_dict = None
+        fit_range = initial_fit_ranges[0]
         for t in initial_fit_ranges:
-            message(f"INITIAL FIT RANGE: {t}", verbosity)
+            message(f"INITIAL FIT RANGE: [[{t[0]},{t[-1]}]]", verbosity)
             W = np.linalg.inv(np.diag(var[t]))
             chi2_func = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W, Nt),
-                        "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[model_type]
+                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[model_type]
+            try:
+                best_parameter, best_parameter_jks, misc = fit(self.db, t, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, binsize)
+            except ConvergenceError as ce:
+                message(f"{ce} -> JUMP TO NEXT FIT RANGE")
+                message("---------------------------------------------------------------------------------", verbosity) 
+                message("---------------------------------------------------------------------------------", verbosity) 
+                continue 
+            best_parameter = _sort_params(best_parameter); best_parameter_jks = {cfg: _sort_params(best_parameter_jks[cfg]) for cfg in best_parameter_jks}
+            best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks))
+            for i in range(len(best_parameter)):
+                message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
+            message(f"chi2 / dof = {misc['chi2']} / {misc['dof']} = {misc['chi2']/misc['dof']}, i.e., p = {misc['pval']:.2f}")  
+            message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
+            try:
+                W_correlated = np.linalg.inv(cov[t][:,t])
+                chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
+                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[model_type]
+                best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, binsize, perform_jks_fit=False)
+                best_parameter_correlated = _sort_params(best_parameter_correlated)
+                message(f"parameter = {best_parameter_correlated}")
+                message(f"chi2 / dof = {misc_correlated['chi2']} / {misc['dof']} = {misc_correlated['chi2']/misc_correlated['dof']}, i.e., p = {misc_correlated['pval']:.2f}", verbosity)
+            except ConvergenceError as ce:
+                message(f"{ce} for correlated mean fit") 
+            message("---------------------------------------------------------------------------------", verbosity) 
+            criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
+            t_crit = t[criterion]
+            if len(t_crit) < 3:
+                message(f"DETERMINED FIT RANGE [[{t_crit[0]},{t_crit[-1]}]] HAS FEWER THAN 3 ELEMENTS -> JUMP TO NEXT FIT RANGE", verbosity)
+                message("---------------------------------------------------------------------------------", verbosity) 
+                message("---------------------------------------------------------------------------------", verbosity) 
+                continue
+            else:
+                message(f"DETERMINED FIT RANGE [[{t_crit[0]},{t_crit[-1]}]]", verbosity)
+            if len(t_crit) < len(fit_range):
+                misc["fit_range_crit"] = t_crit
+                best_parameter = best_parameter[:2]; best_parameter_jks = {cfg:jk[:2] for cfg,jk in best_parameter_jks.items()}
+                fit_range_dict = {"tag": f"{binned_tag}/fit_range_fit", "mean":best_parameter, "jks":best_parameter_jks, "sample":None, "misc":misc}
+            message("---------------------------------------------------------------------------------", verbosity) 
+            message("---------------------------------------------------------------------------------", verbosity) 
+        self.db.add_leaf(**fit_range_dict)
+        return misc["fit_range_crit"]
+
+    def _mass_determination(self, tag, binsize, fit_range, p0, model_type, correlated, verbosity):
+        message(f"CORRELATOR: {tag}")
+        message(f"P0 = {p0}")
+        message(f"FIT RANGE {fit_range}") 
+        message(f"MODEL = {model_type}") 
+        for b in range(1, binsize+1):
+            message(f"BINSIZE = {b}", verbosity)
+            message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
+            binned_tag = self.db.add_binned_leaf(tag, binsize)
+            var = self.db.jackknife_variance(binned_tag, binsize)  
+            Nt = len(self.db.database[binned_tag].mean) 
+            W = np.linalg.inv(np.diag(var[fit_range]))
+            chi2_func = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W, Nt),
+                         "exp": lambda t,p,y: exp_chi2(t, p, y, W)}[model_type]
+            
 
 
-            fit(self.db, t, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, binsize, dst_tag=f"{binned_tag}/fit_range_fit")
+
+    def _spectroscopy(self, tag, binsize, fit_range, p0, model_type, correlated, verbosity):
+        message(f"CORRELATOR: {tag}")
+        message(f"P0 = {p0}")
+        message(f"FIT RANGE {fit_range}") 
+        message(f"MODEL = {model_type}")
+        best_lf = Leaf(mean={}, jks={}, sample=None,
+                       misc={"fit_range":fit_range, "model_type": model_type, "fit_type": {0: "uncorrelated", 1: "correlated"}[int(correlated)], 
+                             "fit_method": self.fit_method, "fit_params": self.fit_params, "res_fit_method": self.res_fit_method, "res_fit_params": self.res_fit_params,
+                             "chi2":{}, "dof":{}, "p":{}, "correlated_mean_fit": {"best_parameter":{}, "chi2":{}, "dof":{}, "p": {}}})
+        for b in range(1, binsize+1):
+            message(f"BINSIZE = {b}", verbosity)
+            message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
+            jks_arr_full = self.db.jks(tag, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])))
+            mean_full = np.mean(jks_arr_full, axis=0)
+            jks_arr = self.db.jks(tag, b, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])))[:,fit_range]
+            jks = {cfg:jk for cfg,jk in enumerate(jks_arr)}
+            mean = np.mean(jks_arr, axis=0)
+            Nt = len(mean_full)
+            model = self._get_model(model_type, Nt)
+            cov = jackknife.covariance(jks_arr) if correlated else np.diag(jackknife.variance(jks_arr))
+            best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(fit_range, mean, jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params) 
+            best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks, sorting_key=None))
+            # store jks fit results in db
+            best_lf.mean[b] = best_parameter
+            best_lf.jks[b] = best_parameter_jks
+            best_lf.misc["chi2"][b] = chi2; best_lf.misc["dof"][b] = dof; best_lf.misc["p"][b] = pval
+            # print jk fit results
+            for i in range(len(best_parameter)):
+                message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (jackknife)", verbosity)
+            message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
+            if b == 1 or b == binsize:
+                if best_lf.misc["fit_type"] == "uncorrelated":
+                    message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
+                    cov_corr = jackknife.covariance(jks_arr)
+                    fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
+                    try:
+                        best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(fit_range, fitter.chi_squared, mean, p0)
+                        dof_corr = len(fit_range) - len(best_parameter_corr)
+                        pval_corr = fitter.get_pvalue(chi2_corr, dof_corr)
+                        # store correlated fit results in db
+                        best_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
+                        best_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
+                        best_lf.misc["correlated_mean_fit"]["dof"][binsize] = dof_corr
+                        best_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr 
+                        # print correlated mean fit results
+                        message(f"parameter = {best_parameter_corr}")
+                        message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
+                    except ConvergenceError as ce:
+                        message(f"{ce} for correlated mean fit")
+                if b==1 and (("bss" in self.db.database[tag].misc) if (self.db.database[tag].misc is not None) else False):
+                    message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
+                    bss = self.db.database[tag].misc["bss"][:,fit_range]
+                    #mean_bss = np.mean(bss, axis=0)
+                    cov_bss = bootstrap.covariance(bss) if correlated else np.diag(bootstrap.variance(bss))
+                    best_parameter_bs, best_parameter_bss, chi2_bss, dof_bss, pval_bss = self._fit(fit_range, mean, bss, cov_bss, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+                    best_parameter_cov_bss = bootstrap.covariance(best_parameter_bss)
+                    # store bs fit results in db
+                    best_lf.misc["bss"] = best_parameter_bss 
+                    # print bs fit results
+                    for i in range(len(best_parameter_bs)):
+                        message(f"parameter[{i}] = {best_parameter_bs[i]} +- {best_parameter_cov_bss[i][i]**0.5} (bootstrap)", verbosity)
+                    message(f"chi2 / dof = {chi2_bss} / {dof_bss} = {chi2_bss/dof_bss}, i.e., p = {pval_bss}", verbosity)
+            message("---------------------------------------------------------------------------------", verbosity) 
+            message("---------------------------------------------------------------------------------", verbosity) 
+        self.db.database[f"{tag}/fit"] = best_lf
+        # store mass as separate leaf
+        m_mean = {}; m_jks = {}
+        for b in range(1, binsize+1):
+            m_mean[b] = self.db.database[f"{tag}/fit"].mean[b][1]
+            m_jks[b] = {j:p[1] for j,p in self.db.database[f"{tag}/fit"].jks[b].items()} 
+        m_bss = np.array([p[1] for p in best_lf.misc["bss"]]) if "bss" in best_lf.misc else None
+        self.db.add_Leaf(tag=f"{tag}/fit/m", mean=m_mean, jks=m_jks, sample=None, misc={"bss":m_bss}) 
 
 
 
 
 
-
-        #model = self._get_model(model_type, Nt)
-        #fit_range_lf = Leaf(mean=None, jks=None, sample=None, misc={"fit_range": np.arange(Nt), "fit_range_crit": np.arange(Nt), "model_type": model_type, "fit_type": "uncorrelated", "correlated_mean_fit": {"best_parameter": {}, "chi2": {}, "dof":{}, "p": {}}})
-        #for t in fit_ranges:
-        #    message(f"FIT RANGE: {t}", verbosity)
-        #    y = mean[t]; y_jks = {cfg:Ct[t] for cfg,Ct in enumerate(jks_arr)}; cov = np.diag(var[t]) 
-        #    try:
-        #        best_parameter, best_parameter_jks, chi2, dof, pval = self._fit(t, y, y_jks, cov, p0, model, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
-        #    except ConvergenceError as ce:
-        #        message(f"{ce} -> JUMP TO NEXT FIT RANGE")
-        #        message("---------------------------------------------------------------------------------", verbosity) 
-        #        message("---------------------------------------------------------------------------------", verbosity) 
-        #        continue
-        #    best_parameter = self._sort_params(best_parameter)
-        #    best_parameter_jks = {cfg:self._sort_params(best_parameter_jks[cfg]) for cfg in best_parameter_jks}
-        #    best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks, sorting_key=None)) 
-        #    for i in range(len(best_parameter)):
-        #        message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}", verbosity)
-        #    message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}", verbosity)
-        #    message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
-        #    try:
-        #        cov_corr = jackknife.covariance(jks_arr)[t][:,t]
-        #        fitter = Fitter(cov_corr, model, self.fit_method, self.fit_params)
-        #        best_parameter_corr, chi2_corr, _ = fitter.estimate_parameters(t, fitter.chi_squared, y, p0); best_parameter_corr = self._sort_params(best_parameter_corr)
-        #        dof_corr = len(t) - len(best_parameter_corr)
-        #        pval_corr = fitter.get_pvalue(chi2_corr, dof_corr) 
-        #        # store correlated fit results in db
-        #        fit_range_lf.misc["correlated_mean_fit"]["best_parameter"][binsize] = best_parameter_corr
-        #        fit_range_lf.misc["correlated_mean_fit"]["chi2"][binsize] = chi2_corr
-        #        fit_range_lf.misc["correlated_mean_fit"]["dof"][binsize] = dof_corr
-        #        fit_range_lf.misc["correlated_mean_fit"]["p"][binsize] = pval_corr
-        #        # print correlated mean fit results
-        #        message(f"parameter = {best_parameter_corr}")
-        #        message(f"chi2 / dof = {chi2_corr} / {dof_corr} = {chi2_corr/dof_corr}, i.e., p = {pval_corr}", verbosity)
-        #    except ConvergenceError as ce:
-        #        message(f"{ce} for correlated mean fit")
-        #    criterion = np.abs([model(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
-        #    t_crit = t[criterion]
-        #    if len(t_crit) < 3:
-        #        message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 3 ELEMENTS -> JUMP TO NEXT FIT RANGE", verbosity)
-        #        message("---------------------------------------------------------------------------------", verbosity) 
-        #        message("---------------------------------------------------------------------------------", verbosity) 
-        #        continue
-        #    else:
-        #        message(f"DETERMINED FIT RANGE {t_crit}", verbosity)
-        #    if len(t_crit) < len(fit_range_lf.misc["fit_range_crit"]): 
-        #        fit_range_lf.misc["fit_range"] = t; fit_range_lf.misc["fit_range_crit"] = t_crit
-        #        fit_range_lf.mean = {binsize: best_parameter}
-        #        fit_range_lf.jks = {binsize: best_parameter_jks}
-        #        fit_range_lf.misc["chi2"] = {binsize: chi2}
-        #        fit_range_lf.misc["dof"] = {binsize: dof}
-        #        fit_range_lf.misc["p"] = {binsize: pval}
-        #    message("---------------------------------------------------------------------------------", verbosity) 
-        #    message("---------------------------------------------------------------------------------", verbosity) 
-        #self.db.database[f"{tag}/fit_range_fit"] = fit_range_lf
-        #return fit_range_lf.misc["fit_range_crit"], fit_range_lf.mean[binsize][:2]
 
 
 
