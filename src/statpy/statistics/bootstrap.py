@@ -2,29 +2,15 @@ import numpy as np
 from statpy.log import message
 from statpy.database.leafs import Leaf
 
+# compute bootstrap sample from sample x with bootstraps and function f
 def sample(x, bootstraps, weights=None, f=lambda x: x):
-    N = len(x); D = x.ndim - 1 
+    N = len(x); D = x.shape[1]
     B = bootstraps.shape[0]
     w = np.ones(N) if weights is None else weights
     bss = np.zeros(shape=(B,D))
     for k,bs in enumerate(bootstraps):
         bss[k] = f(np.average(x[bs], axis=0, weights=w[bs]))
     return bss 
-
-# compute bootstrap sample from sample x with bootstraps and function f
-def sample_old(f, x, bootstraps, *argv):
-    B = bootstraps.shape[0]; I = x.shape[1]
-    nrwf = None
-    if len(argv) != 0:
-        nrwf = argv[0]
-    bss = np.zeros((B,I))
-    for b in range(B):
-        bs = bootstraps[b]
-        nrwf_bs = None
-        if nrwf is not None:
-            nrwf_bs = nrwf[bs] / np.mean(nrwf[bs])
-        bss[b] = f(np.average(x[bs], axis=0, weights=nrwf_bs))
-    return bss
 
 def variance(bss, mean=None):
     if mean is None: mean = np.mean(bss, axis=0)

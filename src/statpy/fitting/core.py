@@ -75,10 +75,7 @@ def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_f
         return best_parameter, best_parameter_jks, misc
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag)
-    if verbosity >= 0:
-        for i in range(len(best_parameter)):
-            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
-        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+    print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
 
 def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, perform_jks_fit=True, dst_tag=None, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
@@ -97,7 +94,15 @@ def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_f
         return best_parameter, best_parameter_jks, misc
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag)
+    print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
+
+def print_fit_results(best_parameter, best_parameter_cov, misc, verbosity=0):
     if verbosity >= 0:
-        for i in range(len(best_parameter)):
-            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT)")
-        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+        if best_parameter_cov is not None:
+            for i in range(len(best_parameter)):
+                message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5}")
+        else:
+            message(f"parameter = {best_parameter}")
+        if misc is not None: 
+            message(f"chi2 / dof = {misc['chi2']} / {misc['dof']} = {misc['chi2']/misc['dof']}, i.e., p = {misc['pval']:.2f}")  
+        

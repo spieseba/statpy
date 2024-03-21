@@ -93,8 +93,10 @@ class DB:
     def rename_leaf(self, old, new):
         if old in self.database:
             if new not in self.database:
-                old_lf = self.database[old]                
+                old_lf = self.database[old]         
+                message(f"Add {new} to database.")  
                 self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc)
+                self.remove_leaf(old)
             else:
                 message(f"{new} already in database. Leaf not added.")
         else:
@@ -136,11 +138,8 @@ class DB:
     ################################ HELPER ###################################
 
     def get_tags(self, filter_key="", ends_with=False):
-        tags = [tag for tag in self.database.keys() if filter_key in tag]
-        if ends_with:
-            tags = [tag for tag in tags if tag.endswith(filter_key)]
-        return tags
-    
+        return [tag for tag in self.database.keys() if filter_key in tag and (not ends_with or tag.endswith(filter_key))]
+        
     def as_array(self, dictionary):
         sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
         return np.array(list(sorted_d.values()))
@@ -175,10 +174,31 @@ class DB:
                 jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
         return jks
     
-    def combine_bss(self):
-        return None
+    def combine_bss(self, src, f=lambda x: x):
+        if isinstance(src, str):
+            bss = self.bss(src) 
+        elif isinstance(src, np.ndarray):
+            bss = src
+        else: 
+            assert 0, "Invalid bss type."
+        if self.num_proc is None:
+            return np.array([f(bs) for bs in bss])
+        else:
+            with multiprocessing.Pool(self.num_proc) as pool:
+                result = pool.map(f, bss)
+            return np.array(result)
 
     ############################### SAMPLE ####################################
+    
+    def add_binned_leaf(self, tag, binsize):
+        if binsize == 1:
+            message(f"{tag} is already in database. Nothing to do.")
+            return tag
+        jks = self.jks(tag, binsize)
+        mean = np.mean(jks, axis=0)
+        binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
+        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=None)
+        return binned_tag
             
     def combine_sample(self, *tags, f=lambda x: x, dst_tag=None):
         lfs = [self.database[tag] for tag in tags]
@@ -191,16 +211,6 @@ class DB:
         if dst_tag is None: 
             return f_sample
         self.add_leaf(dst_tag, None, None, f_sample, None)
-
-    def add_binned_leaf(self, tag, binsize):
-        if binsize == 1:
-            message(f"{tag} is already in database. Nothing to do.")
-            return tag
-        jks = self.jks(tag, binsize)
-        mean = np.mean(jks, axis=0)
-        binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
-        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=None)
-        return binned_tag
 
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
         lfs = [self.database[tag] for tag in tags]
@@ -246,14 +256,14 @@ class DB:
         jks = jackknife.sample(bsample, weights=bnrwf)
         return jks
 
-    def jackknife_variance(self, tag, binsize):
-        tags = [tag for tag in self.get_tags(tag, ends_with=True) if f"binsize{binsize}" in tag]
-        jks = self.as_array(self.database[tags[0]].jks) if len(tags) == 1 else self.jks(tag, binsize)
+    def jackknife_variance(self, tag, binsize=1):
+        assert ("binsize" not in tag) or (binsize == 1)
+        jks = self.as_array(self.database[tag].jks) if binsize == 1 else self.jks(tag, binsize)
         return jackknife.variance(jks)
 
-    def jackknife_covariance(self, tag, binsize):
-        tags = [tag for tag in self.get_tags(tag, ends_with=True) if f"binsize{binsize}" in tag]
-        jks = self.as_array(self.database[tags[0]].jks) if len(tags) == 1 else self.jks(tag, binsize)
+    def jackknife_covariance(self, tag, binsize=1):
+        assert ("binsize" not in tag) or (binsize == 1)
+        jks = self.as_array(self.database[tag].jks) if binsize == 1 else self.jks(tag, binsize)
         return jackknife.covariance(jks)
     
     def sample_binning_study(self, tag, binsizes):
@@ -269,8 +279,10 @@ class DB:
             configlist = f.readlines()[3][:-1].replace("n", "-").split(" ")[1:]
         message(f"Add bootstraps for {branch_tag} from {fn} to database.")
         self.add_leaf(f"{branch_tag}/bootstraps", mean=bootstraps, jks=None, sample=None, misc={"configlist": configlist})
+        self.database[f"{branch_tag}/bootstraps"].mean
 
     def bss(self, tag):
+        assert "binsize" not in tag, "Can only compute bss for unbinned leafs"
         lf = self.database[tag]
         bootstraps = self.database[f"{tag.split('/')[0]}/bootstraps"].mean
         return bootstrap.sample(self.as_array(lf.sample), bootstraps, weights=self.as_array(self.get_nrwf(tag))) 
