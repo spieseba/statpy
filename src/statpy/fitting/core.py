@@ -62,12 +62,14 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ########################################################################## STATPY DB #############################################################################
 ##################################################################################################################################################################
 
-def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, perform_jks_fit=True, dst_tag=None, verbosity=0):
+def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, perform_jks_fit=True, eval_offset=True, dst_tag=None, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
+    t_eval = t if eval_offset else np.arange(len(t))
+    if not eval_offset: assert len(t) == len(db.database[tag].mean)
     fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
-    best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t], p0)[0]) 
-    best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, chi2_func, y[t], best_parameter)[0]) if perform_jks_fit else None
-    chi2 = chi2_func(t, best_parameter, db.database[tag].mean[t])
+    best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], p0)[0])
+    best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, chi2_func, y[t_eval], best_parameter)[0]) if perform_jks_fit else None
+    chi2 = chi2_func(t, best_parameter, db.database[tag].mean[t_eval])
     dof = len(t) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
     misc = {"t": t, "chi2": chi2, "dof": dof, "pval": pval}

@@ -77,7 +77,8 @@ class DB:
                         jks_arr = jackknife.sample(sample_arr, weights=nrwf_arr); jks = {cfg:jk for cfg,jk in zip(sample,jks_arr)}
                         if mean is None:
                             mean = np.mean(jks_arr, axis=0)
-                        #jks = {cfg:( mean + (mean - sample[cfg] * nrwf[cfg])  / (np.sum(self.as_array(nrwf)) - nrwf[cfg]) ) for cfg in sample}                    
+                        #jks = {cfg:( mean + (mean - sample[cfg] * nrwf[cfg])  / (np.sum(self.as_array(nrwf)) - nrwf[cfg]) ) for cfg in sample}
+                message(f"Add {tag} to database.")                      
                 db[tag] = Leaf(mean, jks, sample, misc) 
         else:
             message(f"{tag} already in database. Leaf not added.")
@@ -93,8 +94,7 @@ class DB:
     def rename_leaf(self, old, new):
         if old in self.database:
             if new not in self.database:
-                old_lf = self.database[old]         
-                message(f"Add {new} to database.")  
+                old_lf = self.database[old]                
                 self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc)
                 self.remove_leaf(old)
             else:
