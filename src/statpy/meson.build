@@ -11,7 +11,7 @@ python.install_sources(
 )
 
 python.install_sources(
-  'fitting/__init__.py', 'fitting/core.py', 'fitting/levenberg_marquardt.py',
+  'fitting/__init__.py', 'fitting/core.py',
   pure: true,
   subdir: 'statpy/fitting'
 )
