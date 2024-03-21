@@ -63,9 +63,9 @@ class DB:
     def add_leaf(self, tag, mean, jks, sample, misc, database=None):
         db = self.database if database is None else database
         if tag not in db or self.dev_mode:
-            assert (isinstance(sample, dict) or sample==None)
-            assert (isinstance(jks, dict) or jks==None)
-            assert (isinstance(misc, dict) or misc==None)
+            assert (isinstance(sample, dict) or sample is None)
+            assert (isinstance(jks, dict) or jks is None)
+            assert (isinstance(misc, dict) or misc is None)
             if "rwf" in tag:
                 message(f"Add reweighting factors {tag} to database.", self.verbosity)
                 db[tag] = Leaf(None, None, sample, None)
