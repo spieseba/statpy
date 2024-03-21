@@ -1,15 +1,7 @@
 import numpy as np
-# import multiprocessing module and overwrite its Pickle class using dill
-import dill, multiprocessing
-dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-multiprocessing.reduction.ForkingPickler = dill.Pickler
-multiprocessing.reduction.dump = dill.dump
-
 from statpy.log import message
 from statpy.fitting.core import Fitter, ConvergenceError
 from statpy.statistics import jackknife, bootstrap
-from statpy.database.leafs import Leaf
-
 from statpy.fitting.core import fit, print_fit_results, get_pvalue
 from numba import njit
 
