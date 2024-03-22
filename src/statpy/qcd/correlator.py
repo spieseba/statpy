@@ -372,7 +372,7 @@ class LatticeCharmToolkit():
                                  "exp": lambda t,p,y: exp_chi2(t, p, y, W_bss)}[model_type]
                 best_parameter_bmean, best_parameter_bss, misc_bss = self._fit_bootstrap(fit_range, mean_bss, bss, best_parameter, chi2_func_bss)
                 print_fit_results(best_parameter_bmean, best_parameter_bss, misc_bss)
-                misc_bss["best_parameter_bss"] = best_parameter_bss
+                misc_bss["bss"] = best_parameter_bss
                 self.db.add_leaf(tag=f"{binned_tag}/{model_type}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
             self.db.add_leaf(tag=f"{binned_tag}/{model_type}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
             message("---------------------------------------------------------------------------------", verbosity) 
@@ -397,7 +397,7 @@ class LatticeCharmToolkit():
             self.db.add_leaf(f"{tag}/am", mean=lf.mean[1], jks={cfg:jk[1] for cfg,jk in lf.jks.items()}, sample=None, misc=None)
             if "binsize" not in tag:
                 bootstrap_tag = tag.replace("fit", "bootstrap_fit"); lf_bs = self.db.database[bootstrap_tag]  
-                self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"best_parameter_bss": lf_bs.misc["best_parameter_bss"]})
+                self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"]})
     
     def correlator_combined_fit(self, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, model_type_combined, verbosity=0):
         message("------------------ COMBINED CORRELATOR FIT PSPS/PSA4I ---------------------") 
@@ -446,7 +446,7 @@ class LatticeCharmToolkit():
                                  "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[model_type_combined]
                 best_parameter_bmean, best_parameter_bss, misc_bss = self._fit_bootstrap(fit_range_combined, mean_bss, bss, best_parameter, chi2_func_bss, eval_offset=False)
                 print_fit_results(best_parameter_bmean, best_parameter_bss, misc_bss)
-                misc_bss["best_parameter_bss"] = best_parameter_bss
+                misc_bss["bss"] = best_parameter_bss
                 self.db.add_leaf(tag=f"{binned_tag}/{model_type_combined}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
             self.db.add_leaf(tag=f"{binned_tag}/{model_type_combined}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
             message("------------------------------ BARE DECAY CONSTANT ------------------------------")
@@ -454,8 +454,8 @@ class LatticeCharmToolkit():
             if b == 1:
                 bootstrap_tag = f"{binned_tag}/{model_type_combined}_bootstrap_fit"
                 f_bare_bss_mean = bare_decay_constant(self.db.database[bootstrap_tag].mean)
-                f_bare_bss = self.db.combine_bss(self.db.database[bootstrap_tag].misc["best_parameter_bss"], f=bare_decay_constant)
-                self.db.add_leaf(tag=f"{bootstrap_tag}/f_bare", mean=f_bare_bss_mean, jks=None, sample=None, misc={"f_bare_bss": f_bare_bss})
+                f_bare_bss = self.db.combine_bss(self.db.database[bootstrap_tag].misc["bss"], f=bare_decay_constant)
+                self.db.add_leaf(tag=f"{bootstrap_tag}/f_bare", mean=f_bare_bss_mean, jks=None, sample=None, misc={"bss": f_bare_bss})
                 f_bare_bs_str = f"         {f_bare_bss_mean:.8f} +- {bootstrap.variance(f_bare_bss)**.5:.8f} (bootstrap)"
             message(f"f_bare = {self.db.database[f"{binned_tag}/{model_type_combined}_fit/f_bare"].mean:.8f} +- {self.db.jackknife_variance(f"{binned_tag}/{model_type_combined}_fit/f_bare")**.5:.8f} (jackknife)")
             if b == 1: message(f_bare_bs_str)
