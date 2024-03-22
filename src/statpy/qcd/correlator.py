@@ -315,7 +315,7 @@ class LatticeCharmToolkit():
             criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
             t_crit = t[criterion]
             if len(t_crit) < 3:
-                message(f"DETERMINED FIT RANGE [[{t_crit[0]},{t_crit[-1]}]] HAS FEWER THAN 3 ELEMENTS", verbosity)
+                message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 3 ELEMENTS", verbosity)
                 message(f"---> STORED FIT RANGE IS NOT UPDATED", verbosity)
                 message("---------------------------------------------------------------------------------", verbosity) 
                 message("---------------------------------------------------------------------------------", verbosity) 

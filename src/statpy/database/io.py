@@ -1,13 +1,20 @@
 import h5py, os
 import numpy as np
+from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, branch_tag):
+def load_CLS(fn, rwf_fn, tags, branch_tag, verbosity=0):
     assert os.path.isfile(fn), f"{fn} not found!"
+    message(f"---------------------------------")
+    message(f"Load CLS data from {fn}")
+    message(f"reweighting factors: {rwf_fn}")
+    message(f"tags: {tags}")
+    message(f"store as branch tag: {branch_tag}")
+    message(f"---------------------------------")
     # data
     f = h5py.File(fn, "r")
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
-    db = DB(verbosity=-1)
+    db = DB(verbosity=verbosity)
     # rwfs
     if rwf_fn is None:
         cfgs = f_cfgs 
