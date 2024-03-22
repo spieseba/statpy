@@ -196,7 +196,7 @@ def combined_cosh_sinh_chi2(t0, t1, p, y, W, Nt):
 
 # C0(t) = A0 * exp(-mt); A0 = p[0]; m = p[2]
 # C1(t) = A1 * exp(-mt); A1 = p[1]; m = p[2]
-class combined_exp_model:
+class combined_exp_exp_model:
     def __init__(self, t0, t1):
         self.t0 = t0
         self.t1 = t1
@@ -206,7 +206,7 @@ class combined_exp_model:
         return np.hstack((f0,f1)) 
     
 @njit
-def combined_exp_model_chi2(t0, t1, p, y, W):
+def combined_exp_exp_model_chi2(t0, t1, p, y, W):
     f0 = p[0] * np.exp(-p[2]*t0) 
     f1 = p[1] * np.exp(-p[2]*t1)
     model = np.hstack((f0,f1)) 
@@ -423,7 +423,7 @@ class LatticeCharmToolkit():
             var = self.db.jackknife_variance(binned_tag)  
             W = np.linalg.inv(np.diag(var))
             chi2_func = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W, Nt),
-                         "combined-exp": lambda t,p,y: combined_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[model_type_combined]
+                         "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[model_type_combined]
             best_parameter, best_parameter_jks, misc = fit(self.db, fit_range_combined, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, eval_offset=False)
             best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks)) 
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
@@ -432,7 +432,7 @@ class LatticeCharmToolkit():
                 try:
                     W_correlated = np.linalg.inv(self.db.jackknife_covariance(binned_tag))
                     chi2_func_correlated = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated, Nt),
-                                            "combined-exp": lambda t,p,y: combined_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated)}[model_type_combined]
+                                            "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated)}[model_type_combined]
                     best_parameter_correlated, _, misc_correlated = fit(self.db, fit_range_combined, binned_tag, best_parameter, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False, eval_offset=False)
                     print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
                     self.db.add_leaf(tag=f"{binned_tag}/{model_type_combined}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
@@ -443,7 +443,7 @@ class LatticeCharmToolkit():
                 bss = self.db.bss(binned_tag); mean_bss = self.db.database[binned_tag].mean
                 W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)))
                 chi2_func_bss = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss, Nt),
-                                 "combined-exp": lambda t,p,y: combined_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[model_type_combined]
+                                 "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[model_type_combined]
                 best_parameter_bmean, best_parameter_bss, misc_bss = self._fit_bootstrap(fit_range_combined, mean_bss, bss, best_parameter, chi2_func_bss, eval_offset=False)
                 print_fit_results(best_parameter_bmean, best_parameter_bss, misc_bss)
                 misc_bss["best_parameter_bss"] = best_parameter_bss
