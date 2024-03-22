@@ -18,7 +18,7 @@ from statpy.statistics import jackknife, bootstrap
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: (int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), dev_mode=False, repo_path=None):
+    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: (try_int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), dev_mode=False, repo_path=None):
         self.t0 = time()
         self.num_proc = num_proc
         self.verbosity = verbosity
@@ -140,9 +140,8 @@ class DB:
     def get_tags(self, filter_key="", ends_with=False):
         return [tag for tag in self.database.keys() if filter_key in tag and (not ends_with or tag.endswith(filter_key))]
         
-    def as_array(self, dictionary, sorting_key="default"):
-        sorting_key = self.sorting_key if sorting_key == "default" else sorting_key
-        sorted_d = dict(sorted(dictionary.items(), key=sorting_key))
+    def as_array(self, dictionary):
+        sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
         return np.array(list(sorted_d.values()))
 
     ################################ JKS ######################################
@@ -264,14 +263,12 @@ class DB:
 
     def jackknife_variance(self, tag, binsize=1):
         assert ("binsize" not in tag) or (binsize == 1)
-        sorting_key = lambda x : int(x[0].split("-")[-1]) if "binsize" in tag else "default"
-        jks = self.as_array(self.database[tag].jks, sorting_key) if binsize == 1 else self.jks(tag, binsize)
+        jks = self.as_array(self.database[tag].jks) if binsize == 1 else self.jks(tag, binsize)
         return jackknife.variance(jks)
 
     def jackknife_covariance(self, tag, binsize=1):
         assert ("binsize" not in tag) or (binsize == 1)
-        sorting_key = lambda x : int(x[0].split("-")[-1]) if "binsize" in tag else "default"
-        jks = self.as_array(self.database[tag].jks, sorting_key) if binsize == 1 else self.jks(tag, binsize)
+        jks = self.as_array(self.database[tag].jks) if binsize == 1 else self.jks(tag, binsize)
         return jackknife.covariance(jks)
     
     def sample_binning_study(self, tag, binsizes):
@@ -294,3 +291,11 @@ class DB:
         lf = self.database[tag]
         bootstraps = self.database[f"{tag.split('/')[0]}/bootstraps"].mean
         return bootstrap.sample(self.as_array(lf.sample), bootstraps, weights=self.as_array(self.get_nrwf(tag))) 
+
+
+# helper function to allow sorting of concatenated branch_tags without r
+def try_int(x):
+    try:
+        return int(x)
+    except ValueError:
+        return int(0)
