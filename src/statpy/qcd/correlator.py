@@ -266,20 +266,20 @@ class LatticeCharmToolkit():
         self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PSA4I(x, y, beta), dst_tag=tag_PSA4I)
  
 
-    def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, model_type, verbosity):
+    def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity):
         def _sort_params(p):
             if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
             else: return p
         message(f"CORRELATOR: {tag}")
         message(f"P0 = {p0}")
         message(f"BINSIZE = {binsize}", verbosity)
-        message(f"MODEL = {model_type}")
+        message(f"MODEL = {fit_model}")
         binned_tag = self.db.add_binned_leaf(tag, binsize)
         cov = self.db.jackknife_covariance(binned_tag); var = np.diag(cov)        
         Nt = len(self.db.database[binned_tag].mean) 
         model_func = {"double-cosh": double_cosh_model(Nt),
                       "double-sinh": double_sinh_model(Nt),
-                      "double-exp": double_exp_model()}[model_type]       
+                      "double-exp": double_exp_model()}[fit_model]       
         fit_range_dict = None
         fit_range = initial_fit_ranges[0]
         for t in initial_fit_ranges:
@@ -287,9 +287,10 @@ class LatticeCharmToolkit():
             W = np.linalg.inv(np.diag(var[t]))
             chi2_func = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W, Nt),
                          "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W, Nt),
-                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[model_type]
+                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[fit_model]
             try:
                 best_parameter, best_parameter_jks, misc = fit(self.db, t, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+                misc["fit_model"] = fit_model
             except ConvergenceError as ce:
                 message(f"{ce} -> JUMP TO NEXT FIT RANGE")
                 message("---------------------------------------------------------------------------------", verbosity) 
@@ -303,14 +304,16 @@ class LatticeCharmToolkit():
                 W_correlated = np.linalg.inv(cov[t][:,t])
                 chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
                                         "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
-                                        "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[model_type]
+                                        "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
                 best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                misc_correlated["fit_model"] = fit_model
                 best_parameter_correlated = _sort_params(best_parameter_correlated)
                 print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
                 correlated_converged = True
             except ConvergenceError as ce:
                 correlated_converged = False
                 message(f"{ce} for correlated mean fit") 
+                message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
             criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
             t_crit = t[criterion]
@@ -325,7 +328,6 @@ class LatticeCharmToolkit():
             if len(t_crit) <= len(fit_range):
                 message(f"---> STORED FIT RANGE IS UPDATED", verbosity)
                 misc["fit_range_crit"] = t_crit
-                best_parameter = best_parameter[:2]; best_parameter_jks = {cfg:jk[:2] for cfg,jk in best_parameter_jks.items()}
                 fit_range_dict = {"tag": f"{binned_tag}/fit_range_fit", "mean":best_parameter, "jks":best_parameter_jks, "sample":None, "misc":misc}
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
@@ -333,11 +335,11 @@ class LatticeCharmToolkit():
         self.db.add_leaf(**fit_range_dict)
         return misc["fit_range_crit"], best_parameter
 
-    def correlator_fit(self, tag, binsize, fit_range, p0, model_type, verbosity):
+    def correlator_fit(self, tag, binsize, fit_range, p0, fit_model, verbosity):
         message(f"CORRELATOR: {tag}")
         message(f"P0 = {p0}")
         message(f"FIT RANGE {fit_range}") 
-        message(f"MODEL = {model_type}") 
+        message(f"MODEL = {fit_model}") 
         for b in range(1, binsize+1):
             message(f"BINSIZE = {b}", verbosity)
             binned_tag = self.db.add_binned_leaf(tag, b)
@@ -347,8 +349,9 @@ class LatticeCharmToolkit():
             W = np.linalg.inv(np.diag(var[fit_range]))
             chi2_func = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W, Nt),
                          "sinh": lambda t,p,y: sinh_chi2(t, p, y, W, Nt),
-                         "exp": lambda t,p,y: exp_chi2(t, p, y, W)}[model_type]
+                         "exp": lambda t,p,y: exp_chi2(t, p, y, W)}[fit_model]
             best_parameter, best_parameter_jks, misc = fit(self.db, fit_range, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+            misc["fit_model"] = fit_model
             best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks)) 
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
             if b in [1,binsize]:
@@ -357,24 +360,27 @@ class LatticeCharmToolkit():
                     W_correlated = np.linalg.inv(self.db.jackknife_covariance(binned_tag)[fit_range][:,fit_range])
                     chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
                                             "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_correlated, Nt),
-                                            "exp": lambda t,p,y: exp_chi2(t, p, y, W_correlated)}[model_type]
+                                            "exp": lambda t,p,y: exp_chi2(t, p, y, W_correlated)}[fit_model]
                     best_parameter_correlated, _, misc_correlated = fit(self.db, fit_range, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                    misc_correlated["fit_model"] = fit_model
                     print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
-                    self.db.add_leaf(tag=f"{binned_tag}/{model_type}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
+                    self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
                 except ConvergenceError as ce:
                     message(f"{ce} for correlated mean fit") 
+                    message("---------------------------------------------------------------------------------", verbosity) 
             if b == 1:
                 message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.bss(binned_tag); mean_bss = self.db.database[binned_tag].mean
                 W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)[fit_range]))
                 chi2_func_bss = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_bss, Nt),
                                  "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_bss, Nt),
-                                 "exp": lambda t,p,y: exp_chi2(t, p, y, W_bss)}[model_type]
+                                 "exp": lambda t,p,y: exp_chi2(t, p, y, W_bss)}[fit_model]
                 best_parameter_bmean, best_parameter_bss, misc_bss = self._fit_bootstrap(fit_range, mean_bss, bss, best_parameter, chi2_func_bss)
                 print_fit_results(best_parameter_bmean, best_parameter_bss, misc_bss)
+                misc_bss["fit_model"] = fit_model
                 misc_bss["bss"] = best_parameter_bss
-                self.db.add_leaf(tag=f"{binned_tag}/{model_type}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
-            self.db.add_leaf(tag=f"{binned_tag}/{model_type}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
+                self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
+            self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
 
@@ -399,17 +405,17 @@ class LatticeCharmToolkit():
                 bootstrap_tag = tag.replace("fit", "bootstrap_fit"); lf_bs = self.db.database[bootstrap_tag]  
                 self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"]})
     
-    def correlator_combined_fit(self, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, model_type_combined, verbosity=0):
+    def correlator_combined_fit(self, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, verbosity=0):
         message("------------------ COMBINED CORRELATOR FIT PSPS/PSA4I ---------------------") 
-        model_type_PS = model_type_combined.split("-")[1]
-        model_type_A4I = model_type_combined.split("-")[2]
+        fit_model_PS = fit_model_combined.split("-")[1]
+        fit_model_A4I = fit_model_combined.split("-")[2]
         message(f"PSPS correlator: {tag_PS}")
         message(f"PSPS - FIT RANGE {fit_range_PS}") 
-        message(f"PSPS - model: {model_type_PS}")
+        message(f"PSPS - model: {fit_model_PS}")
         message(f"PSA4I correlator: {tag_A4I}")
         message(f"PSA4I - FIT RANGE {fit_range_A4I}") 
-        message(f"PSA4I - model: {model_type_A4I}")
-        message(f"combined model: {model_type_combined}")
+        message(f"PSA4I - model: {fit_model_A4I}")
+        message(f"combined model: {fit_model_combined}")
         message(f"P0 = {p0}")
 
         Nt = len(self.db.database[tag_PS].mean)
@@ -423,8 +429,10 @@ class LatticeCharmToolkit():
             var = self.db.jackknife_variance(binned_tag)  
             W = np.linalg.inv(np.diag(var))
             chi2_func = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W, Nt),
-                         "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[model_type_combined]
+                         "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[fit_model_combined]
             best_parameter, best_parameter_jks, misc = fit(self.db, fit_range_combined, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, eval_offset=False)
+            misc["fit_model_PSPS"] = fit_model_PS; misc["fit_model_PSA4I"] = fit_model_A4I; misc["fit_model"] = fit_model_combined
+            misc["t_PSPS"] = fit_range_PS; misc["t_PSA4I"] = fit_range_A4I
             best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks)) 
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
             if b in [1,binsize]:
@@ -432,32 +440,37 @@ class LatticeCharmToolkit():
                 try:
                     W_correlated = np.linalg.inv(self.db.jackknife_covariance(binned_tag))
                     chi2_func_correlated = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated, Nt),
-                                            "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated)}[model_type_combined]
+                                            "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated)}[fit_model_combined]
                     best_parameter_correlated, _, misc_correlated = fit(self.db, fit_range_combined, binned_tag, best_parameter, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False, eval_offset=False)
+                    misc_correlated["fit_model_PSPS"] = fit_model_PS; misc_correlated["fit_model_PSA4I"] = fit_model_A4I; misc_correlated["fit_model"] = fit_model_combined
+                    misc_correlated["t_PSPS"] = fit_range_PS; misc_correlated["t_PSA4I"] = fit_range_A4I
                     print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
-                    self.db.add_leaf(tag=f"{binned_tag}/{model_type_combined}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
+                    self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
                 except ConvergenceError as ce:
                     message(f"{ce} for correlated mean fit") 
+                    message("---------------------------------------------------------------------------------", verbosity) 
             if b == 1:
                 message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.bss(binned_tag); mean_bss = self.db.database[binned_tag].mean
                 W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)))
                 chi2_func_bss = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss, Nt),
-                                 "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[model_type_combined]
+                                 "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[fit_model_combined]
                 best_parameter_bmean, best_parameter_bss, misc_bss = self._fit_bootstrap(fit_range_combined, mean_bss, bss, best_parameter, chi2_func_bss, eval_offset=False)
+                misc_bss["fit_model_PSPS"] = fit_model_PS; misc_bss["fit_model_PSA4I"] = fit_model_A4I; misc_bss["fit_model"] = fit_model_combined
+                misc_bss["t_PSPS"] = fit_range_PS; misc_bss["t_PSA4I"] = fit_range_A4I
                 print_fit_results(best_parameter_bmean, best_parameter_bss, misc_bss)
                 misc_bss["bss"] = best_parameter_bss
-                self.db.add_leaf(tag=f"{binned_tag}/{model_type_combined}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
-            self.db.add_leaf(tag=f"{binned_tag}/{model_type_combined}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
+                self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
+            self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
             message("------------------------------ BARE DECAY CONSTANT ------------------------------")
-            self.db.combine(f"{binned_tag}/{model_type_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_tag}/{model_type_combined}_fit/f_bare")
+            self.db.combine(f"{binned_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_tag}/{fit_model_combined}_fit/f_bare")
             if b == 1:
-                bootstrap_tag = f"{binned_tag}/{model_type_combined}_bootstrap_fit"
+                bootstrap_tag = f"{binned_tag}/{fit_model_combined}_bootstrap_fit"
                 f_bare_bss_mean = bare_decay_constant(self.db.database[bootstrap_tag].mean)
                 f_bare_bss = self.db.combine_bss(self.db.database[bootstrap_tag].misc["bss"], f=bare_decay_constant)
                 self.db.add_leaf(tag=f"{bootstrap_tag}/f_bare", mean=f_bare_bss_mean, jks=None, sample=None, misc={"bss": f_bare_bss})
                 f_bare_bs_str = f"         {f_bare_bss_mean:.8f} +- {bootstrap.variance(f_bare_bss)**.5:.8f} (bootstrap)"
-            message(f"f_bare = {self.db.database[f"{binned_tag}/{model_type_combined}_fit/f_bare"].mean:.8f} +- {self.db.jackknife_variance(f"{binned_tag}/{model_type_combined}_fit/f_bare")**.5:.8f} (jackknife)")
+            message(f"f_bare = {self.db.database[f"{binned_tag}/{fit_model_combined}_fit/f_bare"].mean:.8f} +- {self.db.jackknife_variance(f"{binned_tag}/{fit_model_combined}_fit/f_bare")**.5:.8f} (jackknife)")
             if b == 1: message(f_bare_bs_str)
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
