@@ -280,7 +280,7 @@ class LatticeCharmToolkit():
         model_func = {"double-cosh": double_cosh_model(Nt),
                       "double-sinh": double_sinh_model(Nt),
                       "double-exp": double_exp_model()}[fit_model]       
-        fit_range_dict = None
+        fit_range_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         fit_range = initial_fit_ranges[0]
         for t in initial_fit_ranges:
             message(f"INITIAL FIT RANGE: [[{t[0]},{t[-1]}]]", verbosity)
@@ -327,13 +327,16 @@ class LatticeCharmToolkit():
                 message(f"DETERMINED FIT RANGE [[{t_crit[0]},{t_crit[-1]}]]", verbosity)
             if len(t_crit) <= len(fit_range):
                 message(f"---> STORED FIT RANGE IS UPDATED", verbosity)
-                misc["fit_range_crit"] = t_crit
-                fit_range_dict = {"tag": f"{binned_tag}/fit_range_fit", "mean":best_parameter, "jks":best_parameter_jks, "sample":None, "misc":misc}
+                fit_range_dict["tag"] = f"{binned_tag}/fit_range_fit"
+                fit_range_dict["mean"] = best_parameter
+                fit_range_dict["jks"] = best_parameter_jks
+                misc["fit_range_crit"] = t_crit; fit_range = t_crit
+                fit_range_dict["misc"] = misc
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         if correlated_converged: self.db.add_leaf(tag=f"{binned_tag}/correlated_fit_range_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
         self.db.add_leaf(**fit_range_dict)
-        return misc["fit_range_crit"], best_parameter
+        return fit_range_dict["misc"]["fit_range_crit"], best_parameter
 
     def correlator_fit(self, tag, binsize, fit_range, p0, fit_model, verbosity):
         message(f"CORRELATOR: {tag}")
