@@ -1,38 +1,6 @@
 import binascii, os, re, struct, sys
 import numpy as np
-from statpy.database import custom_json as json
-from statpy.database.leafs import Leaf 
-
-class Database_IO:
-    def __init__(self):
-        self.database = {}
-
-    def store(self, key, value):
-        self.database[key] = value
-
-    def save(self, dst):
-        with open(dst, "w") as f:
-            json.dump(self.database, f)
-
-    def create_SAMPLE_DB(self, src_dir, src_tags, branch_tag, leaf_prefix, filter_str=None, dst_tags=None, dst=None):
-        print("THIS METHOD IS DEPRECATED AND WILL BE REMOVED SOMETIME IN THE FUTURE")
-        assert dst is not None
-        filenames = [os.path.join(src_dir, f) for f in os.listdir(src_dir) if (os.path.isfile(os.path.join(src_dir, f)))]
-        if filter_str is not None:
-            filenames = [x for x in filenames if filter_str in x]
-        filenames = sorted(filenames, key=lambda x: int(x.split("ckpoint_lat.")[-1].split(".")[0]))
-        cfgs = [branch_tag + "-" + x.split("ckpoint_lat.")[-1].split(".")[0] for x in filenames]
-        if dst_tags is None:
-            dst_tags = src_tags
-        for stag, dtag in zip(src_tags, dst_tags):
-            print(f"store {stag} as {dtag} in database")
-            sample = {}
-            for cfg, fn in zip(cfgs, filenames):
-                with open(fn) as f:
-                    data = json.load(f)
-                sample[cfg] = data[stag] 
-            self.database[f"{leaf_prefix}/{dtag}"] = Leaf(mean=None, jks=None, sample=sample)
-        self.save(dst)
+from statpy.log import message
 
 class GPT_IO:
     def __init__(self):
@@ -89,9 +57,9 @@ class GPT_IO:
             o[istep*j + i0] = i[j]
         return o
 
-    def load(self, fn, pattern, verbosity=0):
-        f=open(fn,"rb")
+    def load(self, fn, pattern, verbosity=-1):
         try:
+            f=open(fn,"rb")
             while True:
                 rd=f.read(4)
                 if len(rd) == 0:
@@ -116,14 +84,43 @@ class GPT_IO:
                         print("Data corrupted!")
                         f.close()
                         sys.exit(1)
-                    if verbosity > 0: print(f"Tag[{tag[0:-1].decode('ascii'):s}]] Size[{ln:d}] Flags[{self._flag_str(flags):s}] CRC32[{crc32:X}]")
+                    message(f"Tag[{tag[0:-1].decode('ascii'):s}]] Size[{ln:d}] Flags[{self._flag_str(flags):s}] CRC32[{crc32:X}]", verbosity=verbosity)
                     corr = []
                     if flags != self.R_EMPTY:
                         for j in range(ln):
                             corr.append(rd[j*2+0]+1j*rd[j*2+1])
+                    f.close()
                     return match.string, np.array(corr)
                 else:
                     f.seek(lnr*16 // nf,1)
             f.close()
         except:
            raise
+
+    def get_tags(self, fn, pattern, verbosity=-1):
+        try:
+            f=open(fn,"rb")
+            tags = []
+            while True:
+                rd = f.read(4)
+                if len(rd) == 0:
+                    break
+                ntag=struct.unpack('i', rd)[0]
+                tag=f.read(ntag)
+                (crc32,ln,flags)=struct.unpack('IHH', f.read(4*2))
+                nf = 1
+                if flags & (self.R_REAL|self.R_IMAG):
+                    nf = 2
+                if flags & (self.R_SYMM|self.R_ASYMM):
+                    ln = ln/2+1
+                if flags & self.R_EMPTY:
+                    ln = 0
+                message(f"Tag[{tag[0:-1]}] Size[{ln}] Flags[{self._flag_str(flags)}] CRC32[{crc32}]", verbosity=verbosity)
+                match = re.search(pattern, tag[0:-1].decode("ascii"))
+                if match:
+                    tags.append(match.string)
+                f.seek(ln*16 // nf,1)
+            f.close()
+            return np.array(tags)
+        except:
+            raise
