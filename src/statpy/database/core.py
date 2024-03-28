@@ -1,4 +1,4 @@
-import os, subprocess
+import os, subprocess, re
 import numpy as np
 from time import time
 from functools import reduce
@@ -96,15 +96,15 @@ class DB:
             message(f"{old} not in database.")
  
     ################################## VERBOSITY #######################################
-    
-    def print(self, filter_key="", verbosity=None):
+   
+    def print(self, pattern=".*", verbosity=None):
         verbosity = self.verbosity if verbosity is None else verbosity
-        message(self.__str__(filter_key, verbosity))    
-
-    def __str__(self, key, verbosity):
+        message(self.__str__(pattern, verbosity))    
+    
+    def __str__(self, pattern, verbosity):
         s = '\n\n\tDatabase consists of\n\n'
         for tag, lf in self.database.items():
-            if key in tag:
+            if re.search(pattern, tag):
                 s += f'\t{tag:20s}\n'
                 if verbosity >= 1:
                     if np.array(lf.mean).any() != None:
@@ -130,9 +130,15 @@ class DB:
 
     ################################ HELPER ###################################
 
+<<<<<<< HEAD
     def get_tags(self, filter_key=""):
         return [tag for tag in self.database.keys() if filter_key in tag]
     
+=======
+    def get_tags(self, pattern=".*"):
+        return [tag for tag in self.database.keys() if re.search(pattern, tag)]
+ 
+>>>>>>> dc54fa4 (use regular expressions instead of filter keys)
     def as_array(self, dictionary):
         sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
         return np.array(list(sorted_d.values()))
