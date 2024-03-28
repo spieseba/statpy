@@ -68,11 +68,12 @@ class DB:
             assert (isinstance(jks, dict) or jks==None)
             assert (isinstance(misc, dict) or misc==None)
             # compute mean and jks if necessary and possible
-            if (sample is not None) and (not isinstance(sample,dict)):
-                if mean is None:
-                    mean = np.mean(self.as_array(sample), axis=0)
-                if jks is None:
-                    jks = {cfg:( mean + (mean - sample[cfg]) / (len(sample) - 1) ) for cfg in sample}
+            if sample is not None: 
+                if not isinstance(next(iter(sample.values())), dict):
+                    if mean is None:
+                        mean = np.mean(self.as_array(sample), axis=0)
+                    if jks is None:
+                        jks = {cfg:( mean + (mean - sample[cfg]) / (len(sample) - 1) ) for cfg in sample}
             db[tag] = Leaf(mean, jks, sample, misc)
         else:
             message(f"{tag} already in database. Leaf not added.")
