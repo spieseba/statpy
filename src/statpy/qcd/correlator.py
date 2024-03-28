@@ -264,7 +264,32 @@ class LatticeCharmToolkit():
             return PS_A4I
         tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
         self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PSA4I(x, y, beta), dst_tag=tag_PSA4I)
+
+    def get_p0_guess(self, tag, binsize, fit_model):
+        assert fit_model in ["double-cosh", "double-sinh"]
+        message(f"Get p0 guess for {fit_model} fit model with {tag} and binsize = {binsize}")
+
+        binned_tag = self.db.add_binned_leaf(tag, binsize)     
+        Ct_mean = self.db.database[binned_tag].mean; Nt = len(Ct_mean)
+
+        effective_mass = {"double-cosh": effective_mass_acosh2, "double-sinh": effective_mass_acosh1, "double-exp": effective_mass_log2}[fit_model]
+        effective_amplitude = {"double-cosh": effective_amplitude_cosh, "double-sinh": effective_amplitude_sinh, "double-exp": effective_amplitude_exp}[fit_model]
+
+        t0_probe = slice(Nt//2 - 5, Nt//2 - 1)
+        m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe])
+        A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe]) 
+        message(f"estimated p[0] = {A0_eff}, p[1] = {m0_eff}")
  
+        single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": double_exp_model()}[fit_model]
+
+        Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff])
+        Ct_excited = Ct_mean - Ct_ground
+        t1_probe = slice(3,8)
+        m1_eff = np.mean(effective_mass(Ct_excited)[t1_probe])
+        A1_eff = np.mean(effective_amplitude(Ct_excited, m1_eff)[t1_probe]) 
+        message(f"estimated p[2] = {A1_eff}, p[3] = {m1_eff}")
+
+        return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
     def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity):
         def _sort_params(p):
