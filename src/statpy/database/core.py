@@ -130,15 +130,9 @@ class DB:
 
     ################################ HELPER ###################################
 
-<<<<<<< HEAD
-    def get_tags(self, filter_key=""):
-        return [tag for tag in self.database.keys() if filter_key in tag]
-    
-=======
     def get_tags(self, pattern=".*"):
         return [tag for tag in self.database.keys() if re.search(pattern, tag)]
  
->>>>>>> dc54fa4 (use regular expressions instead of filter keys)
     def as_array(self, dictionary):
         sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
         return np.array(list(sorted_d.values()))
