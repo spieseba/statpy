@@ -268,7 +268,7 @@ class LatticeCharmToolkit():
 
     # automatic p0 guess
     def get_p0_guess(self, tag, binsize, fit_model, fit_range):
-        assert fit_model in ["double-cosh", "double-sinh"]
+        assert fit_model in ["double-cosh", "double-sinh", "double-exp"]
         message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
         binned_tag = self.db.add_binned_leaf(tag, binsize)     
         Ct_mean = self.db.database[binned_tag].mean; Nt = len(Ct_mean)
