@@ -3,7 +3,7 @@ import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, branch_tag, verbosity=0):
+def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0):
     assert os.path.isfile(fn), f"{fn} not found!"
     message(f"---------------------------------")
     message(f"Load CLS data from {fn}")
@@ -31,6 +31,8 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, verbosity=0):
     for t in tags:
         for key in f.keys():
             if t in key:
+                if "SRCPOS" in key and exclude_SRCPOS:
+                    continue
                 sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(cfgs, f.get(key)[cfgs-1])}
                 db.add_leaf(tag=f"{branch_tag}/{key}", mean=None, jks=None, sample=sample, misc=None)
     return db
