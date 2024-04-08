@@ -4,6 +4,7 @@ from statpy.fitting.core import Fitter, ConvergenceError
 from statpy.statistics import jackknife, bootstrap
 from statpy.fitting.core import fit, print_fit_results, get_pvalue
 from numba import njit
+import warnings
 
 ### periodic boundary conditions ###
 def effective_mass_acosh1(Ct):
@@ -265,30 +266,35 @@ class LatticeCharmToolkit():
         tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
         self.db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PSA4I(x, y, beta), dst_tag=tag_PSA4I)
 
-    def get_p0_guess(self, tag, binsize, fit_model):
+    # automatic p0 guess
+    def get_p0_guess(self, tag, binsize, fit_model, fit_range):
         assert fit_model in ["double-cosh", "double-sinh"]
-        message(f"Get p0 guess for {fit_model} fit model with {tag} and binsize = {binsize}")
-
+        message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
         binned_tag = self.db.add_binned_leaf(tag, binsize)     
         Ct_mean = self.db.database[binned_tag].mean; Nt = len(Ct_mean)
-
         effective_mass = {"double-cosh": effective_mass_acosh2, "double-sinh": effective_mass_acosh1, "double-exp": effective_mass_log2}[fit_model]
         effective_amplitude = {"double-cosh": effective_amplitude_cosh, "double-sinh": effective_amplitude_sinh, "double-exp": effective_amplitude_exp}[fit_model]
-
-        t0_probe = slice(Nt//2 - 5, Nt//2 - 1)
-        m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe])
-        A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe]) 
+        single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
+        # ground state parameters
+        t0_probe = slice(Nt//4, Nt//4 + Nt//8) # appears to be more stable when using multiple time slices
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning) 
+            m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe]) #m0_eff = effective_mass(Ct_mean_fit_range[Nt_fit_range//2 - 3])
+            A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe]) #A0_eff = effective_amplitude(Ct_mean_fit_range[Nt_fit_range//2 - 3])
         message(f"estimated p[0] = {A0_eff}, p[1] = {m0_eff}")
- 
-        single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": double_exp_model()}[fit_model]
-
-        Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff])
+        # excited state parameters
+        Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff]) 
         Ct_excited = Ct_mean - Ct_ground
-        t1_probe = slice(3,8)
-        m1_eff = np.mean(effective_mass(Ct_excited)[t1_probe])
-        A1_eff = np.mean(effective_amplitude(Ct_excited, m1_eff)[t1_probe]) 
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            #print("effective mass:", effective_mass(Ct_excited))
+            #m1_eff = effective_mass(Ct_excited)[fit_range[0]]
+            #print("effective amplitude:", effective_amplitude(Ct_excited, m1_eff))
+            #print("idx:", fit_range[0])
+            #exit()
+            m1_eff = effective_mass(Ct_excited)[fit_range[0]]
+            A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
         message(f"estimated p[2] = {A1_eff}, p[3] = {m1_eff}")
-
         return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
     def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity):
@@ -296,7 +302,10 @@ class LatticeCharmToolkit():
             if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
             else: return p
         message(f"CORRELATOR: {tag}")
-        message(f"P0 = {p0}")
+        if p0 is None:
+            message(f"P0 is inferred for each initial fit range automatically.")
+        else:
+            message(f"P0 = {p0}")
         message(f"BINSIZE = {binsize}", verbosity)
         message(f"MODEL = {fit_model}")
         binned_tag = self.db.add_binned_leaf(tag, binsize)
@@ -313,8 +322,9 @@ class LatticeCharmToolkit():
             chi2_func = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W, Nt),
                          "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W, Nt),
                          "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[fit_model]
+            p0_tmp = self.get_p0_guess(tag, binsize, fit_model, t) if p0 is None else p0
             try:
-                best_parameter, best_parameter_jks, misc = fit(self.db, t, binned_tag, p0, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
+                best_parameter, best_parameter_jks, misc = fit(self.db, t, binned_tag, p0_tmp, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
                 misc["fit_model"] = fit_model
             except ConvergenceError as ce:
                 message(f"{ce} -> JUMP TO NEXT FIT RANGE")
@@ -330,7 +340,7 @@ class LatticeCharmToolkit():
                 chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
                                         "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
                                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
-                best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
                 misc_correlated["fit_model"] = fit_model
                 best_parameter_correlated = _sort_params(best_parameter_correlated)
                 print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
