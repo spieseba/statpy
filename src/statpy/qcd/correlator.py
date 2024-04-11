@@ -316,6 +316,7 @@ class LatticeCharmToolkit():
                       "double-sinh": double_sinh_model(Nt),
                       "double-exp": double_exp_model()}[fit_model]       
         fit_range_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+        suggested_fit_ranges = []
         fit_range = initial_fit_ranges[0]
         for t in initial_fit_ranges:
             message(f"INITIAL FIT RANGE: [[{t[0]},{t[-1]}]]", verbosity)
@@ -352,7 +353,7 @@ class LatticeCharmToolkit():
                 message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
             criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
-            t_crit = t[criterion]
+            t_crit = t[criterion]; suggested_fit_ranges.append(t_crit)
             if len(t_crit) < 3:
                 message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 3 ELEMENTS", verbosity)
                 message(f"---> STORED FIT RANGE IS NOT UPDATED", verbosity)
@@ -371,6 +372,7 @@ class LatticeCharmToolkit():
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         if correlated_converged: self.db.add_leaf(tag=f"{binned_tag}/correlated_fit_range_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
+        fit_range_dict["misc"]["tested_suggested_fit_ranges"] = (initial_fit_ranges, suggested_fit_ranges)
         self.db.add_leaf(**fit_range_dict)
         return fit_range_dict["misc"]["fit_range_crit"], best_parameter
 
