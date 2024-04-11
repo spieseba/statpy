@@ -236,7 +236,8 @@ class LatticeCharmToolkit():
         srcs_pos = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
         tmin = min(srcs_pos); tmax = max(srcs_pos)
         A4_in_tag = "A4" in Ctsrc_tags[0]
-        self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs_pos, tmin, tmax, *Cts, antiperiodic=A4_in_tag), dst_tag=dst_tag)
+        combined_sample = self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs_pos, tmin, tmax, *Cts, antiperiodic=A4_in_tag))
+        self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": srcs_pos, "t_bound_low":tmin, "t_bound_high": tmax})
 
     def _avg_obc_srcs(self, srcs, tmin, tmax, *Cts, antiperiodic=False):
         Ct_arr = np.ma.empty((2 * len(Cts), max(tmax - srcs[0], srcs[-1] - tmin))); Ct_arr.mask = True    
@@ -272,7 +273,7 @@ class LatticeCharmToolkit():
         message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
         binned_tag = self.db.add_binned_leaf(tag, binsize)     
         Ct_mean = self.db.database[binned_tag].mean; Nt = len(Ct_mean)
-        effective_mass = {"double-cosh": effective_mass_acosh2, "double-sinh": effective_mass_acosh1, "double-exp": effective_mass_log2}[fit_model]
+        effective_mass = {"double-cosh": effective_mass_acosh2, "double-sinh": effective_mass_acosh1, "double-exp": effective_mass_log1}[fit_model]
         effective_amplitude = {"double-cosh": effective_amplitude_cosh, "double-sinh": effective_amplitude_sinh, "double-exp": effective_amplitude_exp}[fit_model]
         single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
         # ground state parameters
@@ -281,7 +282,6 @@ class LatticeCharmToolkit():
             warnings.simplefilter("ignore", category=RuntimeWarning) 
             m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe]) #m0_eff = effective_mass(Ct_mean_fit_range[Nt_fit_range//2 - 3])
             A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe]) #A0_eff = effective_amplitude(Ct_mean_fit_range[Nt_fit_range//2 - 3])
-        message(f"estimated p[0] = {A0_eff}, p[1] = {m0_eff}")
         # excited state parameters
         Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff]) 
         Ct_excited = Ct_mean - Ct_ground
@@ -289,12 +289,13 @@ class LatticeCharmToolkit():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             #print("effective mass:", effective_mass(Ct_excited))
             #m1_eff = effective_mass(Ct_excited)[fit_range[0]]
+            #print("m1_eff:", m1_eff)
             #print("effective amplitude:", effective_amplitude(Ct_excited, m1_eff))
             #print("idx:", fit_range[0])
             #exit()
             m1_eff = effective_mass(Ct_excited)[fit_range[0]]
             A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
-        message(f"estimated p[2] = {A1_eff}, p[3] = {m1_eff}")
+        message(f"guessed p0 = [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
         return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
     def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity):
