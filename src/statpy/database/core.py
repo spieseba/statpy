@@ -78,19 +78,21 @@ class DB:
         else:
             message(f"{tag} already in database. Leaf not added.")
 
-    def remove_leaf(self, tag, verbosity=None):
+    def remove_leaf(self, *tags, verbosity=None):
         verbosity = self.verbosity if verbosity is None else verbosity
-        if tag in self.database:
-            message(f"remove {tag}.", verbosity)
-            del self.database[tag]
-        else:
-            message(f"{tag} not in database.")
+        for tag in tags:
+            if tag in self.database:
+                message(f"remove {tag}.", verbosity)
+                del self.database[tag]
+            else:
+                message(f"{tag} not in database.")
 
     def rename_leaf(self, old, new):
         if old in self.database:
             if new not in self.database:
                 old_lf = self.database[old]                
                 self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc)
+                self.remove_leaf(old)
             else:
                 message(f"{new} already in database. Leaf not added.")
         else:
