@@ -287,12 +287,6 @@ class LatticeCharmToolkit():
         Ct_excited = Ct_mean - Ct_ground
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            #print("effective mass:", effective_mass(Ct_excited))
-            #m1_eff = effective_mass(Ct_excited)[fit_range[0]]
-            #print("m1_eff:", m1_eff)
-            #print("effective amplitude:", effective_amplitude(Ct_excited, m1_eff))
-            #print("idx:", fit_range[0])
-            #exit()
             m1_eff = effective_mass(Ct_excited)[fit_range[0]]
             A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
         message(f"guessed p0 = [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
@@ -354,8 +348,8 @@ class LatticeCharmToolkit():
             message("---------------------------------------------------------------------------------", verbosity) 
             criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
             t_crit = t[criterion]; suggested_fit_ranges.append(t_crit)
-            if len(t_crit) < 3:
-                message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 3 ELEMENTS", verbosity)
+            if len(t_crit) < 8:
+                message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 8 ELEMENTS", verbosity)
                 message(f"---> STORED FIT RANGE IS NOT UPDATED", verbosity)
                 message("---------------------------------------------------------------------------------", verbosity) 
                 message("---------------------------------------------------------------------------------", verbosity) 
