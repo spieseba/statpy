@@ -22,9 +22,9 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0):
     else:
         assert os.path.isfile(rwf_fn) 
         rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
-        rwf = np.loadtxt(rwf_fn)[:,1] 
-        rwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(rwf_cfgs, rwf)} 
         cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
+        rwf = np.loadtxt(rwf_fn)[:,1] 
+        rwf = {f"{branch_tag}-{cfg}":val for cfg, val in zip(cfgs, rwf)} 
     db.add_leaf(tag=f"{branch_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
     db.add_nrwf(rwf_tag=f"{branch_tag}/rwf")
     # data
