@@ -4,6 +4,7 @@ from statpy.fitting.core import Fitter, ConvergenceError
 from statpy.statistics import jackknife, bootstrap
 from statpy.fitting.core import fit, print_fit_results, get_pvalue
 from numba import njit
+from math import isnan
 import warnings
 
 ### periodic boundary conditions ###
@@ -273,15 +274,20 @@ class LatticeCharmToolkit():
         message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
         binned_tag = self.db.add_binned_leaf(tag, binsize)     
         Ct_mean = self.db.database[binned_tag].mean; Nt = len(Ct_mean)
-        effective_mass = {"double-cosh": effective_mass_acosh2, "double-sinh": effective_mass_acosh1, "double-exp": effective_mass_log1}[fit_model]
+        effective_mass = {"double-cosh": effective_mass_acosh1, "double-sinh": effective_mass_acosh1, "double-exp": effective_mass_log1}[fit_model]
         effective_amplitude = {"double-cosh": effective_amplitude_cosh, "double-sinh": effective_amplitude_sinh, "double-exp": effective_amplitude_exp}[fit_model]
         single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
         # ground state parameters
         t0_probe = slice(Nt//4, Nt//4 + Nt//8) # appears to be more stable when using multiple time slices
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning) 
-            m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe]) #m0_eff = effective_mass(Ct_mean_fit_range[Nt_fit_range//2 - 3])
-            A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe]) #A0_eff = effective_amplitude(Ct_mean_fit_range[Nt_fit_range//2 - 3])
+            m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe]) 
+            A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe]) 
+            # use single time slice when mean gives nan
+            if isnan(m0_eff) or isnan(A0_eff): 
+                t0_probe = Nt//4
+                m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe]) 
+                A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe])
         # excited state parameters
         Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff]) 
         Ct_excited = Ct_mean - Ct_ground
