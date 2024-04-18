@@ -294,10 +294,10 @@ class LatticeCharmToolkit():
         Ct_excited = Ct_mean - Ct_ground
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            m1_eff = next(m1 for m1 in effective_mass(Ct_excited)[fit_range] if not isnan(m1))
-            A1_eff = next(A1 for A1 in effective_amplitude(Ct_excited, m1_eff)[fit_range] if not isnan(A1))
-            #m1_eff = effective_mass(Ct_excited)[fit_range[0]]
-            #A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
+            #m1_eff = next(m1 for m1 in effective_mass(Ct_excited)[fit_range] if not isnan(m1))
+            #A1_eff = next(A1 for A1 in effective_amplitude(Ct_excited, m1_eff)[fit_range] if not isnan(A1))
+            m1_eff = effective_mass(Ct_excited)[fit_range[0]]
+            A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
         message(f"guessed p0 = [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
         if m1_eff < 1.2 * m0_eff:
             message("guess for excited state mass too small: p0[2] = abs(p0[2]); p0[3] = 2*p0[1]")
@@ -333,9 +333,12 @@ class LatticeCharmToolkit():
                          "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[fit_model]
             p0_tmp = self.get_p0_guess(tag, binsize, fit_model, t) if p0 is None else p0
             if np.isnan(p0_tmp).any():
-                p0_tmp[2] = p0_tmp[0]/2; p0_tmp[3] = 2.0 * p0_tmp[0]
-                if np.isnan(p0_tmp).any():
-                    p0_tmp = fit_range_dict["mean"] if fit_range_dict["mean"] is not None else [1.0 if isnan(p) else p for p in p0_tmp]
+                if fit_range_dict["mean"] is not None:
+                    p0_tmp = fit_range_dict["mean"]
+                else:
+                    p0_tmp[2] = p0_tmp[0]/2; p0_tmp[3] = 2.0 * p0_tmp[0]
+                    if np.isnan(p0_tmp).any():
+                        p0_tmp = [1.0 if isnan(p) else p for p in p0_tmp]
                 message(f"p0 guess contains NaN, use fit result from previous fit range if available, else use available params to estimate NaNs or default to 1: {p0_tmp}")
             try:
                 best_parameter, best_parameter_jks, misc = fit(self.db, t, binned_tag, p0_tmp, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
