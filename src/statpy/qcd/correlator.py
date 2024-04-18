@@ -222,12 +222,13 @@ def combined_exp_exp_model_chi2(t0, t1, p, y, W):
 ##############################################################################################################################
     
 class LatticeCharmToolkit():
-    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, res_fit_method=None, res_fit_params=None):
+    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, res_fit_method=None, res_fit_params=None, bootstrap_available=True):
         self.db = db
         self.fit_method = fit_method
         self.fit_params = fit_params
         self.res_fit_method = self.fit_method if res_fit_method is None else res_fit_method
         self.res_fit_params = self.fit_params if res_fit_params is None else res_fit_params
+        self.bootstrap_available = bootstrap_available
 
     # Wolfgangs hdf5 geometry 
     def ptsrc_avg(self, Ct_tag, dst_tag):
@@ -293,8 +294,10 @@ class LatticeCharmToolkit():
         Ct_excited = Ct_mean - Ct_ground
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            m1_eff = effective_mass(Ct_excited)[fit_range[0]]
-            A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
+            m1_eff = next(m1 for m1 in effective_mass(Ct_excited)[fit_range] if not isnan(m1))
+            A1_eff = next(A1 for A1 in effective_amplitude(Ct_excited, m1_eff)[fit_range] if not isnan(A1))
+            #m1_eff = effective_mass(Ct_excited)[fit_range[0]]
+            #A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
         message(f"guessed p0 = [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
         if m1_eff < 1.2 * m0_eff:
             message("guess for excited state mass too small: p0[2] = abs(p0[2]); p0[3] = 2*p0[1]")
@@ -330,12 +333,15 @@ class LatticeCharmToolkit():
                          "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[fit_model]
             p0_tmp = self.get_p0_guess(tag, binsize, fit_model, t) if p0 is None else p0
             if np.isnan(p0_tmp).any():
-                p0_tmp = fit_range_dict["mean"] if fit_range_dict["mean"] is not None else np.ones(len(p0_tmp))
-                message(f"p0 guess contains NaN, use fit result from previous fit range if available, else default to ones: {p0_tmp}")
+                p0_tmp[2] = p0_tmp[0]/2; p0_tmp[3] = 2.0 * p0_tmp[0]
+                if np.isnan(p0_tmp).any():
+                    p0_tmp = fit_range_dict["mean"] if fit_range_dict["mean"] is not None else [1.0 if isnan(p) else p for p in p0_tmp]
+                message(f"p0 guess contains NaN, use fit result from previous fit range if available, else use available params to estimate NaNs or default to 1: {p0_tmp}")
             try:
                 best_parameter, best_parameter_jks, misc = fit(self.db, t, binned_tag, p0_tmp, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
                 misc["fit_model"] = fit_model
             except ConvergenceError as ce:
+                suggested_fit_ranges.append(None)
                 message(f"{ce} -> JUMP TO NEXT FIT RANGE")
                 message("---------------------------------------------------------------------------------", verbosity) 
                 message("---------------------------------------------------------------------------------", verbosity) 
@@ -359,7 +365,7 @@ class LatticeCharmToolkit():
                 message(f"{ce} for correlated mean fit") 
                 message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
-            criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < var[t]**.5/4.
+            criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < (var[t]**.5)/4.
             t_crit = t[criterion]; suggested_fit_ranges.append(t_crit)
             if len(t_crit) < 8:
                 message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 8 ELEMENTS", verbosity)
@@ -416,7 +422,7 @@ class LatticeCharmToolkit():
                 except ConvergenceError as ce:
                     message(f"{ce} for correlated mean fit") 
                     message("---------------------------------------------------------------------------------", verbosity) 
-            if b == 1:
+            if b == 1 and self.bootstrap_available:
                 message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.bss(binned_tag); mean_bss = self.db.database[binned_tag].mean
                 W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)[fit_range]))
@@ -449,7 +455,7 @@ class LatticeCharmToolkit():
         for tag in correlator_fit_tags:
             lf = self.db.database[tag]
             self.db.add_leaf(f"{tag}/am", mean=lf.mean[1], jks={cfg:jk[1] for cfg,jk in lf.jks.items()}, sample=None, misc=None)
-            if "binsize" not in tag:
+            if "binsize" not in tag and self.bootstrap_available:
                 bootstrap_tag = tag.replace("fit", "bootstrap_fit"); lf_bs = self.db.database[bootstrap_tag]  
                 self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"]})
     
@@ -497,7 +503,7 @@ class LatticeCharmToolkit():
                 except ConvergenceError as ce:
                     message(f"{ce} for correlated mean fit") 
                     message("---------------------------------------------------------------------------------", verbosity) 
-            if b == 1:
+            if b == 1 and self.bootstrap_available:
                 message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.bss(binned_tag); mean_bss = self.db.database[binned_tag].mean
                 W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)))
@@ -512,14 +518,14 @@ class LatticeCharmToolkit():
             self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
             message("------------------------------ BARE DECAY CONSTANT ------------------------------")
             self.db.combine(f"{binned_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_tag}/{fit_model_combined}_fit/f_bare")
-            if b == 1:
+            if b == 1 and self.bootstrap_available:
                 bootstrap_tag = f"{binned_tag}/{fit_model_combined}_bootstrap_fit"
                 f_bare_bss_mean = bare_decay_constant(self.db.database[bootstrap_tag].mean)
                 f_bare_bss = self.db.combine_bss(self.db.database[bootstrap_tag].misc["bss"], f=bare_decay_constant)
                 self.db.add_leaf(tag=f"{bootstrap_tag}/f_bare", mean=f_bare_bss_mean, jks=None, sample=None, misc={"bss": f_bare_bss})
                 f_bare_bs_str = f"         {f_bare_bss_mean:.8f} +- {bootstrap.variance(f_bare_bss)**.5:.8f} (bootstrap)"
             message(f"f_bare = {self.db.database[f"{binned_tag}/{fit_model_combined}_fit/f_bare"].mean:.8f} +- {self.db.jackknife_variance(f"{binned_tag}/{fit_model_combined}_fit/f_bare")**.5:.8f} (jackknife)")
-            if b == 1: message(f_bare_bs_str)
+            if b == 1 and self.bootstrap_available: message(f_bare_bs_str)
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
            
