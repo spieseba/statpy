@@ -38,25 +38,25 @@ class DB:
 
     def load(self, *srcs):
         for src in srcs:
+            message(f"Load {src}", self.verbosity)
             assert os.path.isfile(src)
-            message(f"Load {src}")
             with open(src) as f:
                 src_db = json.load(f)
             for t, lf in src_db.items():
-                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc)
+                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
 
     def merge(self, *srcs):
         for src in srcs:
             for t, lf in src.database.items():
                 message(f"Merge {t} into database.")
-                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=-1)
+                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
 
     def save(self, dst, with_sample=False):
         db = {}
         for tag, lf in self.database.items():
             sample = lf.sample if with_sample else None
             misc = dict(lf.misc) if lf.misc is not None else dict(); misc["tag"] = tag
-            self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db)
+            self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db, verbosity=self.verbosity)
         with open(dst, "w") as f:
             json.dump(db, f)
 
@@ -81,7 +81,7 @@ class DB:
                 message(f"Add {tag} to database.", verbosity)                      
                 db[tag] = Leaf(mean, jks, sample, misc) 
         else:
-            message(f"{tag} already in database. Leaf not added.")
+            message(f"{tag} already in database. Leaf not added.", verbosity)
 
     def remove_leaf(self, tag, verbosity=None):
         verbosity = self.verbosity if verbosity is None else verbosity
