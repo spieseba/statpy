@@ -388,9 +388,12 @@ class LatticeCharmToolkit():
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         if correlated_converged: self.db.add_leaf(tag=f"{binned_tag}/correlated_fit_range_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
-        fit_range_dict["misc"]["tested_suggested_fit_ranges"] = (initial_fit_ranges, suggested_fit_ranges)
-        self.db.add_leaf(**fit_range_dict)
-        return fit_range_dict["misc"]["fit_range_crit"], best_parameter
+        if fit_range_dict["misc"] is not None:
+            fit_range_dict["misc"]["tested_suggested_fit_ranges"] = (initial_fit_ranges, suggested_fit_ranges)
+            self.db.add_leaf(**fit_range_dict)
+            return fit_range_dict["misc"]["fit_range_crit"], best_parameter
+        else:
+            return None, None 
 
     def correlator_fit(self, tag, binsize, fit_range, p0, fit_model, verbosity):
         message(f"CORRELATOR: {tag}")
