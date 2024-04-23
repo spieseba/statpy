@@ -45,23 +45,26 @@ class DB:
 
     def load(self, *srcs):
         for src in srcs:
+            message(f"LOAD {src}", self.verbosity)
             assert os.path.isfile(src)
-            message(f"LOAD {src}")
             with open(src) as f:
                 src_db = json.load(f)
             for t, lf in src_db.items():
-                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc)
+                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
     
-    def save(self, dst, with_sample=False):
+    def save(self, dst, with_sample=False, verbosity=None):
+        verbosity = self.verbosity if verbosity is None else verbosity
         db = {}
         for tag, lf in self.database.items():
             sample = lf.sample if with_sample else None
             misc = dict(lf.misc) if lf.misc is not None else dict(); misc["tag"] = tag
-            self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db)
+            self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db, verbosity=verbosity)
+        message(f"write database to {dst} (with sample: {with_sample})", verbosity)
         with open(dst, "w") as f:
             json.dump(db, f)
 
-    def add_leaf(self, tag, mean, jks, sample, misc, database=None):
+    def add_leaf(self, tag, mean, jks, sample, misc, database=None, verbosity=None):
+        verbosity = self.verbosity if verbosity is None else verbosity
         db = self.database if database is None else database
         if tag not in db or self.dev_mode:
             assert (isinstance(sample, dict) or sample==None)
@@ -76,7 +79,7 @@ class DB:
                         jks = {cfg:( mean + (mean - sample[cfg]) / (len(sample) - 1) ) for cfg in sample}
             db[tag] = Leaf(mean, jks, sample, misc)
         else:
-            message(f"{tag} already in database. Leaf not added.")
+            message(f"{tag} already in database. Leaf not added.", verbosity)
 
     def remove_leaf(self, *tags, verbosity=None):
         verbosity = self.verbosity if verbosity is None else verbosity
