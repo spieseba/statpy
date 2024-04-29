@@ -436,7 +436,8 @@ class LatticeCharmToolkit():
                                  "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_bss, Nt),
                                  "exp": lambda t,p,y: exp_chi2(t, p, y, W_bss)}[fit_model]
                 best_parameter_bmean, best_parameter_bss, misc_bss = self._fit_bootstrap(fit_range, mean_bss, bss, best_parameter, chi2_func_bss)
-                print_fit_results(best_parameter_bmean, best_parameter_bss, misc_bss)
+                best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
+                print_fit_results(best_parameter_bmean, best_parameter_bcov, misc_bss)
                 misc_bss["fit_model"] = fit_model
                 misc_bss["bss"] = best_parameter_bss
                 self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
@@ -518,7 +519,8 @@ class LatticeCharmToolkit():
                 best_parameter_bmean, best_parameter_bss, misc_bss = self._fit_bootstrap(fit_range_combined, mean_bss, bss, best_parameter, chi2_func_bss, eval_offset=False)
                 misc_bss["fit_model_PSPS"] = fit_model_PS; misc_bss["fit_model_PSA4I"] = fit_model_A4I; misc_bss["fit_model"] = fit_model_combined
                 misc_bss["t_PSPS"] = fit_range_PS; misc_bss["t_PSA4I"] = fit_range_A4I
-                print_fit_results(best_parameter_bmean, best_parameter_bss, misc_bss)
+                best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
+                print_fit_results(best_parameter_bmean, best_parameter_bcov, misc_bss)
                 misc_bss["bss"] = best_parameter_bss
                 self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
             self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
