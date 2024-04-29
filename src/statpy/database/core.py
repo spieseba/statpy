@@ -291,6 +291,14 @@ class DB:
         lf = self.database[tag]
         bootstraps = self.database[f"{tag.split('/')[0]}/bootstraps"].mean
         return bootstrap.sample(self.as_array(lf.sample), bootstraps, weights=self.as_array(self.get_nrwf(tag))) 
+    
+    def bootstrap_variance(self, tag):
+        bss = self.database[tag].misc["bss"]
+        return bootstrap.variance(bss)
+
+    def bootstrap_covariance(self, tag):
+        bss = self.database[tag].misc["bss"]
+        return bootstrap.covariance(bss)
 
 
 # helper function to allow sorting of concatenated branch_tags without r
