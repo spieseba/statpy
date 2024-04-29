@@ -464,7 +464,7 @@ class LatticeCharmToolkit():
             self.db.add_leaf(f"{tag}/am", mean=lf.mean[1], jks={cfg:jk[1] for cfg,jk in lf.jks.items()}, sample=None, misc=None)
             if "binsize" not in tag and self.bootstrap_available:
                 bootstrap_tag = tag.replace("fit", "bootstrap_fit"); lf_bs = self.db.database[bootstrap_tag]  
-                self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"]})
+                self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"][:,1]})
     
     def correlator_combined_fit(self, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, verbosity=0):
         message("------------------ COMBINED CORRELATOR FIT PSPS/PSA4I ---------------------") 
