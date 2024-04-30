@@ -305,7 +305,7 @@ class LatticeCharmToolkit():
             message(f"---> [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
         return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
-    def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity):
+    def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity, MIN_TCRIT_LEN=7):
         def _sort_params(p):
             if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
             else: return p
@@ -370,8 +370,8 @@ class LatticeCharmToolkit():
             message("---------------------------------------------------------------------------------", verbosity) 
             criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < (var[t]**.5)/4.
             t_crit = t[criterion]; suggested_fit_ranges.append(t_crit)
-            if len(t_crit) < 8:
-                message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN 8 ELEMENTS", verbosity)
+            if len(t_crit) < MIN_TCRIT_LEN:
+                message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN {MIN_TCRIT_LEN} ELEMENTS", verbosity)
                 message(f"---> STORED FIT RANGE IS NOT UPDATED", verbosity)
                 message("---------------------------------------------------------------------------------", verbosity) 
                 message("---------------------------------------------------------------------------------", verbosity) 
