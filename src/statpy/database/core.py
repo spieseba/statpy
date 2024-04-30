@@ -26,8 +26,8 @@ class DB:
         self.dev_mode = dev_mode
         self.database = {} 
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
-        message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.", self.verbosity)
-        if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED", self.verbosity)
+        message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.", 0)
+        if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED", 0)
         for src in args:
             # init db using src files
             if isinstance(src, str):
@@ -48,7 +48,7 @@ class DB:
     def merge(self, *srcs):
         for src in srcs:
             for t, lf in src.database.items():
-                message(f"Merge {t} into database.")
+                message(f"Merge {t} into database.", verbosity=self.verbosity)
                 self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
 
     def save(self, dst, with_sample=False):
@@ -89,18 +89,19 @@ class DB:
             message(f"remove {tag} from database.", verbosity)
             del self.database[tag]
         else:
-            message(f"{tag} not in database.")
+            message(f"{tag} not in database.", verbosity)
 
-    def rename_leaf(self, old, new):
+    def rename_leaf(self, old, new, verbosity=None):
+        verbosity = self.verbosity if verbosity is None else verbosity
         if old in self.database:
             if new not in self.database:
                 old_lf = self.database[old]                
-                self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc)
-                self.remove_leaf(old)
+                self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc, verbosity=verbosity)
+                self.remove_leaf(old, verbosity)
             else:
-                message(f"{new} already in database. Leaf not added.")
+                message(f"{new} already in database. Leaf not added.", verbosity)
         else:
-            message(f"{old} not in database.")
+            message(f"{old} not in database.", verbosity)
  
     ################################## VERBOSITY #######################################
    

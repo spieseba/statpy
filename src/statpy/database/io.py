@@ -36,5 +36,5 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0):
                 vals = f.get(key)
                 assert len(vals) == len(cfgs), "Missmatch between determined number of configs and stored values"
                 sample = {f"{branch_tag}-{cfg}":val for cfg, val in zip(cfgs, vals)}
-                db.add_leaf(tag=f"{branch_tag}/{key}", mean=None, jks=None, sample=sample, misc=None)
+                db.add_leaf(tag=f"{branch_tag}/{key}", mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
     return db
