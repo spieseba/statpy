@@ -230,7 +230,7 @@ class DB:
         if binsize == 1:
             return lf.jks
         branch_tags = np.unique([t.split("-")[0] for t in list(lf.jks.keys())])
-        binsizes = len(branch_tags) * [binsize] if isinstance(binsize, (int, np.int64)) else binsize; assert len(branch_tags) == len(binsizes)
+        binsizes = len(branch_tags) * [binsize] if isinstance(binsize, (int, np.int64)) else binsize; assert len(branch_tags) == len(binsizes), f"{len(branch_tags)} != {len(binsizes)}"
         shifts = len(branch_tags) * [shift] if isinstance(shift, (int, np.int64)) else shift; assert len(branch_tags) == len(shifts)
         jks_bin = {}
         for b,branch_tag,s in zip(binsizes, branch_tags, shifts):
