@@ -2,9 +2,11 @@ import numpy as np
 import scipy.optimize as opt
 from scipy.integrate import quad
 from scipy.special import gamma
+from scipy.linalg import block_diag
 from iminuit import Minuit
 
 from statpy.fitting.levenberg_marquardt import LevenbergMarquardt 
+from statpy.log import message
 
 # default Nelder-Mead parameter
 nm_parameter = {
@@ -30,7 +32,7 @@ class Fitter:
         self.min_params = {} if minimizer_params is None else minimizer_params
 
     def estimate_parameters(self, t, f, y, p0):
-        f2 = lambda first,second: f(t, first, second)
+        f2 = f if t is None else lambda first,second: f(t, first, second)
         if self.method == "Nelder-Mead":
             return self._opt_NelderMead(f2, y, p0)
         if self.method == "Migrad":
@@ -40,7 +42,7 @@ class Fitter:
         for param, value in self.min_params.items():
             if param in nm_parameter:
                 nm_parameter[param] = value
-        opt_res = opt.minimize(lambda p: f(p, y), p0, method="Nelder-Mead", tol=nm_parameter["tol" ], options={"maxiter": nm_parameter["maxiter"]})
+        opt_res = opt.minimize(lambda p: f(p, y), p0, method="Nelder-Mead", tol=nm_parameter["tol"], options={"maxiter": nm_parameter["maxiter"]})
         if opt_res.success is not True:
             raise ConvergenceError("Nelder-Mead did not converge")
         assert opt_res.success == True
@@ -63,12 +65,13 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ########################################################################## STATPY DB #############################################################################
 ##################################################################################################################################################################
 
+# Standard fitting procedure: dependent variables t assumed to be no random variables, observable[t] is fitted
 def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
     fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
     best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t], p0)[0]) 
     best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, chi2_func, y[t], best_parameter)[0]) 
-    misc = db.propagate_systematics(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t], p0)[0])
+    misc = db.propagate_systematics(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t], best_parameter)[0])
     chi2 = chi2_func(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
@@ -78,10 +81,10 @@ def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_f
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
-def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
+def fitMultipleEnsembles(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
     tags = np.concatenate((t_tags, y_tags))
     fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
@@ -90,7 +93,7 @@ def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_f
         return f.estimate_parameters(t, chi2_func, y, p)[0]
     best_parameter = db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
     best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
-    misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
+    misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
     chi2 = chi2_func(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
     dof = len(t_tags) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
@@ -101,10 +104,63 @@ def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_f
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
+# x_tags: 2D array which contains lists of x_tags for each ensemble
+# y_tags: 2D array which contains lists of y_tags for each ensemble
+# p0: initial guess for the y parameters
+# chi2_func: chi2 function which takes x+y parameters and returns chi2
+def fitMultipleEnsemblesl2Norm(db, x_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsizes, dst_tag, verbosity=0):
+    assert _is_2D_list(x_tags) and _is_2D_list(y_tags)
+    tags_2D = []
+    for x_e_tags, y_e_tags in zip(x_tags, y_tags):
+        tags_2D.append(y_e_tags + x_e_tags) 
+    message(f"Xerr fit with tags = [")
+    for e_tags in tags_2D:
+        message(f"\t\t\t{e_tags}")
+    message(f"\t\t\t]")
+    message(f"Compute inverses of block covariances")
+    dst_tags = [f"tmp_concat_{"-".join(e_tags)}" for e_tags in tags_2D]
+    Ws = []
+    for e_tags, e_dst_tag in zip(tags_2D,dst_tags):
+        db.combine(*e_tags, f=lambda *xs:np.array([x for x in xs]), dst_tag=e_dst_tag)
+        cov = db.jackknife_covariance(e_dst_tag, binsize=max([binsizes[e_tag] for e_tag in e_tags]))
+        Ws.append(np.linalg.inv(cov))
+        db.remove_leaf(e_dst_tag, verbosity=-1)
+    W_block_diag = block_diag(*Ws)
+    p0 = np.array(p0)
+    q0 = np.array([db.database[x_tag].mean for x_tag in np.array(x_tags).flatten()])
+    message(f"p0 = {p0}")
+    message(f"q0 = {q0}")
+    p0_tot = np.concatenate((p0, q0))
+    tags_flattened = np.array(tags_2D).flatten()
+    # mean, jks, misc fits
+    fitter = Fitter(method=fit_method, minimizer_params=fit_params)
+    jks_fitter = Fitter(method=jks_fit_method if jks_fit_method is not None else fit_method, minimizer_params=jks_fit_params if jks_fit_params is not None else fit_params)
+    def estimate_parameters(fit, x, p):
+        return fit.estimate_parameters(t=None, f=lambda p,y: chi2_func(p,y,W_block_diag), y=x, p0=p)[0]
+    best_parameter = db.combine_mean(*tags_flattened, f=lambda *xs: estimate_parameters(fitter, np.array([x for x in xs]), p0_tot))
+    best_parameter_jks = db.combine_jks(*tags_flattened, f=lambda *xs: estimate_parameters(jks_fitter, np.array([x for x in xs]), best_parameter)) 
+    misc = db.propagate_systematics(*tags_flattened, f=lambda *xs: estimate_parameters(fitter, np.array([x for x in xs]), best_parameter)) 
+    # chi2, dof, pval
+    chi2 = chi2_func(best_parameter, np.array([db.database[tag].mean for tag in tags_flattened]), W_block_diag)
+    dof = len(tags_flattened) - len(best_parameter)
+    pval = get_pvalue(chi2, dof)
+    # add to database
+    misc["tags"] = tags_2D; misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
+    # display results
+    best_parameter_cov = db.jackknife_covariance(dst_tag, binsize=[max([binsizes[e_tag] for e_tag in e_tags]) for e_tags in tags_2D])
+    if verbosity >= 0:
+        for i in range(len(best_parameter)):
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, [max([binsizes[e_tag] for e_tag in e_tags]) for e_tags in tags_2D]))[i]**.5} (STAT + SYS)]")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
 
+def _is_2D_list(lst):
+    if not isinstance(lst, list):
+        return False
+    return all(isinstance(sublst, list) for sublst in lst)
 
 ##################################################################################################################################################################
 ##################################################################################################################################################################
@@ -187,7 +243,7 @@ def fitV1(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jk
     best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0]) 
     jks_fitter = FitterV1(cov, model, jks_fit_method, jks_fit_params)
     best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0]) 
-    misc = db.propagate_systematics(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], p0)[0])
+    misc = db.propagate_systematics(tag, f=lambda y: fitter.estimate_parameters(t, fitter.chi_squared, y[t], best_parameter)[0])
     chi2 = fitter.chi_squared(t, best_parameter, db.database[tag].mean[t])
     dof = len(t) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
@@ -197,10 +253,10 @@ def fitV1(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jk
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
  
-def fitMultipleV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
+def fitMultipleEnsemblesV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     assert len(p0) == len(model.parameter_gradient(1, p0)), f"len(p0) = {len(p0)} != len(best_parameter) = {len(model.parameter_gradient(1, p0))}"
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
     tags = np.concatenate((t_tags, y_tags))
@@ -211,7 +267,7 @@ def fitMultipleV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jk
         return f.estimate_parameters(t, f.chi_squared, y, p)[0]
     best_parameter = db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
     best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
-    misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
+    misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
     chi2 = fitter.chi_squared(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
     dof = len(t_tags) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
@@ -222,5 +278,5 @@ def fitMultipleV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jk
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
-            print(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
-        print(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+            message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
+        message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
