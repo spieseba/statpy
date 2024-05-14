@@ -1,6 +1,6 @@
 import numpy as np
-from statpy.log import message
-from statpy.fitting.core import fitV1, fitMultipleV1
+#from statpy.log import message
+#from statpy.fitting.core import fitV1, fitMultipleV1
 from numba import njit
 
 #########################################################################################################################
