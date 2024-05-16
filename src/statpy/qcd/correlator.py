@@ -26,9 +26,8 @@ def effective_mass_log1(Ct):
     return np.log(Ct / np.roll(Ct, -1))
 
 # spectrum paper 
-def effective_mass_log2(Ct, a=2):
-    return np.log(np.roll(Ct, a//2) / np.roll(Ct, -a//2)) / a
-
+def effective_mass_log2(Ct, a=1):
+    return np.log(np.roll(Ct, 1) / np.roll(Ct, -1)) / (2*a)
 
 # cosh
 def effective_amplitude_cosh(Ct, m):
