@@ -5,12 +5,6 @@ from scipy.special import gamma
 from iminuit import Minuit
 from statpy.log import message
 
-# default Nelder-Mead parameter
-nm_parameter = {
-    "tol": None,
-    "maxiter": None
-}
-
 class ConvergenceError(Exception):
     pass
 
@@ -21,25 +15,26 @@ class Fitter:
         Parameters:
         -----------
                 chi_squared (function): chi2 squared function of the fit which takes independent variable t, model parameter array p and sample y as input. Returns a number.
-                method (string): minimization method. Can be "Nelder-Mead", "Migrad". Default is "Nelder-Mead".
+                method (string): minimization method. Can be "Migrad", "Nelder-Mead", or "Simplex". Default is "Migrad".
     """
-    def __init__(self, method="Nelder-Mead", minimizer_params=None):
-        assert method in ["Nelder-Mead", "Migrad"]
+    def __init__(self, method="Migrad", minimizer_params=None):
+        assert method in ["Migrad", "Nelder-Mead", "Simplex"]
         self.method = method
-        self.min_params = {} if minimizer_params is None else minimizer_params
+        self.min_params = {"tol": None, "maxiter": None} if minimizer_params is None else minimizer_params
 
     def estimate_parameters(self, t, f, y, p0):
-        f2 = lambda first,second: f(t, first, second)
-        if self.method == "Nelder-Mead":
-            return self._opt_NelderMead(f2, y, p0)
+        f2 = f if t is None else lambda first,second: f(t, first, second)
         if self.method == "Migrad":
             return self._opt_Migrad(f2, y, p0)
+        elif self.method == "Nelder-Mead":
+            return self._opt_NelderMead(f2, y, p0)
+        elif self.method == "Simplex":
+            return self._opt_simplex(f2, y, p0)
+        else:
+            raise AssertionError("Unknown minimization method")
          
     def _opt_NelderMead(self, f, y, p0):
-        for param, value in self.min_params.items():
-            if param in nm_parameter:
-                nm_parameter[param] = value
-        opt_res = opt.minimize(lambda p: f(p, y), p0, method="Nelder-Mead", tol=nm_parameter["tol" ], options={"maxiter": nm_parameter["maxiter"]})
+        opt_res = opt.minimize(lambda p: f(p, y), p0, method="Nelder-Mead", tol=self.min_params["tol"], options={"maxiter": self.min_params["maxiter"]})
         if opt_res.success is not True:
             raise ConvergenceError("Nelder-Mead did not converge")
         assert opt_res.success == True
@@ -47,9 +42,18 @@ class Fitter:
 
     def _opt_Migrad(self, f, y, p0):
         m = Minuit(lambda p: f(p, y), p0)
-        m.migrad()
+        m.tol = self.min_params["tol"]
+        m.migrad(ncall=self.min_params["maxiter"])
         if m.valid is not True:
             raise ConvergenceError("Migrad did not converge")
+        return np.array(m.values), m.fval, None
+    
+    def _opt_simplex(self, f, y, p0):
+        m = Minuit(lambda p: f(p, y), p0)
+        m.tol = self.min_params["tol"]
+        m.simplex(ncall=self.min_params["maxiter"])
+        if m.valid is not True:
+            raise ConvergenceError("Simplex did not converge")
         return np.array(m.values), m.fval, None
     
 def get_pvalue(chi2, dof):
