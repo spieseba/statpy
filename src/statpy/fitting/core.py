@@ -121,7 +121,7 @@ def fitMultipleEnsemblesl2Norm(db, x_tags, y_tags, p0, chi2_func, fit_method, fi
     tags_2D = []
     for x_e_tags, y_e_tags in zip(x_tags, y_tags):
         tags_2D.append(y_e_tags + x_e_tags) 
-    message(f"Xerr fit with tags = [")
+    message(f"l2-norm fit with tags = [")
     for e_tags in tags_2D:
         message(f"\t\t\t{e_tags}")
     message(f"\t\t\t]")
