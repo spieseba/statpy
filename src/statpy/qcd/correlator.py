@@ -233,27 +233,33 @@ class LatticeCharmToolkit():
     def ptsrc_avg(self, Ct_tag, dst_tag):
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
 
-    def tsrc_avg(self, Ctsrc_tags, dst_tag):
-        srcs_pos = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
-        tmin = min(srcs_pos); tmax = max(srcs_pos)
-        A4_in_tag = "A4" in Ctsrc_tags[0]
-        combined_sample = self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(srcs_pos, tmin, tmax, *Cts, antiperiodic=A4_in_tag))
-        self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": srcs_pos, "t_bound_low":tmin, "t_bound_high": tmax})
+    def tsrc_avg(self, Ctsrc_tags, dst_tag, tbulk=None, antiperiodic=False):
+        # extract and sort tsrc positions
+        src_positions = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
+        # determine tbulk
+        tbulk = tbulk if tbulk is not None else np.arange(min(src_positions), max(src_positions)+1)
+        # average over all tsrcs between tmin and tmax
+        combined_sample = self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(src_positions, tbulk, *Cts, antiperiodic=antiperiodic))
+        self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": src_positions, "tbulk":tbulk, "antiperiodic":antiperiodic})
 
-    def _avg_obc_srcs(self, srcs, tmin, tmax, *Cts, antiperiodic=False):
-        Ct_arr = np.ma.empty((2 * len(Cts), max(tmax - srcs[0], srcs[-1] - tmin))); Ct_arr.mask = True    
-        # forward average
-        tmax_srcs_fw = tmax - np.array(srcs) 
-        for idx, Ct, tmax_src in zip(np.arange(len(Cts)), Cts, tmax_srcs_fw):
-            Ct_arr[idx, :tmax_src] = Ct[:tmax_src]
-        # backward average
+    def _avg_obc_srcs(self, srcs, tbulk, *Cts, antiperiodic=False):
+        assert len(srcs) == len(Cts)
+        tmin = tbulk[0]; tmax = tbulk[-1]
+        max_len = tmax - tmin
+        num_Cts = len(Cts)
+        # create masked array
+        Cts_ma = np.ma.empty((2 * num_Cts, max_len))
+        Cts_ma.mask = True
+        # get tmax for forward and backward average
+        tmax_srcs_fw = tmax - np.array(srcs)
         tmax_srcs_bw = np.array(srcs) - tmin
-        for idx, Ct, tmax_src in zip(len(Cts) + np.arange(len(Cts)), Cts, tmax_srcs_bw):
-            Ct_arr[idx, :tmax_src] = np.roll(np.flip(Ct), 1)[:tmax_src]
-            if antiperiodic: Ct_arr[idx, 1:tmax_src] *= -1.
-        return Ct_arr.mean(axis=0) 
+        # fill masked array with relevant time slices for each source position
+        for idx, Ct, tmax_src_fw, tmax_src_bw in zip(range(num_Cts), Cts, tmax_srcs_fw, tmax_srcs_bw):
+            Cts_ma[idx, :tmax_src_fw] = Ct[:tmax_src_fw]
+            Cts_ma[idx+num_Cts, :tmax_src_bw] = np.roll(np.flip(Ct), 1)[:tmax_src_bw]
+            if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_src_bw] *= -1.
+        return Cts_ma.mean(axis=0) 
 
-    
     # determine improved PSA4 according to https://arxiv.org/pdf/1502.04999.pdf
     def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
         def compute_cA(beta):
