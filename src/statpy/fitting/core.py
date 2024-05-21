@@ -172,7 +172,6 @@ def _is_2D_list(lst):
 ########################################################################## FITTER V1 #############################################################################
 ##################################################################################################################################################################
 ##################################################################################################################################################################
-
 class FitterV1:
     """
     fit class using Nelder-Mead provided by scipy or Migrad algorithm provided by iminuit package
@@ -182,18 +181,15 @@ class FitterV1:
                 C (numpy 2D array): Covariance matrix of the data.
                 model (function): fit function which takes independent variable t, model parameter array p as an input and returns real number.
                 estimator (function): function which takes sample y as an input and returns desired quantity.
-                method (string): minimization method. Can be "Nelder-Mead", "Migrad" or "Levenberg-Marquardt". Default is "Nelder-Mead".
+                method (string): minimization method. Can be "Migrad", "Nelder-Mead", "Simplex" or "Levenberg-Marquardt". Default is "Migrad".
     """
-    def __init__(self, C, model, method="Nelder-Mead", minimizer_params=None):
+    def __init__(self, C, model, method="Migrad", minimizer_params=None):
         self.C = C
         self.W = np.linalg.inv(C)
         self.model = model
-        assert method in ["Nelder-Mead", "Migrad", "Levenberg-Marquardt"]
+        assert method in ["Nelder-Mead", "Migrad", "Simplex", "Levenberg-Marquardt"]
         self.method = method
-        if minimizer_params == None:
-            self.min_params = {}
-        else:
-            self.min_params = minimizer_params
+        self.min_params = {"tol": None, "maxiter": None} if minimizer_params is None else minimizer_params
         self.boolean = True
  
     def chi_squared(self, t, p, y):
@@ -204,16 +200,20 @@ class FitterV1:
 
     def model_prediction_var(self, t, p, cov_p, dmodel_dp):
         return dmodel_dp(t,p) @ cov_p @ dmodel_dp(t,p)
-
+    
     def estimate_parameters(self, t, f, y, p0):
-        f2 = lambda first,second: f(t, first, second)
-        if self.method == "Nelder-Mead":
-            return self._opt_NelderMead(f2, y, p0)
+        f2 = f if t is None else lambda first,second: f(t, first, second)
         if self.method == "Migrad":
             return self._opt_Migrad(f2, y, p0)
-        if self.method == "Levenberg-Marquardt":
+        elif self.method == "Nelder-Mead":
+            return self._opt_NelderMead(f2, y, p0)
+        elif self.method == "Simplex":
+            return self._opt_simplex(f2, y, p0)
+        elif self.method == "Levenberg-Marquardt":
             return self._opt_LevenbergMarquardt(t, y, p0) # uses chi squared
-        
+        else:
+            raise AssertionError("Unknown minimization method")
+
     def _opt_NelderMead(self, f, y, p0):
         opt_res = opt.minimize(lambda p: f(p, y), p0, method="Nelder-Mead", tol=self.min_params["tol"], options={"maxiter": self.min_params["maxiter"]})
         if opt_res.success is not True:
@@ -227,6 +227,14 @@ class FitterV1:
         m.migrad(ncall=self.min_params["maxiter"])
         if m.valid is not True:
             raise ConvergenceError("Migrad did not converge")
+        return np.array(m.values), m.fval, None
+    
+    def _opt_simplex(self, f, y, p0):
+        m = Minuit(lambda p: f(p, y), p0)
+        m.tol = self.min_params["tol"]
+        m.simplex(ncall=self.min_params["maxiter"])
+        if m.valid is not True:
+            raise ConvergenceError("Simplex did not converge")
         return np.array(m.values), m.fval, None
     
     def _opt_LevenbergMarquardt(self, t, y, p0):
