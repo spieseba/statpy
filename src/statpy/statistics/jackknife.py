@@ -1,17 +1,11 @@
 import numpy as np
 
-def sample(x, *argv, f=lambda x: x): 
+def sample(x, weights=None, f=lambda x: x): 
     N = len(x)
-    if len(argv) != 0:
-        weights = argv[0]
-        s = []
-        for j in range(N):
-            xj = np.delete(x, j, axis=0)
-            wj = np.delete(weights, j, axis=0); wj = wj / np.mean(wj) # renormalize weights. This is a choice.
-            s.append( f(np.mean(wj * xj, axis=0)) )
-        return np.array(s)
-    mean = np.mean(x, axis=0)
-    return np.array([ f(mean + (mean - x[j]) / (N-1)) for j in range(N)])
+    w = np.ones(N) if weights is None else weights; assert len(w) == N
+    mean = np.average(x, axis=0, weights=w)
+    N_w = np.sum(w)
+    return np.array([ f( mean + w[j] * (mean - x[j]) / (N_w - w[j]) ) for j in range(N)])
 
 def variance(jks, mean=None):
     if mean is None: mean = np.mean(jks, axis=0)
