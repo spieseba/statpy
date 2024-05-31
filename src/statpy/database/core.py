@@ -259,7 +259,9 @@ class DB:
         return np.mean(cov, axis=0)
 
     def binning_study(self, tag, binsizes, average_permutations=False):
-        message(f"Delayed binning study with unbinned sample size: {len(self.database[tag].jks)}")
+        branch_tags = np.unique([t.split("-")[0] for t in list(self.database[tag].jks.keys())])
+        unbinned_sample_sizes = {branch_tag:len([t for t in list(self.database[tag].jks.keys()) if branch_tag in t]) for branch_tag in branch_tags}
+        message(f"Delayed binning study with unbinned sample size(s): {unbinned_sample_sizes} (number of unique cfgs: {len(self.database[tag].jks)})")
         var = {}
         for b in binsizes:
             var[b] = self.jackknife_variance(tag, b, average_permutations)
@@ -352,8 +354,11 @@ class DB:
         s += f"   {self.database[tag].mean} +- {self.get_tot_var(tag, binsize, average_permutations)**.5} (STAT + SYS)\n"
         s += " ERRORS:\n"
         s += f"   {self.jackknife_variance(tag, binsize, average_permutations)**.5} (STAT)\n"
+        s += f"   {self.get_sys_var(tag)**.5} (SYS)\n"
+        s += "\t[\n"
         for sys_tag in self.get_sys_tags(tag):
-            s += f"   {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
+            s += f"\t {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
+        s += "\t]"
         message(s)
         
     def get_estimate(self, tag, binsize, average_permutations=False):
