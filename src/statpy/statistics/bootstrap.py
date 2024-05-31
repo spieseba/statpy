@@ -1,5 +1,10 @@
 import numpy as np
 
+# generate B bootstraps for N samples
+def generate_bootstraps(B, N, seed=0):
+    rng = np.random.RandomState(seed)
+    return rng.randint(low=0, high=N, size=(B, N))
+
 # compute bootstrap sample from sample x with bootstraps and function f
 def sample(x, bootstraps, weights=None, f=lambda x: x):
     N = len(x); D = x.shape[1]
