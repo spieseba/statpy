@@ -537,7 +537,7 @@ class LatticeCharmToolkit():
                 f_bare_bss = self.db.combine_bss(self.db.database[bootstrap_tag].misc["bss"], f=bare_decay_constant)
                 self.db.add_leaf(tag=f"{bootstrap_tag}/f_bare", mean=f_bare_bss_mean, jks=None, sample=None, misc={"bss": f_bare_bss})
                 f_bare_bs_str = f"         {f_bare_bss_mean:.8f} +- {bootstrap.variance(f_bare_bss)**.5:.8f} (bootstrap)"
-            message(f"f_bare = {self.db.database[f"{binned_tag}/{fit_model_combined}_fit/f_bare"].mean:.8f} +- {self.db.jackknife_variance(f"{binned_tag}/{fit_model_combined}_fit/f_bare")**.5:.8f} (jackknife)")
+            message(f"f_bare = {self.db.database[f'{binned_tag}/{fit_model_combined}_fit/f_bare'].mean:.8f} +- {self.db.jackknife_variance(f'{binned_tag}/{fit_model_combined}_fit/f_bare')**.5:.8f} (jackknife)")
             if b == 1 and self.bootstrap_available: message(f_bare_bs_str)
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
