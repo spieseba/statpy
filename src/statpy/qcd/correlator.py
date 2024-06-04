@@ -486,7 +486,7 @@ class LatticeCharmToolkit():
 
         Nt = len(self.db.database[tag_PS].mean)
         fit_range_combined = np.hstack((fit_range_PS, fit_range_A4I))
-        combined_tag = f"{tag_PS};{tag_A4I.split("/")[1]}"
+        combined_tag = f"{tag_PS};{tag_A4I.split('/')[1]}"
         self.db.combine_sample(tag_PS, tag_A4I, f=lambda x,y: np.hstack((x[fit_range_PS],y[fit_range_A4I])), dst_tag=combined_tag)
         for b in range(1, binsize+1):
             message(f"BINSIZE = {b}", verbosity)
