@@ -238,7 +238,7 @@ class LatticeCharmToolkit():
         src_positions = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
         # determine tbulk
         tbulk = tbulk if tbulk is not None else np.arange(min(src_positions), max(src_positions)+1)
-        # average over all tsrcs between tmin and tmax
+        message(f"Perform tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]].")
         combined_sample = self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(src_positions, tbulk, *Cts, antiperiodic=antiperiodic))
         self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": src_positions, "tbulk":tbulk, "antiperiodic":antiperiodic})
 
