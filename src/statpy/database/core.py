@@ -309,7 +309,7 @@ class DB:
         return dst
 
     def compute_shifted_mean(self, *tags, f=lambda x: x, sys_tag=None):
-        assert sys_tag != None
+        assert sys_tag is not None
         x = []
         for tag in tags:
             lf = self.database[tag]
@@ -349,8 +349,8 @@ class DB:
      
     ############################# ESTIMATES #################################
     
-    def print_estimate(self, tag, binsize, average_permutations=False):
-        s = f"\n ESTIMATE of {tag}:\n"
+    def print_estimate(self, tag, binsize=1, average_permutations=False):
+        s = f"\n ESTIMATE of {tag} (binsize = {binsize}):\n"
         s += f"   {self.database[tag].mean} +- {self.get_tot_var(tag, binsize, average_permutations)**.5} (STAT + SYS)\n"
         s += " ERRORS:\n"
         s += f"   {self.jackknife_variance(tag, binsize, average_permutations)**.5} (STAT)\n"
