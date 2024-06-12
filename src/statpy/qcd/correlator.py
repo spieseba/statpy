@@ -358,8 +358,19 @@ class LatticeCharmToolkit():
             best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks))
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
             message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
+            # check pos.def.
+            pos_def = np.all(np.linalg.eigvals(cov[t][:,t]) > 0)
+            message(f"Check positive definiteness of binned covariance matrix for fit range [[{t[0]},{t[-1]}]]: {pos_def}")
+            cov_correlated = cov
+            if not pos_def:
+                cov_unbinned = self.db.jackknife_covariance(tag)
+                pos_def_unbinned = np.all(np.linalg.eigvals(cov_unbinned[t][:,t]) > 0)
+                message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{t[0]},{t[-1]}]]: {pos_def_unbinned}")
+                if pos_def_unbinned:
+                    message(f"Use unbinned covariance matrix for correlated fit.")
+                    cov_correlated = cov_unbinned
             try:
-                W_correlated = np.linalg.inv(cov[t][:,t])
+                W_correlated = np.linalg.inv(cov_correlated[t][:,t])
                 chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
                                         "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
                                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
@@ -373,6 +384,8 @@ class LatticeCharmToolkit():
                 message(f"{ce} for correlated mean fit") 
                 message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
+            #message(f"excited state contributions: {[model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]}")
+            #message(f"var**5/4 = {(var[t]**.5)/4.}")
             criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < (var[t]**.5)/4.
             t_crit = t[criterion]; suggested_fit_ranges.append(t_crit)
             if len(t_crit) < MIN_TCRIT_LEN:
