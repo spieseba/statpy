@@ -39,7 +39,7 @@ class DB:
     def load(self, *srcs):
         for src in srcs:
             message(f"Load {src}", self.verbosity)
-            assert os.path.isfile(src)
+            assert os.path.isfile(src), f"{src} not found."
             with open(src) as f:
                 src_db = json.load(f)
             for t, lf in src_db.items():
