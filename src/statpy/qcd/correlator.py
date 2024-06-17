@@ -51,6 +51,17 @@ def effective_amplitude_exp(Ct, m):
 
 #################################################### FIT MODELS #########################################################
 
+fit_model_dict = {
+    "cosh": "A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1]",
+    "sinh": "A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]",
+    "exp": "A * exp(-mt); A = p[0]; m = p[1]",
+    "double-cosh": "A0 * [exp(-m0t) + exp(-m0(Nt-t))] + A1 * [exp(-m1t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]",
+    "double-sinh": "A0 * [exp(-m0t) - exp(-m0(Nt-t))] + A1 * [exp(-m1t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]",
+    "double-exp": "A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]",
+    "combined-cosh-sinh": "A0 * [exp(-mt) + exp(-m(Nt-t))], A1 * [exp(-mt) - exp(-m(Nt-t))]; A0 = p[0], A1 = p[1], m = p[2]",
+    "combined-exp-exp": "A0 * exp(-mt), A1 * exp(-mt); A0 = p[0], A1 = p[1], m = p[2]",
+}
+
 ############################## cosh model to fit correlator with periodic boundary conditions ###########################
 
 # C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1] 
@@ -320,7 +331,8 @@ class LatticeCharmToolkit():
         else:
             message(f"P0 = {p0}")
         message(f"BINSIZE = {binsize}", verbosity)
-        message(f"MODEL = {fit_model}")
+        message(f"{fit_model} MODEL = {fit_model_dict[fit_model]}")
+        message("---------------------------------------------------------------------------------", verbosity) 
         binned_tag = self.db.add_binned_leaf(tag, binsize)
         cov = self.db.jackknife_covariance(binned_tag); var = np.diag(cov)        
         Nt = len(self.db.database[binned_tag].mean) 
@@ -332,6 +344,7 @@ class LatticeCharmToolkit():
         fit_range = initial_fit_ranges[0]
         for t in initial_fit_ranges:
             message(f"INITIAL FIT RANGE: [[{t[0]},{t[-1]}]]", verbosity)
+            message("------------------------------- UNCORRELATED FIT --------------------------------", verbosity)
             W = np.linalg.inv(np.diag(var[t]))
             chi2_func = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W, Nt),
                          "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W, Nt),
@@ -346,6 +359,7 @@ class LatticeCharmToolkit():
                         p0_tmp = [1.0 if isnan(p) else p for p in p0_tmp]
                 message(f"p0 guess contains NaN, use fit result from previous fit range if available, else use available params to estimate NaNs or default to 1: {p0_tmp}")
             try:
+                message(f"p0 for fit: {p0_tmp}")
                 best_parameter, best_parameter_jks, misc = fit(self.db, t, binned_tag, p0_tmp, chi2_func, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params)
                 misc["fit_model"] = fit_model
             except ConvergenceError as ce:
@@ -374,6 +388,7 @@ class LatticeCharmToolkit():
                 chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
                                         "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
                                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
+                message(f"p0 for fit: {p0_tmp}")
                 best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
                 misc_correlated["fit_model"] = fit_model
                 best_parameter_correlated = _sort_params(best_parameter_correlated)
@@ -417,7 +432,7 @@ class LatticeCharmToolkit():
         message(f"CORRELATOR: {tag}")
         message(f"P0 = {p0}")
         message(f"FIT RANGE {fit_range}") 
-        message(f"MODEL = {fit_model}") 
+        message(f"{fit_model} MODEL = {fit_model_dict[fit_model]}")
         for b in range(1, binsize+1):
             message(f"BINSIZE = {b}", verbosity)
             binned_tag = self.db.add_binned_leaf(tag, b)
@@ -490,11 +505,14 @@ class LatticeCharmToolkit():
         fit_model_A4I = fit_model_combined.split("-")[2]
         message(f"PSPS correlator: {tag_PS}")
         message(f"PSPS - FIT RANGE {fit_range_PS}") 
-        message(f"PSPS - model: {fit_model_PS}")
+        #message(f"PSPS - model: {fit_model_PS}")
+        message(f"PSPS {fit_model_PS} MODEL = {fit_model_dict[fit_model_PS]}")
         message(f"PSA4I correlator: {tag_A4I}")
         message(f"PSA4I - FIT RANGE {fit_range_A4I}") 
-        message(f"PSA4I - model: {fit_model_A4I}")
-        message(f"combined model: {fit_model_combined}")
+        #message(f"PSA4I - model: {fit_model_A4I}")
+        message(f"PSA4I {fit_model_A4I} MODEL = {fit_model_dict[fit_model_A4I]}")
+        #message(f"combined model: {fit_model_combined}")
+        message(f"COMBINED - {fit_model_combined} MODEL = {fit_model_dict[fit_model_combined]}")
         message(f"P0 = {p0}")
 
         Nt = len(self.db.database[tag_PS].mean)
