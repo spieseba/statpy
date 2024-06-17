@@ -40,7 +40,7 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0, acc
             if t in key:
                 if "SRCPOS" in key and exclude_SRCPOS:
                     continue
-                f_vals = np.array(f.get(key))
+                f_vals = f.get(key)[:]
                 sample = {f"{branch_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
                 db.add_leaf(tag=f"{branch_tag}/{key}", mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
     message(f"---------------------------------")
