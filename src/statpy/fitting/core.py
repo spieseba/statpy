@@ -126,7 +126,7 @@ def fitMultipleEnsemblesl2Norm(db, x_tags, y_tags, p0, chi2_func, fit_method, fi
         message(f"\t\t\t{e_tags}")
     message(f"\t\t\t]")
     message(f"Compute inverses of block covariances")
-    dst_tags = [f"tmp_concat_{"-".join(e_tags)}" for e_tags in tags_2D]
+    dst_tags = [f"tmp_concat_{'-'.join(e_tags)}" for e_tags in tags_2D]
     Ws = []
     for e_tags, e_dst_tag in zip(tags_2D,dst_tags):
         db.combine(*e_tags, f=lambda *xs:np.array([x for x in xs]), dst_tag=e_dst_tag)
