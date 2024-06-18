@@ -349,18 +349,38 @@ class DB:
      
     ############################# ESTIMATES #################################
     
-    def print_estimate(self, tag, binsize=1, average_permutations=False):
-        s = f"\n ESTIMATE of {tag} (binsize = {binsize}):\n"
-        s += f"   {self.database[tag].mean} +- {self.get_tot_var(tag, binsize, average_permutations)**.5} (STAT + SYS)\n"
+    def print_estimate(self, tag, binsize=1, significant_digits=None, average_permutations=False):
+        s = f"\n ESTIMATE of {tag} (binsize = {binsize}, significant digits = {significant_digits}):\n"
+        # get mean and std
+        mean = self.database[tag].mean
+        std = self.get_tot_var(tag, binsize, average_permutations)**.5
+        # print full estimate and round it if desired
+        if significant_digits is None:
+            s += f"   {mean} +- {std} (STAT + SYS)\n"
+        else: 
+            mean, std, decimals = self._round_estimate(mean, std, significant_digits)
+            s += f"   {mean:.{decimals}f}({int(std*10**decimals)}) (STAT + SYS)\n"
+        # print errors
         s += " ERRORS:\n"
+        # statistical 
         s += f"   {self.jackknife_variance(tag, binsize, average_permutations)**.5} (STAT)\n"
+        # systematic
         s += f"   {self.get_sys_var(tag)**.5} (SYS)\n"
-        s += "\t[\n"
-        for sys_tag in self.get_sys_tags(tag):
-            s += f"\t {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
-        s += "\t]"
+        sys_tags = self.get_sys_tags(tag)
+        if len(sys_tags) > 0:
+            s += "\t[\n"
+            for sys_tag in sys_tags:
+                s += f"\t {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
+            s += "\t]"
         message(s)
-        
+
+    def _round_estimate(self, mean, std, significant_digits):
+        decimals = -int(np.floor(np.log10(std))) + significant_digits-1
+        scale = 10**(decimals)
+        mean_rounded = np.round(mean, decimals)
+        std_rounded = np.ceil(std * scale) / scale 
+        return mean_rounded, std_rounded, decimals
+     
     def get_estimate(self, tag, binsize, average_permutations=False):
         return self.database[tag].mean, self.get_tot_var(tag, binsize, average_permutations)
 
