@@ -252,18 +252,19 @@ class LatticeCharmToolkit():
         message(f"Perform tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]].")
         combined_sample = self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(src_positions, tbulk, *Cts, antiperiodic=antiperiodic))
         self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": src_positions, "tbulk":tbulk, "antiperiodic":antiperiodic})
+        return tbulk
 
     def _avg_obc_srcs(self, srcs, tbulk, *Cts, antiperiodic=False):
         assert len(srcs) == len(Cts)
         tmin = tbulk[0]; tmax = tbulk[-1]
-        max_len = tmax - tmin
+        max_len = tmax - tmin + 1
         num_Cts = len(Cts)
         # create masked array
         Cts_ma = np.ma.empty((2 * num_Cts, max_len))
         Cts_ma.mask = True
         # get tmax for forward and backward average
-        tmax_srcs_fw = tmax - np.array(srcs)
-        tmax_srcs_bw = np.array(srcs) - tmin
+        tmax_srcs_fw = tmax - np.array(srcs) + 1
+        tmax_srcs_bw = np.array(srcs) - tmin + 1
         # fill masked array with relevant time slices for each source position
         for idx, Ct, tmax_src_fw, tmax_src_bw in zip(range(num_Cts), Cts, tmax_srcs_fw, tmax_srcs_bw):
             Cts_ma[idx, :tmax_src_fw] = Ct[:tmax_src_fw]
