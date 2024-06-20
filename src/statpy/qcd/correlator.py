@@ -6,6 +6,7 @@ from statpy.fitting.core import fit, print_fit_results, get_pvalue
 from numba import njit
 from math import isnan
 import warnings
+from sys import exit
 
 ### periodic boundary conditions ###
 def effective_mass_acosh1(Ct):
@@ -250,27 +251,42 @@ class LatticeCharmToolkit():
         # determine tbulk
         tbulk = tbulk if tbulk is not None else np.arange(min(src_positions), max(src_positions)+1)
         message(f"Perform tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]].")
-        combined_sample = self.db.combine_sample(*Ctsrc_tags, f=lambda *Cts: self._avg_obc_srcs(src_positions, tbulk, *Cts, antiperiodic=antiperiodic))
-        self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": src_positions, "tbulk":tbulk, "antiperiodic":antiperiodic})
-        return tbulk
+        assert len(src_positions) == len(Ctsrc_tags)
+        max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, valid_srcs = self._get_bulk_tsrcs(src_positions, tbulk)
+        combined_sample = self.db.combine_sample(*Ctsrc_tags, 
+                                                 f=lambda *Cts: self._avg_obc_srcs(max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, *Cts, antiperiodic=antiperiodic))
+        self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": valid_srcs, "tbulk":tbulk, "antiperiodic":antiperiodic})
 
-    def _avg_obc_srcs(self, srcs, tbulk, *Cts, antiperiodic=False):
-        assert len(srcs) == len(Cts)
+    def _get_bulk_tsrcs(self, srcs, tbulk):
         tmin = tbulk[0]; tmax = tbulk[-1]
         max_len = tmax - tmin + 1
+        # get tmax for forward and backward average
+        tmax_srcs_fw = tmax + 1 - np.array(srcs) 
+        tmax_srcs_bw = np.array(srcs) - tmin + 1
+        # create masks for positive entries
+        valid_mask_fw = (tmax_srcs_fw > 0) & (tmax_srcs_fw <= max_len)
+        valid_mask_bw = (tmax_srcs_bw > 0) & (tmax_srcs_bw <= max_len)
+        # print averaged tsrcs
+        valid_srcs = np.array(srcs)[np.where(valid_mask_fw)[0]]
+        message(f"---> {valid_srcs}")
+        return max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, valid_srcs
+    
+    def _avg_obc_srcs(self, max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, *Cts, antiperiodic=False):
         num_Cts = len(Cts)
         # create masked array
         Cts_ma = np.ma.empty((2 * num_Cts, max_len))
         Cts_ma.mask = True
-        # get tmax for forward and backward average
-        tmax_srcs_fw = tmax - np.array(srcs) + 1
-        tmax_srcs_bw = np.array(srcs) - tmin + 1
         # fill masked array with relevant time slices for each source position
-        for idx, Ct, tmax_src_fw, tmax_src_bw in zip(range(num_Cts), Cts, tmax_srcs_fw, tmax_srcs_bw):
-            Cts_ma[idx, :tmax_src_fw] = Ct[:tmax_src_fw]
-            Cts_ma[idx+num_Cts, :tmax_src_bw] = np.roll(np.flip(Ct), 1)[:tmax_src_bw]
-            if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_src_bw] *= -1.
-        return Cts_ma.mean(axis=0) 
+        for idx in range(num_Cts):
+            Ct = Cts[idx]
+            if valid_mask_fw[idx]:
+                tmax_src_fw = tmax_srcs_fw[idx]
+                Cts_ma[idx, :tmax_src_fw] = Ct[:tmax_src_fw]
+            if valid_mask_bw[idx]:
+                tmax_src_bw = tmax_srcs_bw[idx]
+                Cts_ma[idx+num_Cts, :tmax_src_bw] = np.roll(np.flip(Ct), 1)[:tmax_src_bw]
+                if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_src_bw] *= -1.
+        return Cts_ma.mean(axis=0)
 
     # determine improved PSA4 according to https://arxiv.org/pdf/1502.04999.pdf
     def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
