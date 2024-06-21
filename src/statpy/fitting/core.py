@@ -1,7 +1,8 @@
 import numpy as np
 import scipy.optimize as opt
-from scipy.integrate import quad
-from scipy.special import gamma
+#from scipy.integrate import quad
+#from scipy.special import gamma
+import scipy.stats as stats
 from scipy.linalg import block_diag
 from iminuit import Minuit
 
@@ -60,8 +61,9 @@ class Fitter:
             raise ConvergenceError("Simplex did not converge")
         return np.array(m.values), m.fval, None
     
-def get_pvalue(chi2, dof):
-    return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
+def get_pvalue(chi2_value, dof):
+    return stats.chi2.sf(chi2_value, dof)
+    #return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
     
 def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_gradient):
     return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
@@ -195,8 +197,9 @@ class FitterV1:
     def chi_squared(self, t, p, y):
         return (self.model(t, p) - y) @ self.W @ (self.model(t, p) - y)
 
-    def get_pvalue(self, chi2, dof):
-        return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
+    def get_pvalue(self, chi2_value, dof):
+        return stats.chi2.sf(chi2_value, dof)
+        #return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
 
     def model_prediction_var(self, t, p, cov_p, dmodel_dp):
         return dmodel_dp(t,p) @ cov_p @ dmodel_dp(t,p)
