@@ -288,6 +288,18 @@ class LatticeCharmToolkit():
                 if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_src_bw] *= -1.
         return Cts_ma.mean(axis=0)
 
+    def fold_correlator(self, Ct_tag, antiperiodic=False):
+        message(f"Fold correlator {Ct_tag}.")
+        self.db.combine_sample(Ct_tag, f=lambda Ct: self._fold(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
+
+    def _fold(self, arr, antiperiodic=False):
+        half = len(arr) // 2
+        arr0 = arr[:half]
+        arr1 = np.roll(np.flip(arr[half:]), 1) 
+        if antiperiodic: arr1 *= -1.
+        arr1[0] = arr0[0]
+        return np.mean([arr0, arr1], axis=0)
+
     # determine improved PSA4 according to https://arxiv.org/pdf/1502.04999.pdf
     def determine_PSA4I(self, tag_PSPS_sml, tag_PSA4_sml, beta):
         def compute_cA(beta):
