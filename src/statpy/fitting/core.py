@@ -1,7 +1,8 @@
 import numpy as np
 import scipy.optimize as opt
-from scipy.integrate import quad
-from scipy.special import gamma
+#from scipy.integrate import quad
+#from scipy.special import gamma
+import scipy.stats as stats
 from iminuit import Minuit
 from statpy.log import message
 
@@ -56,8 +57,9 @@ class Fitter:
             raise ConvergenceError("Simplex did not converge")
         return np.array(m.values), m.fval, None
     
-def get_pvalue(chi2, dof):
-    return quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
+def get_pvalue(chi2_value, dof):
+    return stats.chi2.sf(chi2_value, dof)
+    #quad(lambda x: 2**(-dof/2)/gamma(dof/2)*x**(dof/2-1)*np.exp(-x/2), chi2, np.inf)[0]
     
 def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_gradient):
     return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
