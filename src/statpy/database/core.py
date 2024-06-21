@@ -356,21 +356,27 @@ class DB:
         std = self.get_tot_var(tag, binsize, average_permutations)**.5
         # print full estimate and round it if desired
         if significant_digits is None:
-            s += f"   {mean} +- {std} (STAT + SYS)\n"
+            s += f"   {mean} +- {std} [STAT + SYS]\n"
         else: 
             mean, std, decimals = self._round_estimate(mean, std, significant_digits)
-            s += f"   {mean:.{decimals}f}({int(std*10**decimals)}) (STAT + SYS)\n"
+            #s += f"   {mean:.{decimals}f}({int(std*10**decimals)}) [STAT + SYS]\n"
+            s += f"   {mean}({int(std*10**decimals)}) [STAT + SYS]\n"
         # print errors
         s += " ERRORS:\n"
-        # statistical 
-        s += f"   {self.jackknife_variance(tag, binsize, average_permutations)**.5} (STAT)\n"
-        # systematic
-        s += f"   {self.get_sys_var(tag)**.5} (SYS)\n"
+        if significant_digits is None:
+            s += f"   {self.jackknife_variance(tag, binsize, average_permutations)**.5} [STAT]\n"
+            s += f"   {self.get_sys_var(tag)**.5} [SYS]\n"
+        else:
+            _, std_stat, _ = self._round_estimate(0, self.jackknife_variance(tag, binsize, average_permutations)**.5, significant_digits)
+            s += f"   ({(int(std_stat*10**decimals))}) [STAT]\n"
+            _, std_sys, _ = self._round_estimate(0, self.get_sys_var(tag)**.5, significant_digits)
+            s += f"   ({int(std_sys*10**decimals)}) [SYS]\n"
+        # print systematics
         sys_tags = self.get_sys_tags(tag)
         if len(sys_tags) > 0:
             s += "\t[\n"
             for sys_tag in sys_tags:
-                s += f"\t {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} (SYS {sys_tag})\n"
+                s += f"\t {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} [SYS {sys_tag}]\n"
             s += "\t]"
         message(s)
 
