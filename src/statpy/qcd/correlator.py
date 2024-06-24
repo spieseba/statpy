@@ -350,7 +350,7 @@ class LatticeCharmToolkit():
             message(f"---> [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
         return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
-    def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity, MIN_TCRIT_LEN=7):
+    def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity, Nt=None, MIN_TCRIT_LEN=7):
         def _sort_params(p):
             if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
             else: return p
@@ -364,7 +364,7 @@ class LatticeCharmToolkit():
         message("---------------------------------------------------------------------------------", verbosity) 
         binned_tag = self.db.add_binned_leaf(tag, binsize)
         cov = self.db.jackknife_covariance(binned_tag); var = np.diag(cov)        
-        Nt = len(self.db.database[binned_tag].mean) 
+        Nt = len(self.db.database[binned_tag].mean) if Nt is None else Nt
         model_func = {"double-cosh": double_cosh_model(Nt),
                       "double-sinh": double_sinh_model(Nt),
                       "double-exp": double_exp_model()}[fit_model]       
@@ -457,7 +457,7 @@ class LatticeCharmToolkit():
         else:
             return None, None 
 
-    def correlator_fit(self, tag, binsize, fit_range, p0, fit_model, verbosity):
+    def correlator_fit(self, tag, binsize, fit_range, p0, fit_model, Nt=None, verbosity=0):
         message(f"CORRELATOR: {tag}")
         message(f"P0 = {p0}")
         message(f"FIT RANGE {fit_range}") 
@@ -467,7 +467,7 @@ class LatticeCharmToolkit():
             binned_tag = self.db.add_binned_leaf(tag, b)
             message("--------------------------------- JACKKNIFE FIT ---------------------------------", verbosity)
             var = self.db.jackknife_variance(binned_tag)  
-            Nt = len(self.db.database[binned_tag].mean) 
+            Nt = len(self.db.database[binned_tag].mean) if Nt is None else Nt
             W = np.linalg.inv(np.diag(var[fit_range]))
             chi2_func = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W, Nt),
                          "sinh": lambda t,p,y: sinh_chi2(t, p, y, W, Nt),
@@ -528,7 +528,7 @@ class LatticeCharmToolkit():
                 bootstrap_tag = tag.replace("fit", "bootstrap_fit"); lf_bs = self.db.database[bootstrap_tag]  
                 self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"][:,1]})
     
-    def correlator_combined_fit(self, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, verbosity=0):
+    def correlator_combined_fit(self, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, Nt=None, verbosity=0):
         message("------------------ COMBINED CORRELATOR FIT PSPS/PSA4I ---------------------") 
         fit_model_PS = fit_model_combined.split("-")[1]
         fit_model_A4I = fit_model_combined.split("-")[2]
@@ -544,7 +544,7 @@ class LatticeCharmToolkit():
         message(f"COMBINED - {fit_model_combined} MODEL = {fit_model_dict[fit_model_combined]}")
         message(f"P0 = {p0}")
 
-        Nt = len(self.db.database[tag_PS].mean)
+        Nt = len(self.db.database[tag_PS].mean) if Nt is None else Nt
         fit_range_combined = np.hstack((fit_range_PS, fit_range_A4I))
         combined_tag = f"{tag_PS};{tag_A4I.split('/')[1]}"
         self.db.combine_sample(tag_PS, tag_A4I, f=lambda x,y: np.hstack((x[fit_range_PS],y[fit_range_A4I])), dst_tag=combined_tag)
