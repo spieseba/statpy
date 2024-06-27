@@ -349,36 +349,53 @@ class DB:
      
     ############################# ESTIMATES #################################
     
-    def print_estimate(self, tag, binsize=1, significant_digits=None, average_permutations=False):
+    def print_estimate(self, tag, binsize=1, significant_digits=None, exponent=None, average_permutations=False):
         s = f"\n ESTIMATE of {tag} (binsize = {binsize}, significant digits = {significant_digits}):\n"
         # get mean and std
         mean = self.database[tag].mean
         std = self.get_tot_var(tag, binsize, average_permutations)**.5
         # print full estimate and round it if desired
-        if significant_digits is None:
-            s += f"   {mean} +- {std} [STAT + SYS]\n"
-        else: 
+        if significant_digits is not None:
             mean, std, decimals = self._round_estimate(mean, std, significant_digits)
-            #s += f"   {mean:.{decimals}f}({int(std*10**decimals)}) [STAT + SYS]\n"
-            s += f"   {mean}({int(std*10**decimals)}) [STAT + SYS]\n"
+        s += f"   {self._get_rescaled_string(mean, std, exponent)} [STAT + SYS]\n"
         # print errors
         s += " ERRORS:\n"
-        if significant_digits is None:
-            s += f"   {self.jackknife_variance(tag, binsize, average_permutations)**.5} [STAT]\n"
-            s += f"   {self.get_sys_var(tag)**.5} [SYS]\n"
-        else:
+        std_stat = self.jackknife_variance(tag, binsize, average_permutations)**.5
+        std_sys = self.get_sys_var(tag)**.5
+        if significant_digits is not None:
             _, std_stat, _ = self._round_estimate(0, self.jackknife_variance(tag, binsize, average_permutations)**.5, significant_digits)
-            s += f"   ({(int(std_stat*10**decimals))}) [STAT]\n"
             _, std_sys, _ = self._round_estimate(0, self.get_sys_var(tag)**.5, significant_digits)
-            s += f"   ({int(std_sys*10**decimals)}) [SYS]\n"
+        s += f"   {self._get_rescaled_string(None, std_stat, exponent)} [STAT]\n"
+        s += f"   {self._get_rescaled_string(None, std_sys, exponent)} [SYS]\n"
         # print systematics
         sys_tags = self.get_sys_tags(tag)
         if len(sys_tags) > 0:
             s += "\t[\n"
             for sys_tag in sys_tags:
-                s += f"\t {self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5} [SYS {sys_tag}]\n"
+                std_sys = self.database[tag].misc[f'SYS_VAR_{sys_tag}']**.5
+                if std_sys == 0.: 
+                    s+= f"\t 0.0 [SYS {sys_tag}]\n"
+                    continue
+                if significant_digits is not None:
+                    _, std_sys, _ = self._round_estimate(0, std_sys, significant_digits)
+                s += f"\t {self._get_rescaled_string(None, std_sys, exponent)} [SYS {sys_tag}]\n"
             s += "\t]"
         message(s)
+
+    def _get_rescaled_string(self, mean, std, exponent):
+        rescaled_std_coeff = self._get_rescaled_coeff(std, exponent) if exponent is not None else None
+        if mean is None:
+            return f"{rescaled_std_coeff:.{abs(exponent)}}e{exponent:03d}" if exponent is not None else f"{std}"
+        else:
+            rescaled_mean_coeff = self._get_rescaled_coeff(mean, exponent) if exponent is not None else None
+            return f"{rescaled_mean_coeff:.{abs(exponent)}}e{exponent:03d} +- {rescaled_std_coeff:.{abs(exponent)}}e{exponent:03d}" if exponent is not None else f"{mean} +- {std}"   
+
+    def _get_rescaled_coeff(self, value, exponent):
+         scientific_array = f"{value:e}".split("e")
+         coeff = float(scientific_array[0])
+         old_exp = int(scientific_array[1])
+         rescaled_coeff = coeff * 10**(old_exp-exponent)
+         return rescaled_coeff
 
     def _round_estimate(self, mean, std, significant_digits):
         decimals = -int(np.floor(np.log10(std))) + significant_digits-1
