@@ -292,6 +292,14 @@ class LatticeCharmToolkit():
         message(f"Fold correlator {Ct_tag}.")
         self.db.combine_sample(Ct_tag, f=lambda Ct: self._fold(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
 
+    def get_folded_tmax(self, Ct_tag, max_val=50):
+        message(f"Determine tmax by signal to noise ratio < {max_val}.")
+        mt, mt_jks, _ = self.db.combine(Ct_tag, f=effective_mass_acosh1) # spectrum paper method does not make much sense here as it involces Ct(Nt//2)
+        signal_to_noise = mt / jackknife.variance(self.db.as_array(mt_jks))**.5
+        tmax = next((i for i, x in enumerate(signal_to_noise) if x < max_val), -1)
+        assert tmax != -1, f"tmax could not be found. signal to noise: {signal_to_noise}"
+        return tmax
+
     def _fold(self, arr, antiperiodic=False):
         half = len(arr) // 2
         arr0 = arr[:half]
