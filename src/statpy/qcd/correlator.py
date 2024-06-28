@@ -268,7 +268,7 @@ class LatticeCharmToolkit():
         valid_mask_bw = (tmax_srcs_bw > 0) & (tmax_srcs_bw <= max_len)
         # print averaged tsrcs
         valid_srcs = np.array(srcs)[np.where(valid_mask_fw)[0]]
-        message(f"---> {valid_srcs}")
+        message(f"---> {sorted(valid_srcs)}")
         return max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, valid_srcs
     
     def _avg_obc_srcs(self, max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, *Cts, antiperiodic=False):
@@ -292,11 +292,14 @@ class LatticeCharmToolkit():
         message(f"Fold correlator {Ct_tag}.")
         self.db.combine_sample(Ct_tag, f=lambda Ct: self._fold(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
 
-    def get_folded_tmax(self, Ct_tag, max_val=100):
-        message(f"Determine tmax by signal to noise ratio < {max_val}.")
+    def get_tmax_signal_to_noise(self, Ct_tag, min_stn_val=100):
+        message(f"Determine tmax by signal to noise ratio < {min_stn_val}.")
         signal_to_noise = self.db.database[Ct_tag].mean / self.db.jackknife_variance(Ct_tag)**.5
-        tmax = next((i for i, x in enumerate(signal_to_noise) if (i > 10) and (x < max_val)), -1)
-        assert tmax != -1, f"tmax could not be found. signal to noise: {signal_to_noise}"
+        tmax = next((i for i, x in enumerate(signal_to_noise) if (i > 10) and (x < min_stn_val)), -1)
+        if tmax == -1:
+            message(f"Signal to noise ratio < {min_stn_val} could not be found. return tmax = -1")
+            message(f"Signal to noise ratio: {signal_to_noise}")
+        message(f"Found tmax = {tmax}.")
         return tmax
 
     def _fold(self, arr, antiperiodic=False):
