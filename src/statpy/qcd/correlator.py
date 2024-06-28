@@ -246,8 +246,8 @@ class LatticeCharmToolkit():
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
 
     def tsrc_avg(self, Ctsrc_tags, dst_tag, tbulk=None, antiperiodic=False):
-        # extract and sort tsrc positions
-        src_positions = sorted([int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]) 
+        # extract tsrc positions - don't sort!
+        src_positions = [int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]
         # determine tbulk
         tbulk = tbulk if tbulk is not None else np.arange(min(src_positions), max(src_positions)+1)
         message(f"Perform tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]].")
