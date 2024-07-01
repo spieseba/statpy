@@ -364,7 +364,10 @@ class DB:
         std_sys = self.get_sys_var(tag)**.5
         if significant_digits is not None:
             _, std_stat, _ = self._round_estimate(0, self.jackknife_variance(tag, binsize, average_permutations)**.5, significant_digits)
-            _, std_sys, _ = self._round_estimate(0, self.get_sys_var(tag)**.5, significant_digits)
+            if self.get_sys_var(tag)**.5 == 0.:
+                std_sys = 0.
+            else:
+                _, std_sys, _ = self._round_estimate(0, self.get_sys_var(tag)**.5, significant_digits)
         s += f"   {self._get_rescaled_string(None, std_stat, exponent)} [STAT]\n"
         s += f"   {self._get_rescaled_string(None, std_sys, exponent)} [SYS]\n"
         # print systematics
