@@ -267,9 +267,13 @@ class DB:
             var[b] = self.jackknife_variance(tag, b, average_permutations)
         return var
     
-    def AMA(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_tag):
+    def AMA_diff(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_tag):
         self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x-y, dst_tag=dst_tag+"_bias")
         self.combine(sloppy_sloppy_tag, dst_tag+"_bias", f=lambda x,y: x+y, dst_tag=dst_tag)
+    
+    def AMA_ratio(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_tag):
+        self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x/y, dst_tag=dst_tag+"_bias")
+        self.combine(sloppy_sloppy_tag, dst_tag+"_bias", f=lambda x,y: x*y, dst_tag=dst_tag)
     
     ############################### SAMPLE ####################################
          
