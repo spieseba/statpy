@@ -29,6 +29,6 @@ def covariance(bss, mean=None):
 
 def rescale(bss, s):
     mean = np.mean(bss, axis=0)
-    if isinstance(np.mean(bss, axis=0), np.float64):
+    if isinstance(mean, np.float64):
         return mean + s * (bss - mean) 
     return mean[None,:] + s * (bss - mean[None,:])
