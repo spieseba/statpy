@@ -392,10 +392,10 @@ class DB:
     def _get_rescaled_string(self, mean, std, exponent):
         rescaled_std_coeff = self._get_rescaled_coeff(std, exponent) if exponent is not None else None
         if mean is None:
-            return f"{rescaled_std_coeff:.{abs(exponent)}}e{exponent:03d}" if exponent is not None else f"{std}"
+            return f"{rescaled_std_coeff:.{abs(exponent)}} x e{exponent:03d}" if exponent is not None else f"{std}"
         else:
             rescaled_mean_coeff = self._get_rescaled_coeff(mean, exponent) if exponent is not None else None
-            return f"{rescaled_mean_coeff:.{abs(exponent)}}e{exponent:03d} +- {rescaled_std_coeff:.{abs(exponent)}}e{exponent:03d}" if exponent is not None else f"{mean} +- {std}"   
+            return f"{rescaled_mean_coeff:.{abs(exponent)}} x e{exponent:03d} +- {rescaled_std_coeff:.{abs(exponent)}}e{exponent:03d}" if exponent is not None else f"{mean} +- {std}"   
 
     def _get_rescaled_coeff(self, value, exponent):
          scientific_array = f"{value:e}".split("e")
