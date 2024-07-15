@@ -68,9 +68,10 @@ def get_pvalue(chi2_value, dof):
 def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_gradient):
     return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
 
-def akaike_information_criterion(dof, chi2):
-    # P(M) = exp(aik)
-    return - (2.0 * dof + chi2) / 2.0
+# Akaike Information Criterion
+def get_AIC(dof, chi2):
+    # P(M) = exp(-AIC)
+    return (2.0 * dof + chi2) / 2.0
 
 ##################################################################################################################################################################
 ########################################################################## STATPY DB #############################################################################
@@ -88,12 +89,14 @@ def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_f
     pval = get_pvalue(chi2, dof)
     misc["t"] = t
     misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    misc["AIC"] = get_AIC(dof, chi2); misc["P(M)"] = np.exp(-misc["AIC"])
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
         message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+        message(f"P(M) = exp(-AIC) = exp([2.0 * dof + chi2] / 2.0) = exp(-{misc['AIC']}) = {misc['P(M)']}")
 
 def fitMultipleEnsembles(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
@@ -111,12 +114,14 @@ def fitMultipleEnsembles(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_para
     misc["t_tags"] = t_tags
     misc["y_tags"] = y_tags
     misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    misc["AIC"] = get_AIC(dof, chi2); misc["P(M)"] = np.exp(-misc["AIC"])
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
         message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+        message(f"P(M) = exp(-AIC) = exp([2.0 * dof + chi2] / 2.0) = exp(-{misc['AIC']}) = {misc['P(M)']}")
 
 # x_tags: 2D array which contains lists of x_tags for each ensemble
 # y_tags: 2D array which contains lists of y_tags for each ensemble
@@ -160,6 +165,7 @@ def fitMultipleEnsemblesl2Norm(db, x_tags, y_tags, p0, chi2_func, fit_method, fi
     pval = get_pvalue(chi2, dof)
     # add to database
     misc["tags"] = tags_2D; misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    misc["AIC"] = get_AIC(dof, chi2); misc["P(M)"] = np.exp(-misc["AIC"])
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     # display results
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize=[max([binsizes[e_tag] for e_tag in e_tags]) for e_tags in tags_2D])
@@ -167,6 +173,7 @@ def fitMultipleEnsemblesl2Norm(db, x_tags, y_tags, p0, chi2_func, fit_method, fi
         for i in range(len(best_parameter)):
             message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, [max([binsizes[e_tag] for e_tag in e_tags]) for e_tags in tags_2D]))[i]**.5} (STAT + SYS)]")
         message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+        message(f"P(M) = exp(-AIC) = exp([2.0 * dof + chi2] / 2.0) = exp(-{misc['AIC']}) = {misc['P(M)']}")
 
 def _is_2D_list(lst):
     if not isinstance(lst, list):
@@ -267,12 +274,14 @@ def fitV1(db, t, tag, cov, p0, model, fit_method, fit_params, jks_fit_method, jk
     pval = fitter.get_pvalue(chi2, dof)
     misc["t"] = t
     misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    misc["AIC"] = get_AIC(dof, chi2); misc["P(M)"] = np.exp(-misc["AIC"])
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
         message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+        message(f"P(M) = exp(-AIC) = exp([2.0 * dof + chi2] / 2.0) = exp(-{misc['AIC']}) = {misc['P(M)']}")
  
 def fitMultipleEnsemblesV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     assert len(p0) == len(model.parameter_gradient(1, p0)), f"len(p0) = {len(p0)} != len(best_parameter) = {len(model.parameter_gradient(1, p0))}"
@@ -292,9 +301,11 @@ def fitMultipleEnsemblesV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_p
     misc["t_tags"] = t_tags
     misc["y_tags"] = y_tags
     misc["chi2"] = chi2; misc["dof"] = dof; misc["pval"] = pval
+    misc["AIC"] = get_AIC(dof, chi2); misc["P(M)"] = np.exp(-misc["AIC"])
     db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
     best_parameter_cov = db.jackknife_covariance(dst_tag, binsize)
     if verbosity >= 0:
         for i in range(len(best_parameter)):
             message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
         message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
+        message(f"P(M) = exp(-AIC) = exp([2.0 * dof + chi2] / 2.0) = exp(-{misc['AIC']}) = {misc['P(M)']}")
