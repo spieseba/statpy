@@ -68,6 +68,10 @@ def get_pvalue(chi2_value, dof):
 def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_gradient):
     return model_parameter_gradient(t, best_parameter) @ best_parameter_cov @ model_parameter_gradient(t, best_parameter)
 
+def akaike_information_criterion(dof, chi2):
+    # P(M) = exp(aik)
+    return - (2.0 * dof + chi2) / 2.0
+
 ##################################################################################################################################################################
 ########################################################################## STATPY DB #############################################################################
 ##################################################################################################################################################################
