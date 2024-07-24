@@ -110,7 +110,7 @@ def fitMultipleEnsembles(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_para
     best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
     misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
     chi2 = chi2_func(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
-    dof = len(t_tags) - len(best_parameter)
+    dof = len(y_tags) - len(best_parameter)
     pval = get_pvalue(chi2, dof)
     misc["t_tags"] = t_tags
     misc["y_tags"] = y_tags
@@ -297,7 +297,7 @@ def fitMultipleEnsemblesV1(db, t_tags, y_tags, cov, p0, model, fit_method, fit_p
     best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
     misc = db.propagate_systematics(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) 
     chi2 = fitter.chi_squared(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
-    dof = len(t_tags) - len(best_parameter)
+    dof = len(y_tags) - len(best_parameter)
     pval = fitter.get_pvalue(chi2, dof)
     misc["t_tags"] = t_tags
     misc["y_tags"] = y_tags
