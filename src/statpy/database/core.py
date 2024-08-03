@@ -352,6 +352,14 @@ class DB:
         return sys_var
      
     ############################# ESTIMATES #################################
+
+    def get_estimate(self, tag, binsize, average_permutations=False):
+        return self.database[tag].mean, self.get_tot_var(tag, binsize, average_permutations)
+
+    def get_tot_var(self, tag, binsize, average_permutations=False):
+        return self.jackknife_variance(tag, binsize, average_permutations) + self.get_sys_var(tag)
+
+    ########################## PRINT ESTIMATES ##############################
     
     def print_estimate(self, tag, binsize=1, significant_digits=None, exponent=None, average_permutations=False):
         s = f"\n ESTIMATE of {tag} (binsize = {binsize}, significant digits = {significant_digits}):\n"
@@ -411,8 +419,3 @@ class DB:
         std_rounded = np.ceil(std * scale) / scale 
         return mean_rounded, std_rounded, decimals
      
-    def get_estimate(self, tag, binsize, average_permutations=False):
-        return self.database[tag].mean, self.get_tot_var(tag, binsize, average_permutations)
-
-    def get_tot_var(self, tag, binsize, average_permutations=False):
-        return self.jackknife_variance(tag, binsize, average_permutations) + self.get_sys_var(tag)
