@@ -7,10 +7,10 @@ def generate_bootstraps(B, N, seed=0):
 
 # compute bootstrap sample from sample x with bootstraps and function f
 def sample(x, bootstraps, weights=None, f=lambda x: x):
-    N = len(x); D = x.shape[1]
+    N = len(x); D = x.shape[1] if x.ndim > 1 else 1
     B = bootstraps.shape[0]
     w = np.ones(N) if weights is None else weights
-    bss = np.zeros(shape=(B,D))
+    bss = np.zeros(shape=(B,D)) if D > 1 else np.zeros(B)
     for k,bs in enumerate(bootstraps):
         bss[k] = f(np.average(x[bs], axis=0, weights=w[bs]))
     return bss 
