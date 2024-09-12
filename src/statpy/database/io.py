@@ -36,7 +36,7 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0, acc
     db.add_nrwf(rwf_tag=f"{branch_tag}/rwf")
     # data
     for t in tags:
-        for key in f.keys():
+        for key in f.keys(): # in future: additional layer /messpec
             if t in key:
                 if "SRCPOS" in key and exclude_SRCPOS:
                     continue
