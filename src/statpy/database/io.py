@@ -16,10 +16,11 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0, acc
     message(f"# of cfgs in hdf5 file: {len(f_cfgs)}")
     db = DB(verbosity=verbosity)
     # rwfs
+    rwf_branch_tag = branch_tag.split("/")[0]
     if rwf_fn is None:
         message(f"rwf file not available. Use rwf=1.0 for all configs.")
         common_cfgs = f_cfgs
-        rwf = {f"{branch_tag}-{cfg}":1.0 for cfg in common_cfgs}
+        rwf = {f"{rwf_branch_tag}-{cfg}":1.0 for cfg in common_cfgs}
     else:
         assert os.path.isfile(rwf_fn) 
         rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
@@ -31,9 +32,9 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0, acc
                 sys.exit(1)
             message(f"---> Add only common configs to database.")
         rwf = np.loadtxt(rwf_fn)[:,1] 
-        rwf = {f"{branch_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
-    db.add_leaf(tag=f"{branch_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
-    db.add_nrwf(rwf_tag=f"{branch_tag}/rwf")
+        rwf = {f"{rwf_branch_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
+    db.add_leaf(tag=f"{rwf_branch_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
+    db.add_nrwf(rwf_tag=f"{rwf_branch_tag}/rwf")
     # data
     for t in tags:
         for key in f.keys(): # in future: additional layer /messpec
