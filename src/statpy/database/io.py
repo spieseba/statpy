@@ -3,24 +3,24 @@ import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0, accept_cfg_mismatch=False):
+def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, exclude_SRCPOS=True, verbosity=0, accept_cfg_mismatch=False):
     assert os.path.isfile(fn), f"{fn} not found!"
     message(f"---------------------------------")
     message(f"Load CLS data from {fn}")
     message(f"reweighting factors: {rwf_fn}")
     message(f"tags: {tags}")
-    message(f"store as branch tag: {branch_tag}")
+    message(f"ensemble tag = {stream_tag}")
+    message(f"run tag: {run_tag}")
     # data
     f = h5py.File(fn, "r")
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
     message(f"# of cfgs in hdf5 file: {len(f_cfgs)}")
     db = DB(verbosity=verbosity)
     # rwfs
-    rwf_branch_tag = branch_tag.split("/")[0]
     if rwf_fn is None:
         message(f"rwf file not available. Use rwf=1.0 for all configs.")
         common_cfgs = f_cfgs
-        rwf = {f"{rwf_branch_tag}-{cfg}":1.0 for cfg in common_cfgs}
+        rwf = {f"{stream_tag}-{cfg}":1.0 for cfg in common_cfgs}
     else:
         assert os.path.isfile(rwf_fn) 
         rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
@@ -32,9 +32,9 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0, acc
                 sys.exit(1)
             message(f"---> Add only common configs to database.")
         rwf = np.loadtxt(rwf_fn)[:,1] 
-        rwf = {f"{rwf_branch_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
-    db.add_leaf(tag=f"{rwf_branch_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
-    db.add_nrwf(rwf_tag=f"{rwf_branch_tag}/rwf")
+        rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
+    db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
+    db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
     # data
     for t in tags:
         for key in f.keys(): # in future: additional layer /messpec
@@ -42,7 +42,8 @@ def load_CLS(fn, rwf_fn, tags, branch_tag, exclude_SRCPOS=True, verbosity=0, acc
                 if "SRCPOS" in key and exclude_SRCPOS:
                     continue
                 f_vals = f.get(key)[:]
-                sample = {f"{branch_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
-                db.add_leaf(tag=f"{branch_tag}/{key}", mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
+                sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
+                f_tag = f"{stream_tag}/{key}" if run_tag is None else f"{stream_tag}/{run_tag}/{key}"
+                db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
     message(f"---------------------------------")
     return db
