@@ -241,6 +241,19 @@ class LatticeCharmToolkit():
         self.res_fit_params = self.fit_params if res_fit_params is None else res_fit_params
         self.bootstrap_available = bootstrap_available
 
+    # Wolfgangs hdf5 geometry: 
+    # streams -> streams are not averaged at this point, only concatenation
+    #   runs
+    #     tsrc
+    #       ptsrcs
+    # need to average over runs, tsrcs and ptsrcs
+    def correlator_avg(self, Ct_tags, bc, dst_tag):
+        assert bc in ["pbc", "obc"]
+        #concat_sample = self.db.combine_sample(Ct_tags, f=lambda *x: np.ma.masked_array(np.concatenate(x, axis=0)))
+        self.db.combine_sample(*Ct_tags, f=lambda *x: np.ma.masked_array(np.concatenate(x, axis=0)), 
+                               dst_tag=f"{Ct_tags[0].split('/')[0]}/concat")
+
+            
     # Wolfgangs hdf5 geometry 
     def ptsrc_avg(self, Ct_tag, dst_tag):
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
