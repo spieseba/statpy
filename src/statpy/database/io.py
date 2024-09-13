@@ -3,7 +3,7 @@ import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, exclude_SRCPOS=True, verbosity=0, accept_cfg_mismatch=False):
+def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, verbosity=0, accept_cfg_mismatch=False):
     assert os.path.isfile(fn), f"{fn} not found!"
     message(f"---------------------------------")
     message(f"Load CLS data from {fn}")
@@ -12,7 +12,7 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, exclude_SRCPOS=True, ve
     message(f"ensemble tag = {stream_tag}")
     message(f"run tag: {run_tag}")
     # data
-    f = h5py.File(fn, "r")
+    f = h5py.File(fn, "r")["messpec"]
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
     message(f"# of cfgs in hdf5 file: {len(f_cfgs)}")
     db = DB(verbosity=verbosity)
@@ -37,11 +37,9 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, exclude_SRCPOS=True, ve
     db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
     # data
     for t in tags:
-        for key in f.keys(): # in future: additional layer /messpec
+        for key in f["data"].keys(): 
             if t in key:
-                if "SRCPOS" in key and exclude_SRCPOS:
-                    continue
-                f_vals = f.get(key)[:]
+                f_vals = f["data"].get(key)[:]
                 sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
                 f_tag = f"{stream_tag}/{key}" if run_tag is None else f"{stream_tag}/{run_tag}/{key}"
                 db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
