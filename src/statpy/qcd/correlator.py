@@ -5,7 +5,7 @@ from statpy.statistics import jackknife, bootstrap
 from statpy.fitting.core import fit, print_fit_results, get_pvalue
 from numba import njit
 from math import isnan
-import warnings
+import re, warnings
 from sys import exit
 
 ### periodic boundary conditions ###
@@ -241,65 +241,60 @@ class LatticeCharmToolkit():
         self.res_fit_params = self.fit_params if res_fit_params is None else res_fit_params
         self.bootstrap_available = bootstrap_available
 
-    # Wolfgangs hdf5 geometry: 
-    # streams -> streams are not averaged at this point, only concatenation
-    #   runs
-    #     tsrc
-    #       ptsrcs
-    # need to average over runs, tsrcs and ptsrcs
-    def correlator_avg(self, Ct_tags, bc, dst_tag):
-        assert bc in ["pbc", "obc"]
-        #concat_sample = self.db.combine_sample(Ct_tags, f=lambda *x: np.ma.masked_array(np.concatenate(x, axis=0)))
-        self.db.combine_sample(*Ct_tags, f=lambda *x: np.ma.masked_array(np.concatenate(x, axis=0)), 
-                               dst_tag=f"{Ct_tags[0].split('/')[0]}/concat")
-
-            
-    # Wolfgangs hdf5 geometry 
-    def ptsrc_avg(self, Ct_tag, dst_tag):
+    def combine_runs(self, sorted_correlator_tags, stream_tags, corr_types, tsrcs):
+        pseudo_correlator_tags = {st:{ct:{} for ct in corr_types} for st in stream_tags}
+        for st in stream_tags:
+            message(f"Combine runs for stream tag {st}")
+            for ct in corr_types:
+                message(f"--- {ct}")
+                tags_to_be_combined = {tsrc: [t for t in sorted_correlator_tags[st][ct] if f"tsrc{tsrc}" in t] for tsrc in tsrcs[st]}
+                pseudo_tags = []
+                for tsrc in tags_to_be_combined:
+                    pseudo_tag = f"{st}/{tags_to_be_combined[tsrc][0].split("/")[-1]}"; pseudo_tags.append(pseudo_tag)
+                    self.db.combine_sample(*tags_to_be_combined[tsrc], f=lambda *x: np.concatenate(x, axis=0), dst_tag=pseudo_tag)
+                pseudo_correlator_tags[st][ct] = pseudo_tags
+        return pseudo_correlator_tags
+    
+    def correlator_avg_pbc(self, Ct_tag, dst_tag):
+        assert isinstance(Ct_tag, str)
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
 
-    def tsrc_avg(self, Ctsrc_tags, dst_tag, tbulk=None, antiperiodic=False):
-        # extract tsrc positions - don't sort!
-        src_positions = [int(k.split("_")[4].split("tsrc")[1]) for k in Ctsrc_tags]
-        # determine tbulk
-        tbulk = tbulk if tbulk is not None else np.arange(min(src_positions), max(src_positions)+1)
-        message(f"Perform tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]].")
-        assert len(src_positions) == len(Ctsrc_tags)
-        max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, valid_srcs = self._get_bulk_tsrcs(src_positions, tbulk)
-        combined_sample = self.db.combine_sample(*Ctsrc_tags, 
-                                                 f=lambda *Cts: self._avg_obc_srcs(max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, *Cts, antiperiodic=antiperiodic))
-        self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs": valid_srcs, "tbulk":tbulk, "antiperiodic":antiperiodic})
+    def correlator_avg_obc(self, Ct_tags, tbulk, dst_tag, antiperiodic=False):
+        message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]]")
+        message(f"correlator tags: {Ct_tags}")
+        tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
+        assert len(Ct_tags) == len(tsrcs)
+        Ct_tags_in_bulk = []; tsrcs_in_bulk = []
+        for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
+            if (tsrc >= tbulk[0]) and (tsrc <= tbulk[-1]):
+                Ct_tags_in_bulk.append(Ct_tag)
+                tsrcs_in_bulk.append(tsrc)
+        tmax_fw, tmax_bw = self._get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
+        for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
+            self.db.combine_sample(Ct_tag, f=lambda Ct: self._get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked")
+        self.db.combine_sample(*[f"{Ct_tag}/masked" for Ct_tag in Ct_tags_in_bulk], f=lambda *Cts_ma: np.ma.concatenate(Cts_ma, axis=0).mean(axis=0).compressed(), dst_tag=dst_tag)
+        for Ct_tag in Ct_tags_in_bulk:
+            self.db.remove_leaf(f"{Ct_tag}/masked")
 
-    def _get_bulk_tsrcs(self, srcs, tbulk):
+    # get tmax for each src in forward and backward direction
+    def _get_tmax_fw_bw(self, tsrcs, tbulk):
         tmin = tbulk[0]; tmax = tbulk[-1]
-        max_len = tmax - tmin + 1
-        # get tmax for forward and backward average
-        tmax_srcs_fw = tmax + 1 - np.array(srcs) 
-        tmax_srcs_bw = np.array(srcs) - tmin + 1
-        # create masks for positive entries
-        valid_mask_fw = (tmax_srcs_fw > 0) & (tmax_srcs_fw <= max_len)
-        valid_mask_bw = (tmax_srcs_bw > 0) & (tmax_srcs_bw <= max_len)
-        # print averaged tsrcs
-        valid_srcs = np.array(srcs)[np.where(valid_mask_fw)[0]]
-        message(f"---> {sorted(valid_srcs)}")
-        return max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, valid_srcs
-    
-    def _avg_obc_srcs(self, max_len, tmax_srcs_fw, valid_mask_fw, tmax_srcs_bw, valid_mask_bw, *Cts, antiperiodic=False):
-        num_Cts = len(Cts)
-        # create masked array
-        Cts_ma = np.ma.empty((2 * num_Cts, max_len))
+        tmax_fw = tmax + 1 - np.array(tsrcs)
+        tmax_bw = np.array(tsrcs) - tmin + 1
+        return tmax_fw, tmax_bw
+
+    def _get_masked_Ct(self, Cts, tmax_fw, tmax_bw, antiperiodic):
+        num_Cts = Cts.shape[0]
+        # create masked array and mask all elements
+        Cts_ma = np.ma.empty( (2*num_Cts, Cts.shape[1]) )
         Cts_ma.mask = True
-        # fill masked array with relevant time slices for each source position
+        # fill masked array up to tmax_fw and tmax_bw
         for idx in range(num_Cts):
             Ct = Cts[idx]
-            if valid_mask_fw[idx]:
-                tmax_src_fw = tmax_srcs_fw[idx]
-                Cts_ma[idx, :tmax_src_fw] = Ct[:tmax_src_fw]
-            if valid_mask_bw[idx]:
-                tmax_src_bw = tmax_srcs_bw[idx]
-                Cts_ma[idx+num_Cts, :tmax_src_bw] = np.roll(np.flip(Ct), 1)[:tmax_src_bw]
-                if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_src_bw] *= -1.
-        return Cts_ma.mean(axis=0)
+            Cts_ma[idx, :tmax_fw] = Ct[:tmax_fw]
+            Cts_ma[idx+num_Cts, :tmax_bw] = np.roll(np.flip(Ct), 1)[:tmax_bw] 
+            if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_bw] *= -1
+        return Cts_ma 
 
     def fold_correlator(self, Ct_tag, antiperiodic=False):
         message(f"Fold correlator {Ct_tag}.")
