@@ -260,8 +260,7 @@ class LatticeCharmToolkit():
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
 
     def correlator_avg_obc(self, Ct_tags, tbulk, dst_tag, antiperiodic=False):
-        message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]]")
-        message(f"correlator tags: {Ct_tags}")
+        message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
         assert len(Ct_tags) == len(tsrcs)
         Ct_tags_in_bulk = []; tsrcs_in_bulk = []
