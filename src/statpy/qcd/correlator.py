@@ -13,6 +13,8 @@ def effective_mass_log(Ct, tmin, tmax):
 def effective_mass_acosh(Ct, tmin, tmax):
     return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(tmin,tmax)])
 
+def effective_mass_acosh_arr(Ct, ax=0):
+    return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
 
 
 
