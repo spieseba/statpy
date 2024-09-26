@@ -9,8 +9,8 @@ import re, warnings
 from sys import exit
 
 ### periodic boundary conditions ###
-def effective_mass_acosh1(Ct):
-    return np.arccosh(0.5 * (np.roll(Ct, -1) + np.roll(Ct, 1)) / Ct)
+def effective_mass_acosh1(Ct, ax=0):
+    return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
 
 # spectrum paper
 def effective_mass_acosh2(Ct, a=1):
@@ -23,12 +23,12 @@ def effective_mass_asinh(Ct):
     return np.abs(np.roll(eff_m, -1) - eff_m)
 
 ### open boundary conditions ###
-def effective_mass_log1(Ct):
-    return np.log(Ct / np.roll(Ct, -1))
+def effective_mass_log1(Ct, ax=0):
+    return np.log(Ct / np.roll(Ct, -1, axis=ax))
 
 # spectrum paper 
-def effective_mass_log2(Ct, a=1):
-    return np.log(np.roll(Ct, 1) / np.roll(Ct, -1)) / (2*a)
+def effective_mass_log2(Ct, ax=0):
+    return np.log(np.roll(Ct, 1, axis=ax) / np.roll(Ct, -1, axis=ax)) / 2
 
 # cosh
 def effective_amplitude_cosh(Ct, m):
@@ -297,9 +297,9 @@ class LatticeCharmToolkit():
 
     def fold_correlator(self, Ct_tag, antiperiodic=False):
         message(f"Fold correlator {Ct_tag}.")
-        self.db.combine_sample(Ct_tag, f=lambda Ct: self._fold(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
+        self.db.combine_sample(Ct_tag, f=lambda Ct: self._fold_correlator(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
     
-    def _fold(self, arr, antiperiodic=False):
+    def _fold_correlator(self, arr, antiperiodic=False):
         half = len(arr) // 2
         arr0 = arr[:half]
         arr1 = np.roll(np.flip(arr[half:]), 1) 
@@ -400,6 +400,7 @@ class LatticeCharmToolkit():
                       "double-sinh": double_sinh_model(Nt),
                       "double-exp": double_exp_model()}[fit_model]       
         fit_range_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+        correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         suggested_fit_ranges = []
         fit_range = initial_fit_ranges[0]
         for t in initial_fit_ranges:
@@ -478,9 +479,13 @@ class LatticeCharmToolkit():
                 fit_range_dict["jks"] = best_parameter_jks
                 misc["fit_range_crit"] = t_crit; fit_range = t_crit
                 fit_range_dict["misc"] = misc
+                if correlated_converged: 
+                    correlated_fit_dict["tag"] = f"{binned_tag}/correlated_fit_range_mean_fit"
+                    correlated_fit_dict["mean"] = best_parameter_correlated
+                    correlated_fit_dict["misc"] = misc_correlated
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
-        if correlated_converged: self.db.add_leaf(tag=f"{binned_tag}/correlated_fit_range_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
+        self.db.add_leaf(**correlated_fit_dict)
         if fit_range_dict["misc"] is not None:
             fit_range_dict["misc"]["tested_suggested_fit_ranges"] = (initial_fit_ranges, suggested_fit_ranges)
             self.db.add_leaf(**fit_range_dict)
