@@ -227,13 +227,15 @@ class DB:
             return sample        
         self.add_leaf(dst_tag, None, None, sample, None)     
 
-    def remove_cfgs(self, tag, cfgs, dst_tag=None):
-        sample = dict(self.database[tag].sample)
+    def remove_cfgs(self, *cfgs, tag=None, dst_tag=None):
+        self.rename_leaf(tag, f"{tag}/tmp")
+        lf = self.database[f"{tag}/tmp"]
+        sample = dict(lf.sample); misc = dict(lf.misc) if lf.misc is not None else None
         for cfg in cfgs:
             sample.pop(str(cfg), None)
         if dst_tag is None:
-            return sample
-        self.add_leaf(dst_tag, None, None, sample, None)
+            return sample, misc
+        self.add_leaf(dst_tag, None, None, sample, misc)
 
     def get_cfgs(self, tag, numeric=False):
         lf = self.database[tag]
