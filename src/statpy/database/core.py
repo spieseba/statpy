@@ -198,7 +198,7 @@ class DB:
         jks = self.jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
-        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=None)
+        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=self.database[tag].misc)
         return binned_tag
 
     def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, parallel=False):
