@@ -6,10 +6,10 @@ class gradient_flow_scale:
     def __init__(self, ct0=0.3, cw0=0.3):
         # t0
         self.ct0 = ct0
-        self.sqrt_t0_fm = 0.1638; self.sqrt_t0_fm_std = 0.0010 # taken from arXiv:1401.3270
+        self.sqrt_t0_fm = 0.1638; self.sqrt_t0_fm_std = 0.0010 # quenched QCD value - taken from arXiv:1401.3270
         # w0
         self.cw0 = cw0
-        self.w0_fm = 0.1670; self.w0_fm_std = 0.0010 # taken from arXiv:1401.3270
+        self.w0_fm = 0.1670; self.w0_fm_std = 0.0010 # quenched QCD value - taken from arXiv:1401.3270
 
     def linear_interpolation(self, x, f, c):
         xb, xa = 0.0, 0.0

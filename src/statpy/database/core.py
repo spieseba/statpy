@@ -213,7 +213,8 @@ class DB:
         return [x[0] for x in sorted(list(obj.items()), key=self.sorting_key)]
      
     ################################## STATISTICS ######################################
-    
+
+    # The implementation of delayed_binning is based on the delayed binning idea from Christoph Lehner.
     def delayed_binning(self, lf, binsize, branch_tag, shift=0):
         jks_tags = [x[0] for x in sorted(list(lf.jks.items()), key=self.sorting_key) if branch_tag in x[0]]
         N = len(jks_tags)
@@ -225,6 +226,7 @@ class DB:
             jks_bin[f"{branch_tag}/binsize{binsize}-{i}"] = lf.mean + s * (N-1) / (N-binsize)
         return jks_bin
     
+    # The implementation of jks is based on the delayed binning idea from Christoph Lehner. #
     def jks(self, tag, binsize, shift=0):
         lf = self.database[tag]
         if binsize == 1:
@@ -267,6 +269,7 @@ class DB:
             var[b] = self.jackknife_variance(tag, b, average_permutations)
         return var
     
+    # All mode averaging (AMA) is based on: arXiv:hep-lat/0409056, arXiv:0910.3970, arXiv:1208.4349, arXiv:1402.0244
     def AMA_diff(self, exact_exact_tag, exact_sloppy_tag, sloppy_sloppy_tag, dst_tag):
         self.combine(exact_exact_tag, exact_sloppy_tag, f=lambda x,y: x-y, dst_tag=dst_tag+"_bias")
         self.combine(sloppy_sloppy_tag, dst_tag+"_bias", f=lambda x,y: x+y, dst_tag=dst_tag)
