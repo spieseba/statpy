@@ -363,6 +363,10 @@ class DB:
         return self.jackknife_variance(tag, binsize, average_permutations) + self.get_sys_var(tag)
 
     ########################## PRINT ESTIMATES ##############################
+
+    # TO DOs:
+    # - tidy up
+    # - add version for arrays
     
     def print_estimate(self, tag, binsize=1, significant_digits=None, exponent=None, average_permutations=False):
         s = f"\n ESTIMATE of {tag} (binsize = {binsize}, significant digits = {significant_digits}):\n"
