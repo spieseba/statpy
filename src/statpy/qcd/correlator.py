@@ -6,17 +6,22 @@ from numba import njit
 #########################################################################################################################
 
 # open boundary conditions
-def effective_mass_log(Ct, tmin, tmax):
-    return np.array([np.log(Ct[t] / Ct[t+1]) for t in range(tmin,tmax)]) 
+def effective_mass_log(Ct, tmin=None, tmax=None):
+    if tmin is None and tmax is None:
+        return np.log(Ct / np.roll(Ct,-1))
+    elif tmin is None or tmax is None:
+        raise ValueError("Either both tmin and tmax must be specified or none of them.")
+    else:
+        return np.array([np.log(Ct[t] / Ct[t+1]) for t in range(tmin,tmax)]) 
 
 # periodic boundary conditions
-def effective_mass_acosh(Ct, tmin, tmax):
-    return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(tmin,tmax)])
-
-def effective_mass_acosh_arr(Ct, ax=0):
-    return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
-
-
+def effective_mass_acosh(Ct, tmin=None, tmax=None):
+    if tmin is None and tmax is None:
+        return np.arccosh(0.5 * (np.roll(Ct, -1) + np.roll(Ct, 1)) / Ct)
+    elif tmin is None or tmax is None:
+        raise ValueError("Either both tmin and tmax must be specified or none of them.")
+    else:
+        return np.array([np.arccosh(0.5 * (Ct[t+1] + Ct[t-1]) / Ct[t]) for t in range(tmin,tmax)])
 
 
 #########################################################################################################################
