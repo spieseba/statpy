@@ -51,7 +51,7 @@ class DB:
                 message(f"Merge {t} into database.", verbosity=self.verbosity)
                 self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
 
-    def save(self, dst, with_sample=False):
+    def save(self, dst, with_sample=True):
         db = {}
         for tag, lf in self.database.items():
             sample = lf.sample if with_sample else None
