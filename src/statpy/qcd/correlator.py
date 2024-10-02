@@ -315,7 +315,7 @@ class LatticeCharmToolkit():
             tmax = len(mean) #len(self.db.database[Ct_tag].mean)
             message(f"--- Signal to noise ratio never smaller than {min_stn_val} -> return tmax = len(mt) = {tmax}")
         else:
-            message(f"--- Found tmax = {tmax} -> can use first {tmax} time slices")
+            message(f"--- Signal to noise ratio smaller than {min_stn_val} for tmax = {tmax} (this value is returned) -> can use all time slices up to t={tmax-1}")
         if debug: message(f"--- Signal to noise ratios: {signal_to_noise}")
         return tmax
     
