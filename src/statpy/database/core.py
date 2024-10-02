@@ -26,8 +26,8 @@ class DB:
         self.dev_mode = dev_mode
         self.database = {} 
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
-        message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.", 0)
-        if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED", 0)
+        message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.", verbosity)
+        if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED", verbosity)
         for src in args:
             # init db using src files
             if isinstance(src, str):
