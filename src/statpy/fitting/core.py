@@ -97,7 +97,7 @@ def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_f
         for i in range(len(best_parameter)):
             message(f"parameter[{i}] = {best_parameter[i]} +- {best_parameter_cov[i][i]**0.5} (STAT) +- {db.get_sys_var(dst_tag)[i]**.5} (SYS) [{(db.get_tot_var(dst_tag, binsize))[i]**.5} (STAT + SYS)]")
         message(f"chi2 / dof = {chi2} / {dof} = {chi2/dof}, i.e., p = {pval}")  
-        message(f"P(M) = exp(-AIC) = exp([2 * k + chi2] / 2) = exp(-{misc['AIC']} / 2) = {misc['P(M)']}")
+        message(f"P(M) = exp(-AIC / 2) = exp([2 * k + chi2] / 2) = exp(-{misc['AIC']} / 2) = {misc['P(M)']}")
 
 def fitMultipleEnsembles(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, binsize, dst_tag, verbosity=0):
     if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
