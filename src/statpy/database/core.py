@@ -214,7 +214,7 @@ class DB:
      
     ################################## STATISTICS ######################################
 
-    # The implementation of delayed_binning is based on the delayed binning idea from Christoph Lehner.
+    # The implementation of delayed_binning as described in https://arxiv.org/abs/2410.17053. #
     def delayed_binning(self, lf, binsize, branch_tag, shift=0):
         jks_tags = [x[0] for x in sorted(list(lf.jks.items()), key=self.sorting_key) if branch_tag in x[0]]
         N = len(jks_tags)
@@ -226,7 +226,7 @@ class DB:
             jks_bin[f"{branch_tag}/binsize{binsize}-{i}"] = lf.mean + s * (N-1) / (N-binsize)
         return jks_bin
     
-    # The implementation of jks is based on the delayed binning idea from Christoph Lehner. #
+    # The implementation of jks as described in https://arxiv.org/abs/2410.17053. #
     def jks(self, tag, binsize, shift=0):
         lf = self.database[tag]
         if binsize == 1:
