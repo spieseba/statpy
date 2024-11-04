@@ -15,7 +15,7 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     message(f" -- cfgs to be removed: {cfgs_to_be_removed}")
     # data
     f = h5py.File(fn, "r")["messpec"]
-    f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
+    f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")]) 
     f_cfgs_filtered = f_cfgs[~np.isin(f_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else f_cfgs
     message(f"Number of cfgs in hdf5 file: {len(f_cfgs)} | Number of filtered configs in hdf5 file: {len(f_cfgs_filtered)}")
     db = DB(verbosity=verbosity)
@@ -37,6 +37,7 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
         common_cfgs = np.array([cfg for cfg in rwf_cfgs_filtered if cfg in f_cfgs_filtered])
         message(f"Number of filtered configs in hdf5 file and rwf file: {common_cfgs.shape[0]}")
         rwf = np.loadtxt(rwf_fn)[:,1] 
+        rwf = np.abs(rwf) # account for potentially negative rwf in the file
         rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
     db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
     db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
