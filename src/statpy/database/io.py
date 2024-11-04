@@ -52,6 +52,8 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     message(f"---------------------------------")
     return db
 
+# this is the old version of load_CLS used for the analysis presented at the Lattice 2024 conference 
+# it is deprecated and kept here for testing against the new version
 def load_CLS_deprecated(fn, rwf_fn, tags, stream_tag, run_tag=None, verbosity=0, accept_cfg_mismatch=False):
     assert os.path.isfile(fn), f"{fn} not found!"
     message(f"---------------------------------")
