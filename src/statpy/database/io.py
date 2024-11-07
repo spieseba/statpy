@@ -26,7 +26,13 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
         rwf = {f"{stream_tag}-{cfg}":1.0 for cfg in common_cfgs}
     else:
         assert os.path.isfile(rwf_fn) 
-        rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
+        if rwf_fn.endswith(".rwf"):
+            rwf_cfgs, rwf = _load_rwf(rwf_fn)
+        elif rwf_fn.endswith(".rwms.txt"):
+            rwf_cfgs, rwf = _load_rwms(rwf_fn)   
+        else:
+            assert False, "Unknown rwf file format"    
+        #rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
         rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else rwf_cfgs
         message(f"Number of cfgs in rwf file: {rwf_cfgs.shape[0]} | Number of filtered configs in rwf file : {rwf_cfgs_filtered.shape[0]}")
         if not np.array_equal(f_cfgs_filtered, rwf_cfgs_filtered):
@@ -36,7 +42,7 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
             message(f"---> Add only common configs to database.")
         common_cfgs = np.array([cfg for cfg in rwf_cfgs_filtered if cfg in f_cfgs_filtered])
         message(f"Number of filtered configs in hdf5 file and rwf file: {common_cfgs.shape[0]}")
-        rwf = np.loadtxt(rwf_fn)[:,1] 
+        #rwf = np.loadtxt(rwf_fn)[:,1] 
         rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
     db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
     db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
@@ -50,6 +56,16 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
                 db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
     message(f"---------------------------------")
     return db
+
+def _load_rwf(fn):
+    rwf_cfgs = np.array(np.loadtxt(fn)[:,0], dtype=int)
+    rwf = np.loadtxt(fn)[:,1]
+    return rwf_cfgs, rwf
+
+def _load_rwms(fn):
+    rwf_cfgs = np.array(np.loadtxt(fn)[:,0], dtype=int)
+    rwf = np.prod(np.loadtxt(fn)[:,1:], axis=1)
+    return rwf_cfgs, rwf
 
 # this is the old version of load_CLS used for the analysis presented at the Lattice 2024 conference 
 # it is deprecated and kept here for testing against the new version
