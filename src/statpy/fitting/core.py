@@ -113,4 +113,12 @@ def print_fit_results(best_parameter, best_parameter_cov, misc, verbosity=0):
             message(f"parameter = {best_parameter}")
         if misc is not None: 
             message(f"chi2 / dof = {misc['chi2']} / {misc['dof']} = {misc['chi2']/misc['dof']}, i.e., p = {misc['pval']:.2f}")  
+
+
+# use same def as in arxiv:2211.03744
+def compute_AIC(chi2, Ndof, k):
+    # chi2: chi2 value of the fit
+    # Ndof: number of degrees of freedom
+    # k: number of parameters in the model
+    return chi2 - Ndof + k
         

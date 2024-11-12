@@ -2,7 +2,7 @@ import numpy as np
 from statpy.log import message
 from statpy.fitting.core import Fitter, ConvergenceError
 from statpy.statistics import jackknife, bootstrap
-from statpy.fitting.core import fit, print_fit_results, get_pvalue
+from statpy.fitting.core import fit, print_fit_results, get_pvalue, compute_AIC
 from numba import njit
 from math import isnan
 import re, warnings
@@ -181,6 +181,16 @@ class const_model:
 @njit
 def const_chi2(t, p, y, W):
     return (p[0] - y) @ W @ (p[0] - y)
+
+
+####################################### const plus exp model to fit effective mass plateau #######################################
+
+def const_plus_exp(t, p):
+    return p[0] * np.exp(-p[1] * t) + p[2]
+
+def const_plus_exp_chi2(t, p, y, W):
+    model = p[0] * np.exp(-p[1] * t) + p[2]
+    return (model - y) @ W @ (model - y)
 
 #################################################### combined models ####################################################
 
@@ -637,8 +647,161 @@ class LatticeCharmToolkit():
             message(f"f_bare = {self.db.database[f'{binned_tag}/{fit_model_combined}_fit/f_bare'].mean:.8f} +- {self.db.jackknife_variance(f'{binned_tag}/{fit_model_combined}_fit/f_bare')**.5:.8f} (jackknife)")
             if b == 1 and self.bootstrap_available: message(f_bare_bs_str)
             message("---------------------------------------------------------------------------------", verbosity) 
-            message("---------------------------------------------------------------------------------", verbosity) 
+            message("---------------------------------------------------------------------------------", verbosity)
+
+
+    #### BOUNDARY EFFECTS ####
+    def boundary_avg(self, Ct_tags, tmin_excited, binsize, antiperiodic=False, cleanup=False):
+        message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
+        message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
+        tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
+        assert len(Ct_tags) == len(tsrcs)
+        mt_tags = []
+        for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
+            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited).mean(axis=0), dst_tag=f"{Ct_tag}/bdry_avg")
+            binned_tag_bdry_avg_tag = self.db.add_binned_leaf(f"{Ct_tag}/bdry_avg", binsize)
+            mt_tag = f"{binned_tag_bdry_avg_tag}/am_t"; mt_tags.append(mt_tag)
+            self.db.combine(binned_tag_bdry_avg_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(effective_mass_log2(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag) # set invalid values to zero
+            if cleanup:
+                self.db.remove_leaf(f"{Ct_tag}/bdry_avg")
+                self.db.remove_leaf(binned_tag_bdry_avg_tag)
+        dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
+        self.db.combine(*[mt_tag for mt_tag in mt_tags], f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag) # mask zero values, average over tsrcs, fill masked values with zero
+        self.db.combine(dst_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), dst_tag=f"{dst_tag}/folded")
+        if cleanup:
+            for mt_tag in mt_tags: self.db.remove_leaf(mt_tag)
+        return dst_tag
+    
+    def boundary_fits(self, mt_folded_tag, t0s, MIN_TCRIT_LEN=12):
+        ts = np.arange(self.db.database[mt_folded_tag].mean.shape[0])
+        mt_cov = self.db.jackknife_covariance(mt_folded_tag); mt_var = np.diag(mt_cov)
+        boundary_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+        correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+
+        zero_idxs = np.where(self.db.database[mt_folded_tag].mean == 0)[0]
+        tmax = ts[zero_idxs[2]] if len(zero_idxs) > 2 else ts[-1] + 1
+        initial_fit_ranges = [np.arange(t0, tmax) for t0 in t0s]
+
+        P_M_arr = []
+        suggested_fit_ranges = []
+        boundary_range = initial_fit_ranges[0]
+        best_parameters = []; best_parameters_jkss = [] # for AIC
+        for fit_range in initial_fit_ranges:    
+            message(f"Perform const + exp fit of {mt_folded_tag} with fit range: \n\t [[{fit_range[0]},{fit_range[-1]}]]")
+            W = np.diag(1/mt_var[fit_range])
+            chi2_func = lambda t,p,y: const_plus_exp_chi2(t,p,y,W)
+            p0 = [1, 1, self.db.database[mt_folded_tag].mean[fit_range[-1]]]
+            try:
+                best_parameter, best_parameter_jks, misc = fit(self.db, fit_range, mt_folded_tag, p0, chi2_func, self.fit_method, self.fit_params, jks_fit_method=self.res_fit_method, jks_fit_params=self.res_fit_params)
+            except ConvergenceError as ce:
+                message(f"{ce} -> JUMP TO NEXT FIT RANGE")
+                message("---------------------------------------------------------------------------------") 
+                message("---------------------------------------------------------------------------------") 
+                continue
+            best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks))
+            misc["AIC"] = compute_AIC(misc["chi2"], misc["dof"], len(p0)); misc["P(M)"] = np.exp(-misc["AIC"]/2.0)
+            print_fit_results(best_parameter, best_parameter_cov, misc)
+            message(f"P(M) = exp(-AIC / 2) = exp(- [chi2 - dof + k] / 2) = exp(-{misc['AIC']} / 2) = {misc['P(M)']}")
+            message("------------------------------ CORRELATED MEAN FIT ------------------------------")
+            W_correlated = np.linalg.inv(mt_cov[fit_range][:,fit_range])
+            chi2_func_correlated = lambda t,p,y: const_plus_exp_chi2(t,p,y,W_correlated)
+            try:
+                p0_correlated = best_parameter
+                message(f"p0 for fit: {p0_correlated}")
+                best_parameter_correlated, _, misc_correlated =  fit(self.db, fit_range, mt_folded_tag, p0_correlated, chi2_func_correlated, self.fit_method, self.fit_params, jks_fit_method=self.res_fit_method, jks_fit_params=self.res_fit_params, perform_jks_fit=False)
+                print_fit_results(best_parameter_correlated, None, misc_correlated)
+                correlated_converged = True
+            except ConvergenceError as ce:
+                correlated_converged = False
+                message(f"{ce} for correlated mean fit") 
+                message("---------------------------------------------------------------------------------") 
+            message("---------------------------------------------------------------------------------") 
+            # test that exponential contribution is small compared to statistical error of the data
+            criterion = np.abs([const_plus_exp(i, [best_parameter[0], best_parameter[1], 0]) for i in ts]) < (mt_var**.5)/4.
+            t_crit = ts[criterion]
+            if len(t_crit) <  MIN_TCRIT_LEN:
+                message(f"DETERMINED BOUNDARY RANGE {t_crit} HAS FEWER THAN {MIN_TCRIT_LEN} ELEMENTS")
+                message(f"---> STORED BOUNDARY RANGE IS NOT UPDATED")
+                message("---------------------------------------------------------------------------------") 
+                message("---------------------------------------------------------------------------------") 
+                continue
+            P_M_arr.append(misc["P(M)"])
+            suggested_fit_ranges.append(t_crit)       
+            best_parameters.append(best_parameter); best_parameters_jkss.append(best_parameter_jks)
+            message(f"SUGGESTED RANGE WITHOUT BOUNDARY EFFECTS [[{t_crit[0]},{t_crit[-1]}]]")
+            if len(t_crit) < len(boundary_range):
+                message(f"---> STORED BOUNDARY RANGE IS UPDATED")
+                boundary_range = t_crit
+                boundary_fit_dict["tag"] = f"{mt_folded_tag}/const_plus_exp_fit"
+                boundary_fit_dict["mean"] = best_parameter
+                boundary_fit_dict["jks"] = best_parameter_jks
+                misc["boundary_range_fit"] = t_crit
+                boundary_fit_dict["misc"] = misc
+                if correlated_converged: 
+                    correlated_fit_dict["tag"] = f"{mt_folded_tag}/correlated_const_plus_exp_fit"
+                    correlated_fit_dict["mean"] = best_parameter_correlated
+                    correlated_fit_dict["misc"] = misc_correlated
+            message("---------------------------------------------------------------------------------") 
+            message("---------------------------------------------------------------------------------") 
+        # compute boundary end with AIC model average of t0s
+        P_M_arr = np.array(P_M_arr) / np.sum(P_M_arr)
+        t0_crits = np.array([suggested_fit_range[0] for suggested_fit_range in suggested_fit_ranges])
+        t_crit_AIC_t0 = np.sum(t0_crits * P_M_arr)
+        t_crit_AIC_t0_rounded = int(np.round(t_crit_AIC_t0))
+        message(f"BOUNDARY END DETERMINED BY AIC MODEL AVERAGE OF T0s: {t_crit_AIC_t0} -> rounded to {t_crit_AIC_t0_rounded}")
+        boundary_fit_dict["misc"]["boundary_end_AIC_t0"] = t_crit_AIC_t0_rounded
+
+        # compute boundary end with AIC model average of parameters
+        best_parameter_AIC = np.sum([best_parameter * P_M for best_parameter, P_M in zip(best_parameters, P_M_arr)], axis=0)
+        best_parameter_AIC_jks = np.sum([self.db.as_array(best_parameter_jks) * P_M for best_parameter_jks, P_M in zip(best_parameters_jkss, P_M_arr)], axis=0)
+        best_parameter_AIC_sys_var = np.sum([ P_M * (best_parameter - best_parameter_AIC)**2 for best_parameter, P_M in zip(best_parameters, P_M_arr)], axis=0)
+        criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
+        t_crit_AIC_params = ts[criterion_AIC][0]
+        message(f"BOUNDARY END DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
+
+        # store AIC average of boundary fits
+        aic_average_dict = {"tag": f"{mt_folded_tag}/const_plus_exp_fit_AIC_avg", 
+                            "mean": None, 
+                            "jks": None, 
+                            "sample": None, 
+                            "misc": {"mean": best_parameter_AIC, "jks": best_parameter_AIC_jks, "sys_var": best_parameter_AIC_sys_var,
+                                     "t0s": t0s, "tmax": tmax-1, "P_M_arr": P_M_arr, "suggested_fit_ranges": suggested_fit_ranges,
+                                     "boundary_end_t0": t_crit_AIC_t0_rounded, "boundary_end_params": t_crit_AIC_params
+                                     }
+                            }
+        self.db.add_leaf(**aic_average_dict)
+        self.db.add_leaf(**correlated_fit_dict)
+        self.db.add_leaf(**boundary_fit_dict)
+
+
+     
            
 def bare_decay_constant(p):
     # p[0] = A_PSPS, p[1] = A_PSA4I, p[2] = m
     return np.sqrt(2.) * p[1] / np.sqrt(p[0] * p[2])
+
+
+# These functions are used to perform the boundary average - defined here to avoid slowdown (don't know why at the moment)
+def _get_masked_Cts_boundary(Cts, tsrc, tmin_excited): 
+    num_Cts = Cts.shape[0]
+    Cts_ma = np.ma.empty((num_Cts, Cts.shape[1]) )
+    Cts_ma.mask = True
+    Cts_aligned = np.roll(Cts, tsrc, axis=1)
+    Cts_ma[:,:tsrc-(tmin_excited-1)] = Cts_aligned[:,:tsrc-(tmin_excited-1)]
+    Cts_ma[:,tsrc+tmin_excited:] = Cts_aligned[:,tsrc+tmin_excited:]
+    return Cts_ma
+    
+def _fold_boundary(arr, antiperiodic):
+    half = len(arr) // 2
+    arr0 = arr[:half]
+    arr1 = np.flip(arr[half:])
+    if antiperiodic: arr1 *= -1.
+    return np.mean([arr0, arr1], axis=0)
+
+def _flip_sign_boundary(arr, tsrc):
+    arr[:tsrc] = -arr[:tsrc]
+    return arr
+
+
+
+
