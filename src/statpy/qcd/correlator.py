@@ -392,7 +392,7 @@ class LatticeCharmToolkit():
             message(f"---> [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
         return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
-    def fit_range_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity, Nt=None, MIN_TCRIT_LEN=7):
+    def excited_contributions_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity, Nt=None, MIN_TCRIT_LEN=7):
         def _sort_params(p):
             if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
             else: return p
@@ -410,7 +410,7 @@ class LatticeCharmToolkit():
         model_func = {"double-cosh": double_cosh_model(Nt),
                       "double-sinh": double_sinh_model(Nt),
                       "double-exp": double_exp_model()}[fit_model]       
-        fit_range_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+        excited_contribtions_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         suggested_fit_ranges = []
         fit_range = initial_fit_ranges[0]
@@ -423,8 +423,8 @@ class LatticeCharmToolkit():
                          "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W)}[fit_model]
             p0_tmp = self.get_p0_guess(tag, binsize, fit_model, t) if p0 is None else p0
             if np.isnan(p0_tmp).any():
-                if fit_range_dict["mean"] is not None:
-                    p0_tmp = fit_range_dict["mean"]
+                if excited_contribtions_fit_dict["mean"] is not None:
+                    p0_tmp = excited_contribtions_fit_dict["mean"]
                 else:
                     p0_tmp[2] = p0_tmp[0]/2; p0_tmp[3] = 2.0 * p0_tmp[0]
                     if np.isnan(p0_tmp).any():
@@ -485,22 +485,22 @@ class LatticeCharmToolkit():
                 message(f"DETERMINED FIT RANGE [[{t_crit[0]},{t_crit[-1]}]]", verbosity)
             if len(t_crit) <= len(fit_range):
                 message(f"---> STORED FIT RANGE IS UPDATED", verbosity)
-                fit_range_dict["tag"] = f"{binned_tag}/fit_range_fit"
-                fit_range_dict["mean"] = best_parameter
-                fit_range_dict["jks"] = best_parameter_jks
+                excited_contribtions_fit_dict["tag"] = f"{binned_tag}/excited_contributions_fit"
+                excited_contribtions_fit_dict["mean"] = best_parameter
+                excited_contribtions_fit_dict["jks"] = best_parameter_jks
                 misc["fit_range_crit"] = t_crit; fit_range = t_crit
-                fit_range_dict["misc"] = misc
+                excited_contribtions_fit_dict["misc"] = misc
                 if correlated_converged: 
-                    correlated_fit_dict["tag"] = f"{binned_tag}/correlated_fit_range_mean_fit"
+                    correlated_fit_dict["tag"] = f"{binned_tag}/correlated_excited_contributions_mean_fit"
                     correlated_fit_dict["mean"] = best_parameter_correlated
                     correlated_fit_dict["misc"] = misc_correlated
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
         self.db.add_leaf(**correlated_fit_dict)
-        if fit_range_dict["misc"] is not None:
-            fit_range_dict["misc"]["tested_suggested_fit_ranges"] = (initial_fit_ranges, suggested_fit_ranges)
-            self.db.add_leaf(**fit_range_dict)
-            return fit_range_dict["misc"]["fit_range_crit"], best_parameter
+        if excited_contribtions_fit_dict["misc"] is not None:
+            excited_contribtions_fit_dict["misc"]["tested_suggested_fit_ranges"] = (initial_fit_ranges, suggested_fit_ranges)
+            self.db.add_leaf(**excited_contribtions_fit_dict)
+            return excited_contribtions_fit_dict["misc"]["fit_range_crit"], best_parameter
         else:
             return None, None 
 
