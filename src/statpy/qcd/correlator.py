@@ -318,9 +318,9 @@ class LatticeCharmToolkit():
         arr1[0] = arr0[0]
         return np.mean([arr0, arr1], axis=0)
 
-    def get_tmax_signal_to_noise(self, mean, var, min_stn_val=100, debug=False):
+    def get_tmax_signal_to_noise(self, mean, var, min_stn_val=100, tmin=15, debug=False):
         signal_to_noise = mean / var**.5 #self.db.database[Ct_tag].mean / self.db.jackknife_variance(Ct_tag)**.5
-        tmax = next((i for i, x in enumerate(signal_to_noise) if (i > 15) and (x < min_stn_val)), -1)
+        tmax = next((i for i, x in enumerate(signal_to_noise) if (i > tmin) and ((x < min_stn_val) or np.isnan(x))), -1)
         if tmax == -1:
             tmax = len(mean) #len(self.db.database[Ct_tag].mean)
             message(f"--- Signal to noise ratio never smaller than {min_stn_val} -> return tmax = len(mt) = {tmax}")
