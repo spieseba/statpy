@@ -48,7 +48,7 @@ class DB:
     def merge(self, *srcs):
         for src in srcs:
             for t, lf in src.database.items():
-                message(f"Merge {t} into database.", verbosity=self.verbosity)
+                message(f"Merge {t} into database.", verbosity=self.verbosity-1)
                 self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
 
     def save(self, dst, with_sample=True):
@@ -56,7 +56,7 @@ class DB:
         for tag, lf in self.database.items():
             sample = lf.sample if with_sample else None
             misc = dict(lf.misc) if lf.misc is not None else dict(); misc["tag"] = tag
-            self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db, verbosity=self.verbosity)
+            self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db, verbosity=self.verbosity-1)
         with open(dst, "w") as f:
             json.dump(db, f)
 
@@ -201,7 +201,8 @@ class DB:
         self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=self.database[tag].misc)
         return binned_tag
 
-    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, parallel=False):
+    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, parallel=False, verbosity=None):
+        verbosity = self.verbosity if verbosity is None else verbosity
         lfs = [self.database[tag] for tag in tags]
         cfgs = np.unique(np.concatenate([list(lf.sample.keys()) for lf in lfs]))
         xs = {cfg:[lf.sample[cfg] if cfg in lf.sample else lf.mean for lf in lfs] for cfg in cfgs}
@@ -215,7 +216,7 @@ class DB:
                 sample = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
         if dst_tag is None:
             return sample
-        self.add_leaf(dst_tag, None, None, sample, None)
+        self.add_leaf(dst_tag, None, None, sample, None, verbosity=verbosity)
 
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
         lfs = [self.database[tag] for tag in tags]
