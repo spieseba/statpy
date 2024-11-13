@@ -641,15 +641,15 @@ class LatticeCharmToolkit():
             # extract mass leafs
             self.extract_mass_leafs([f"{binned_tag}/{fit_model_combined}_fit"])
             message("------------------------------ BARE DECAY CONSTANT ------------------------------")
-            self.db.combine(f"{binned_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_tag}/{fit_model_combined}_fit/f_bare")
+            self.db.combine(f"{binned_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_tag}/{fit_model_combined}_fit/afbare")
             if b == 1 and self.bootstrap_available:
                 bootstrap_tag = f"{binned_tag}/{fit_model_combined}_bootstrap_fit"
-                f_bare_bss_mean = bare_decay_constant(self.db.database[bootstrap_tag].mean)
-                f_bare_bss = self.db.combine_bss(self.db.database[bootstrap_tag].misc["bss"], f=bare_decay_constant)
-                self.db.add_leaf(tag=f"{bootstrap_tag}/f_bare", mean=f_bare_bss_mean, jks=None, sample=None, misc={"bss": f_bare_bss})
-                f_bare_bs_str = f"         {f_bare_bss_mean:.8f} +- {bootstrap.variance(f_bare_bss)**.5:.8f} (bootstrap)"
-            message(f"f_bare = {self.db.database[f'{binned_tag}/{fit_model_combined}_fit/f_bare'].mean:.8f} +- {self.db.jackknife_variance(f'{binned_tag}/{fit_model_combined}_fit/f_bare')**.5:.8f} (jackknife)")
-            if b == 1 and self.bootstrap_available: message(f_bare_bs_str)
+                fbare_bss_mean = bare_decay_constant(self.db.database[bootstrap_tag].mean)
+                fbare_bss = self.db.combine_bss(self.db.database[bootstrap_tag].misc["bss"], f=bare_decay_constant)
+                self.db.add_leaf(tag=f"{bootstrap_tag}/afbare", mean=fbare_bss_mean, jks=None, sample=None, misc={"bss": fbare_bss})
+                fbare_bs_str = f"         {fbare_bss_mean:.8f} +- {bootstrap.variance(fbare_bss)**.5:.8f} (bootstrap)"
+            message(f"a*fbare = {self.db.database[f'{binned_tag}/{fit_model_combined}_fit/afbare'].mean:.8f} +- {self.db.jackknife_variance(f'{binned_tag}/{fit_model_combined}_fit/afbare')**.5:.8f} (jackknife)")
+            if b == 1 and self.bootstrap_available: message(fbare_bs_str)
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity)
 
