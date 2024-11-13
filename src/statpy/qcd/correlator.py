@@ -551,6 +551,7 @@ class LatticeCharmToolkit():
                 misc_bss["bss"] = best_parameter_bss
                 self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
             self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
+            self.extract_mass_leafs([f"{binned_tag}/{fit_model}_fit"])
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
 
@@ -567,13 +568,14 @@ class LatticeCharmToolkit():
         misc = {"t": t, "chi2": chi2, "dof": dof, "pval": pval}
         return best_parameter, best_parameter_bss, misc
 
-    def extract_mass(self, correlator_fit_tags):
+    def extract_mass_leafs(self, correlator_fit_tags):
         for tag in correlator_fit_tags:
             lf = self.db.database[tag]
-            self.db.add_leaf(f"{tag}/am", mean=lf.mean[1], jks={cfg:jk[1] for cfg,jk in lf.jks.items()}, sample=None, misc=None)
+            idx_mass = 1 if "combined" not in tag else 2
+            self.db.add_leaf(f"{tag}/am", mean=lf.mean[idx_mass], jks={cfg:jk[idx_mass] for cfg,jk in lf.jks.items()}, sample=None, misc=None)
             if "binsize" not in tag and self.bootstrap_available:
                 bootstrap_tag = tag.replace("fit", "bootstrap_fit"); lf_bs = self.db.database[bootstrap_tag]  
-                self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[1], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"][:,1]})
+                self.db.add_leaf(f"{bootstrap_tag}/am", mean=lf_bs.mean[idx_mass], jks=None, sample=None, misc={"bss": lf_bs.misc["bss"][:,idx_mass]})
     
     def correlator_combined_fit(self, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, Nt=None, verbosity=0):
         message("------------------ COMBINED CORRELATOR FIT PSPS/PSA4I ---------------------") 
@@ -636,6 +638,8 @@ class LatticeCharmToolkit():
                 misc_bss["bss"] = best_parameter_bss
                 self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_bootstrap_fit", mean=best_parameter_bmean, jks=None, sample=None, misc=misc_bss)
             self.db.add_leaf(tag=f"{binned_tag}/{fit_model_combined}_fit", mean=best_parameter, jks=best_parameter_jks, sample=None, misc=misc)
+            # extract mass leafs
+            self.extract_mass_leafs([f"{binned_tag}/{fit_model_combined}_fit"])
             message("------------------------------ BARE DECAY CONSTANT ------------------------------")
             self.db.combine(f"{binned_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_tag}/{fit_model_combined}_fit/f_bare")
             if b == 1 and self.bootstrap_available:
