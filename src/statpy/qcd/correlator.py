@@ -775,7 +775,6 @@ class LatticeCharmToolkit():
                                      }
                             }
         
-        print(correlated_fit_dict)
         self.db.add_leaf(**aic_average_dict)
         self.db.add_leaf(**correlated_fit_dict)
         self.db.add_leaf(**boundary_fit_dict)
