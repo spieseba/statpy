@@ -741,8 +741,9 @@ class LatticeCharmToolkit():
                 boundary_fit_dict["jks"] = best_parameter_jks
                 misc["boundary_range_fit"] = t_crit
                 boundary_fit_dict["misc"] = misc
+                # store correlated tag already here s.t. correlated dict can be added even if the correlated fit did not converge
+                correlated_fit_dict["tag"] = f"{mt_folded_tag}/correlated_const_plus_exp_fit" 
                 if correlated_converged: 
-                    correlated_fit_dict["tag"] = f"{mt_folded_tag}/correlated_const_plus_exp_fit"
                     correlated_fit_dict["mean"] = best_parameter_correlated
                     correlated_fit_dict["misc"] = misc_correlated
             message("---------------------------------------------------------------------------------") 
@@ -773,6 +774,8 @@ class LatticeCharmToolkit():
                                      "boundary_end_t0": t_crit_AIC_t0_rounded, "boundary_end_params": t_crit_AIC_params
                                      }
                             }
+        
+        print(correlated_fit_dict)
         self.db.add_leaf(**aic_average_dict)
         self.db.add_leaf(**correlated_fit_dict)
         self.db.add_leaf(**boundary_fit_dict)
