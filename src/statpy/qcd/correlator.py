@@ -490,8 +490,9 @@ class LatticeCharmToolkit():
                 excited_contribtions_fit_dict["jks"] = best_parameter_jks
                 misc["fit_range_crit"] = t_crit; fit_range = t_crit
                 excited_contribtions_fit_dict["misc"] = misc
+                # store tag for correlated mean fit here even if it did not converge to avoid crashing of code
+                correlated_fit_dict["tag"] = f"{binned_tag}/correlated_excited_contributions_mean_fit"
                 if correlated_converged: 
-                    correlated_fit_dict["tag"] = f"{binned_tag}/correlated_excited_contributions_mean_fit"
                     correlated_fit_dict["mean"] = best_parameter_correlated
                     correlated_fit_dict["misc"] = misc_correlated
             message("---------------------------------------------------------------------------------", verbosity) 
@@ -698,6 +699,9 @@ class LatticeCharmToolkit():
             try:
                 best_parameter, best_parameter_jks, misc = fit(self.db, fit_range, mt_folded_tag, p0, chi2_func, self.fit_method, self.fit_params, jks_fit_method=self.res_fit_method, jks_fit_params=self.res_fit_params)
             except ConvergenceError as ce:
+                P_M_arr.append(None)
+                suggested_fit_ranges.append(None)
+                best_parameters.append(None); best_parameters_jkss.append(None)
                 message(f"{ce} -> JUMP TO NEXT FIT RANGE")
                 message("---------------------------------------------------------------------------------") 
                 message("---------------------------------------------------------------------------------") 
@@ -725,6 +729,10 @@ class LatticeCharmToolkit():
             t_crit = ts[criterion]
             if len(t_crit) <  MIN_TCRIT_LEN:
                 message(f"DETERMINED BOUNDARY RANGE {t_crit} HAS FEWER THAN {MIN_TCRIT_LEN} ELEMENTS")
+                #message(f"---> SET P(M) = None")
+                P_M_arr.append(misc["P(M)"]) # None
+                suggested_fit_ranges.append(t_crit)
+                best_parameters.append(best_parameter); best_parameters_jkss.append(best_parameter_jks)
                 message(f"---> STORED BOUNDARY RANGE IS NOT UPDATED")
                 message("---------------------------------------------------------------------------------") 
                 message("---------------------------------------------------------------------------------") 
@@ -749,17 +757,27 @@ class LatticeCharmToolkit():
             message("---------------------------------------------------------------------------------") 
             message("---------------------------------------------------------------------------------") 
         # compute boundary end with AIC model average of t0s
-        P_M_arr = np.array(P_M_arr) / np.sum(P_M_arr)
-        t0_crits = np.array([suggested_fit_range[0] for suggested_fit_range in suggested_fit_ranges])
-        t_crit_AIC_t0 = np.sum(t0_crits * P_M_arr)
+        P_M_valid_idxs = [True if P_M_arr[i] is not None else False for i in range(len(P_M_arr))]
+        P_M_valid = [P_M_arr[i] for i in range(len(P_M_arr)) if P_M_valid_idxs[i]]
+
+        if np.sum(P_M_valid) == 0.0: 
+            message("ALL CONVERGED FITS GIVE P(M) = 0.0. USE AVERAGE OF ALL VALID T0s")
+            P_M_filtered = [1.0 if P_M_arr[i] is not None else 0.0 for i in range(len(P_M_arr))]
+        else:
+            P_M_filtered = [P_M_arr[i] if P_M_arr[i] is not None else 0.0 for i in range(len(P_M_arr))]
+
+        P_M_filtered = np.array(P_M_filtered) / np.sum(P_M_filtered)
+        P_M_arr = [P_M_filtered[i] if P_M_arr[i] is not None else P_M_arr[i] for i in range(len(P_M_arr))]
+        t0_crits_filtered = np.array([suggested_fit_ranges[i][0] if P_M_arr[i] is not None else 0.0 for i in range(len(P_M_arr))])
+        t_crit_AIC_t0 = np.sum(t0_crits_filtered * P_M_filtered)
         t_crit_AIC_t0_rounded = int(np.round(t_crit_AIC_t0))
         message(f"BOUNDARY END DETERMINED BY AIC MODEL AVERAGE OF T0s: {t_crit_AIC_t0} -> rounded to {t_crit_AIC_t0_rounded}")
         boundary_fit_dict["misc"]["boundary_end_AIC_t0"] = t_crit_AIC_t0_rounded
 
         # compute boundary end with AIC model average of parameters
-        best_parameter_AIC = np.sum([best_parameter * P_M for best_parameter, P_M in zip(best_parameters, P_M_arr)], axis=0)
-        best_parameter_AIC_jks = np.sum([self.db.as_array(best_parameter_jks) * P_M for best_parameter_jks, P_M in zip(best_parameters_jkss, P_M_arr)], axis=0)
-        best_parameter_AIC_sys_var = np.sum([ P_M * (best_parameter - best_parameter_AIC)**2 for best_parameter, P_M in zip(best_parameters, P_M_arr)], axis=0)
+        best_parameter_AIC = np.sum([best_parameter * P_M for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
+        best_parameter_AIC_jks = np.sum([self.db.as_array(best_parameter_jks) * P_M for best_parameter_jks, P_M in zip(best_parameters_jkss, P_M_filtered)], axis=0)
+        best_parameter_AIC_sys_var = np.sum([ P_M * (best_parameter - best_parameter_AIC)**2 for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
         criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
         t_crit_AIC_params = ts[criterion_AIC][0]
         message(f"BOUNDARY END DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
