@@ -677,7 +677,7 @@ class LatticeCharmToolkit():
             for mt_tag in mt_tags: self.db.remove_leaf(mt_tag)
         return dst_tag
     
-    def boundary_fits(self, mt_folded_tag, t0s, MIN_TCRIT_LEN=12):
+    def boundary_fits(self, mt_folded_tag, t0s, MIN_TCRIT_LEN=1):
         ts = np.arange(self.db.database[mt_folded_tag].mean.shape[0])
         mt_cov = self.db.jackknife_covariance(mt_folded_tag); mt_var = np.diag(mt_cov)
         boundary_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
@@ -686,8 +686,8 @@ class LatticeCharmToolkit():
         zero_idxs = np.where(self.db.database[mt_folded_tag].mean == 0)[0]
         tmax = ts[zero_idxs[2]] if len(zero_idxs) > 2 else ts[-1] + 1
         initial_fit_ranges = [np.arange(t0, tmax) for t0 in t0s]
-
-        P_M_arr = []
+        
+        AIC_arr = []
         suggested_fit_ranges = []
         boundary_range = initial_fit_ranges[0]
         best_parameters = []; best_parameters_jkss = [] # for AIC
@@ -699,7 +699,7 @@ class LatticeCharmToolkit():
             try:
                 best_parameter, best_parameter_jks, misc = fit(self.db, fit_range, mt_folded_tag, p0, chi2_func, self.fit_method, self.fit_params, jks_fit_method=self.res_fit_method, jks_fit_params=self.res_fit_params)
             except ConvergenceError as ce:
-                P_M_arr.append(None)
+                AIC_arr.append(None)
                 suggested_fit_ranges.append(None)
                 best_parameters.append(None); best_parameters_jkss.append(None)
                 message(f"{ce} -> JUMP TO NEXT FIT RANGE")
@@ -707,9 +707,9 @@ class LatticeCharmToolkit():
                 message("---------------------------------------------------------------------------------") 
                 continue
             best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks))
-            misc["AIC"] = compute_AIC(misc["chi2"], misc["dof"], len(p0)); misc["P(M)"] = np.exp(-misc["AIC"]/2.0)
+            misc["AIC"] = compute_AIC(misc["chi2"], misc["dof"], len(p0)) #; misc["log[P(M)]"] = -misc["AIC"]/2.0
             print_fit_results(best_parameter, best_parameter_cov, misc)
-            message(f"P(M) = exp(-AIC / 2) = exp(- [chi2 - dof + k] / 2) = exp(-{misc['AIC']} / 2) = {misc['P(M)']}")
+            message(f"P(M) = exp(-AIC / 2) = exp(- [chi2 - dof + k] / 2) = exp(-{misc['AIC']} / 2)")
             message("------------------------------ CORRELATED MEAN FIT ------------------------------")
             W_correlated = np.linalg.inv(mt_cov[fit_range][:,fit_range])
             chi2_func_correlated = lambda t,p,y: const_plus_exp_chi2(t,p,y,W_correlated)
@@ -727,22 +727,21 @@ class LatticeCharmToolkit():
             # test that exponential contribution is small compared to statistical error of the data
             criterion = np.abs([const_plus_exp(i, [best_parameter[0], best_parameter[1], 0]) for i in ts]) < (mt_var**.5)/4.
             t_crit = ts[criterion]
-            if len(t_crit) <  MIN_TCRIT_LEN:
-                message(f"DETERMINED BOUNDARY RANGE {t_crit} HAS FEWER THAN {MIN_TCRIT_LEN} ELEMENTS")
-                #message(f"---> SET P(M) = None")
-                P_M_arr.append(misc["P(M)"]) # None
-                suggested_fit_ranges.append(t_crit)
-                best_parameters.append(best_parameter); best_parameters_jkss.append(best_parameter_jks)
-                message(f"---> STORED BOUNDARY RANGE IS NOT UPDATED")
+            if len(t_crit) < MIN_TCRIT_LEN:
+                message(f"SUGGESTED RANGE WITHOUT BOUNDARY EFFECTS {t_crit} IS CONTAINS LESS THAN {MIN_TCRIT_LEN} ELEMENTS")
+                message(f"---> SET P(M) = None")
+                AIC_arr.append(None)
+                suggested_fit_ranges.append(None)
+                best_parameters.append(best_parameter); best_parameters_jkss.append(best_parameter_jks) # wont be used for AIC calculation
                 message("---------------------------------------------------------------------------------") 
                 message("---------------------------------------------------------------------------------") 
                 continue
-            P_M_arr.append(misc["P(M)"])
+            AIC_arr.append(misc["AIC"])
             suggested_fit_ranges.append(t_crit)       
             best_parameters.append(best_parameter); best_parameters_jkss.append(best_parameter_jks)
-            message(f"SUGGESTED RANGE WITHOUT BOUNDARY EFFECTS [[{t_crit[0]},{t_crit[-1]}]]")
+            message(f"SUGGESTED BULK RANGE WITHOUT BOUNDARY EFFECTS [[{t_crit[0]},{t_crit[-1]}]]")
             if len(t_crit) < len(boundary_range):
-                message(f"---> STORED BOUNDARY RANGE IS UPDATED")
+                message(f"---> STORED BULK RANGE IS UPDATED")
                 boundary_range = t_crit
                 boundary_fit_dict["tag"] = f"{mt_folded_tag}/const_plus_exp_fit"
                 boundary_fit_dict["mean"] = best_parameter
@@ -757,30 +756,60 @@ class LatticeCharmToolkit():
             message("---------------------------------------------------------------------------------") 
             message("---------------------------------------------------------------------------------") 
         # compute boundary end with AIC model average of t0s
-        P_M_valid_idxs = [True if P_M_arr[i] is not None else False for i in range(len(P_M_arr))]
-        P_M_valid = [P_M_arr[i] for i in range(len(P_M_arr)) if P_M_valid_idxs[i]]
+        message(f"AIC_arr {AIC_arr}")
+        # use only valid AIC values for P(M) calculation
+        AIC_valid_idxs = np.array([True if AIC_arr[i] is not None else False for i in range(len(AIC_arr))]) # get all non-None AIC idxs
+        AIC_valid = [AIC_arr[i] for i in range(len(AIC_arr)) if AIC_valid_idxs[i]] # get all non-None AIC values
+        # Numerically more stable calculation of P(M) using AIC
+        AIC_min = np.min(AIC_valid)
+        delta_AIC = AIC_valid - AIC_min 
+        log_P_M = -delta_AIC / 2.0
+        max_log_P_M = np.max(log_P_M)
+        P_M_valid = np.exp(log_P_M - max_log_P_M)
+        P_M_valid = P_M_valid / np.sum(P_M_valid)
+        P_M_arr = np.zeros(len(AIC_arr))
+        P_M_arr[AIC_valid_idxs] = P_M_valid
+        P_M_arr[~AIC_valid_idxs] = None
+        message(f"P_M_arr {P_M_arr}")
 
-        if np.sum(P_M_valid) == 0.0: 
-            message("ALL CONVERGED FITS GIVE P(M) = 0.0. USE AVERAGE OF ALL VALID T0s")
-            P_M_filtered = [1.0 if P_M_arr[i] is not None else 0.0 for i in range(len(P_M_arr))]
-        else:
-            P_M_filtered = [P_M_arr[i] if P_M_arr[i] is not None else 0.0 for i in range(len(P_M_arr))]
+        # P_M_arr can contain None values
+        # best_parameter too
+        filtered_P_M_arr = np.array([p for p in P_M_arr if not np.isnan(p)])
+        filtered_t0s_crit = np.array([suggested_fit_range[0] for suggested_fit_range, p in zip(suggested_fit_ranges, P_M_arr) if not np.isnan(p)])
 
-        P_M_filtered = np.array(P_M_filtered) / np.sum(P_M_filtered)
-        P_M_arr = [P_M_filtered[i] if P_M_arr[i] is not None else P_M_arr[i] for i in range(len(P_M_arr))]
-        t0_crits_filtered = np.array([suggested_fit_ranges[i][0] if P_M_arr[i] is not None else 0.0 for i in range(len(P_M_arr))])
-        t_crit_AIC_t0 = np.sum(t0_crits_filtered * P_M_filtered)
+        # compute begin of bulk with AIC model average of t0s
+        t_crit_AIC_t0 = np.sum(filtered_t0s_crit * filtered_P_M_arr)
         t_crit_AIC_t0_rounded = int(np.round(t_crit_AIC_t0))
-        message(f"BOUNDARY END DETERMINED BY AIC MODEL AVERAGE OF T0s: {t_crit_AIC_t0} -> rounded to {t_crit_AIC_t0_rounded}")
+        message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF T0s: {t_crit_AIC_t0} -> rounded to {t_crit_AIC_t0_rounded}")
         boundary_fit_dict["misc"]["boundary_end_AIC_t0"] = t_crit_AIC_t0_rounded
 
         # compute boundary end with AIC model average of parameters
-        best_parameter_AIC = np.sum([best_parameter * P_M for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
-        best_parameter_AIC_jks = np.sum([self.db.as_array(best_parameter_jks) * P_M for best_parameter_jks, P_M in zip(best_parameters_jkss, P_M_filtered)], axis=0)
-        best_parameter_AIC_sys_var = np.sum([ P_M * (best_parameter - best_parameter_AIC)**2 for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
+        filtered_best_parameters = [bp for bp, p in zip(best_parameters, P_M_arr) if not np.isnan(p)]
+        filtered_best_parameters_jkss = [self.db.as_array(bp_jks) for bp_jks, p in zip(best_parameters_jkss, P_M_arr) if not np.isnan(p)]
+        best_parameter_AIC = np.sum(filtered_best_parameters * filtered_P_M_arr[:,np.newaxis], axis=0)
+        best_parameter_AIC_jks = np.sum(filtered_best_parameters_jkss * filtered_P_M_arr[:,np.newaxis,np.newaxis], axis=0)
+        best_parameter_AIC_sys_var = np.sum([ p * (bp - best_parameter_AIC)**2 for bp, p in zip(filtered_best_parameters, filtered_P_M_arr)], axis=0)
         criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
         t_crit_AIC_params = ts[criterion_AIC][0]
-        message(f"BOUNDARY END DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
+        message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
+        
+        # to be deleted 
+        #P_M_filtered = np.array([P_M_arr[i] if AIC_valid_idxs[i] else 0.0 for i in range(len(P_M_arr))])
+        ## compute begin of bulk with AIC model average of t0s
+        #t0_crits_filtered = np.array([suggested_fit_ranges[i][0] if AIC_valid_idxs[i] else 0.0 for i in range(len(AIC_valid_idxs))])
+        #print(t0_crits_filtered)
+        #t_crit_AIC_t0 = np.sum(t0_crits_filtered * P_M_filtered)
+        #t_crit_AIC_t0_rounded = int(np.round(t_crit_AIC_t0))
+        #message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF T0s: {t_crit_AIC_t0} -> rounded to {t_crit_AIC_t0_rounded}")
+        #boundary_fit_dict["misc"]["boundary_end_AIC_t0"] = t_crit_AIC_t0_rounded
+
+        ## compute boundary end with AIC model average of parameters
+        #best_parameter_AIC = np.sum([best_parameter * P_M for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
+        #best_parameter_AIC_jks = np.sum([self.db.as_array(best_parameter_jks) * P_M for best_parameter_jks, P_M in zip(best_parameters_jkss, P_M_filtered)], axis=0)
+        #best_parameter_AIC_sys_var = np.sum([ P_M * (best_parameter - best_parameter_AIC)**2 for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
+        #criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
+        #t_crit_AIC_params = ts[criterion_AIC][0]
+        #message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
 
         # store AIC average of boundary fits
         aic_average_dict = {"tag": f"{mt_folded_tag}/const_plus_exp_fit_AIC_avg", 
@@ -789,7 +818,7 @@ class LatticeCharmToolkit():
                             "sample": None, 
                             "misc": {"mean": best_parameter_AIC, "jks": best_parameter_AIC_jks, "sys_var": best_parameter_AIC_sys_var,
                                      "t0s": t0s, "tmax": tmax-1, "P_M_arr": P_M_arr, "suggested_fit_ranges": suggested_fit_ranges,
-                                     "boundary_end_t0": t_crit_AIC_t0_rounded, "boundary_end_params": t_crit_AIC_params
+                                     "bulk_begin_AIC_t0": t_crit_AIC_t0_rounded, "bulk_begin_AIC_params": t_crit_AIC_params
                                      }
                             }
         
