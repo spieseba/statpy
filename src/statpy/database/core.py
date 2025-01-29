@@ -143,6 +143,8 @@ class DB:
  
     def as_array(self, dictionary):
         sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
+        if isinstance(next(iter(sorted_d.values())), np.ma.MaskedArray):
+            return np.ma.array(list(sorted_d.values()))
         return np.array(list(sorted_d.values()))
 
     ################################ JKS ######################################

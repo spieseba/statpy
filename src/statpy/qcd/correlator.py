@@ -661,22 +661,26 @@ class LatticeCharmToolkit():
         message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
         assert len(Ct_tags) == len(tsrcs)
+        # get effective mass estimate for each source first and then average over sources
         mt_tags = []
         for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
-            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited).mean(axis=0), dst_tag=f"{Ct_tag}/bdry_avg")
-            binned_tag_bdry_avg_tag = self.db.add_binned_leaf(f"{Ct_tag}/bdry_avg", binsize)
-            mt_tag = f"{binned_tag_bdry_avg_tag}/am_t"; mt_tags.append(mt_tag)
-            self.db.combine(binned_tag_bdry_avg_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(effective_mass_log2(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag) # set invalid values to zero
+            # get masked Ct at each source
+            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited).mean(axis=0), dst_tag=f"{Ct_tag}/masked")
+            binned_Ct_tag = self.db.add_binned_leaf(f"{Ct_tag}/masked", binsize)
+            # compute effective mass on masked Ct for each source
+            mt_tag = f"{binned_Ct_tag}/am_t"; mt_tags.append(mt_tag)
+            self.db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(effective_mass_log2(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag) # set invalid values to zero
             if cleanup:
-                self.db.remove_leaf(f"{Ct_tag}/bdry_avg")
-                self.db.remove_leaf(binned_tag_bdry_avg_tag)
+                self.db.remove_leaf(f"{Ct_tag}/masked")
+                self.db.remove_leaf(binned_Ct_tag)
+        # average effective masses over sources
         dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
-        self.db.combine(*[mt_tag for mt_tag in mt_tags], f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag) # mask zero values, average over tsrcs, fill masked values with zero
+        self.db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag) 
         self.db.combine(dst_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), dst_tag=f"{dst_tag}/folded")
         if cleanup:
             for mt_tag in mt_tags: self.db.remove_leaf(mt_tag)
         return dst_tag
-    
+
     def boundary_fits(self, mt_folded_tag, t0s, MIN_TCRIT_LEN=1):
         ts = np.arange(self.db.database[mt_folded_tag].mean.shape[0])
         mt_cov = self.db.jackknife_covariance(mt_folded_tag); mt_var = np.diag(mt_cov)
@@ -792,24 +796,6 @@ class LatticeCharmToolkit():
         criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
         t_crit_AIC_params = ts[criterion_AIC][0]
         message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
-        
-        # to be deleted 
-        #P_M_filtered = np.array([P_M_arr[i] if AIC_valid_idxs[i] else 0.0 for i in range(len(P_M_arr))])
-        ## compute begin of bulk with AIC model average of t0s
-        #t0_crits_filtered = np.array([suggested_fit_ranges[i][0] if AIC_valid_idxs[i] else 0.0 for i in range(len(AIC_valid_idxs))])
-        #print(t0_crits_filtered)
-        #t_crit_AIC_t0 = np.sum(t0_crits_filtered * P_M_filtered)
-        #t_crit_AIC_t0_rounded = int(np.round(t_crit_AIC_t0))
-        #message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF T0s: {t_crit_AIC_t0} -> rounded to {t_crit_AIC_t0_rounded}")
-        #boundary_fit_dict["misc"]["boundary_end_AIC_t0"] = t_crit_AIC_t0_rounded
-
-        ## compute boundary end with AIC model average of parameters
-        #best_parameter_AIC = np.sum([best_parameter * P_M for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
-        #best_parameter_AIC_jks = np.sum([self.db.as_array(best_parameter_jks) * P_M for best_parameter_jks, P_M in zip(best_parameters_jkss, P_M_filtered)], axis=0)
-        #best_parameter_AIC_sys_var = np.sum([ P_M * (best_parameter - best_parameter_AIC)**2 for best_parameter, P_M in zip(best_parameters, P_M_filtered)], axis=0)
-        #criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
-        #t_crit_AIC_params = ts[criterion_AIC][0]
-        #message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
 
         # store AIC average of boundary fits
         aic_average_dict = {"tag": f"{mt_folded_tag}/const_plus_exp_fit_AIC_avg", 
