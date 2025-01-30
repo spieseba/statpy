@@ -665,13 +665,13 @@ class LatticeCharmToolkit():
         mt_tags = []
         for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
             # get masked Ct at each source
-            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited).mean(axis=0), dst_tag=f"{Ct_tag}/masked")
-            binned_Ct_tag = self.db.add_binned_leaf(f"{Ct_tag}/masked", binsize)
+            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
+            binned_Ct_tag = self.db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
             # compute effective mass on masked Ct for each source
             mt_tag = f"{binned_Ct_tag}/am_t"; mt_tags.append(mt_tag)
             self.db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(effective_mass_log2(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag) # set invalid values to zero
             if cleanup:
-                self.db.remove_leaf(f"{Ct_tag}/masked")
+                self.db.remove_leaf(f"{Ct_tag}/maskedES")
                 self.db.remove_leaf(binned_Ct_tag)
         # average effective masses over sources
         dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
