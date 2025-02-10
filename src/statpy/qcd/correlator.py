@@ -527,7 +527,19 @@ class LatticeCharmToolkit():
             if b in [1,binsize]:
                 message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
                 try:
-                    W_correlated = np.linalg.inv(self.db.jackknife_covariance(binned_tag)[fit_range][:,fit_range])
+                    cov = self.db.jackknife_covariance(binned_tag)[fit_range][:,fit_range]
+                    # check pos.def. of covariance matrix
+                    pos_def = np.all(np.linalg.eigvals(cov) > 0)
+                    if not pos_def:
+                        message("Covariance matrix is not positive definite -> try to use unbinned covariance matrix for correlated fit.")
+                        cov_unbinned = self.db.jackknife_covariance(tag)[fit_range][:,fit_range]
+                        pos_def_unbinned = np.all(np.linalg.eigvals(cov_unbinned) > 0)
+                        message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{fit_range[0]},{fit_range[-1]}]]: {pos_def_unbinned}")
+                        if pos_def_unbinned:
+                            message(f"Use unbinned covariance matrix for correlated fit.")
+                            cov = cov_unbinned
+                    W_correlated = np.linalg.inv(cov)
+                    # check pos.def.
                     chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
                                             "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_correlated, Nt),
                                             "exp": lambda t,p,y: exp_chi2(t, p, y, W_correlated)}[fit_model]
