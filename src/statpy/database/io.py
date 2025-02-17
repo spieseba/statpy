@@ -3,7 +3,7 @@ import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None, verbosity=0, accept_cfg_mismatch=False):
+def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None, reverse_order=False, accept_cfg_mismatch=False, verbosity=0):
     assert os.path.isfile(fn), f"{fn} not found!"
     assert isinstance(cfgs_to_be_removed, list) or isinstance(cfgs_to_be_removed, np.ndarray) or cfgs_to_be_removed is None
     message(f"---------------------------------")
@@ -13,6 +13,8 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     message(f" -- ensemble tag = {stream_tag}")
     message(f" -- run tag: {run_tag}")
     message(f" -- cfgs to be removed: {cfgs_to_be_removed}")
+    message(f" -- reverse order of configs: {reverse_order}")
+    message(f" -- accept cfg mismatch: {accept_cfg_mismatch}")
     # data
     f = h5py.File(fn, "r")["messpec"]
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")]) 
@@ -32,20 +34,23 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
             rwf_cfgs, rwf = _load_rwms(rwf_fn)   
         else:
             assert False, "Unknown rwf file format"    
-        #rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
         rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else rwf_cfgs
         message(f"Number of cfgs in rwf file: {rwf_cfgs.shape[0]} | Number of filtered configs in rwf file : {rwf_cfgs_filtered.shape[0]}")
         if not np.array_equal(f_cfgs_filtered, rwf_cfgs_filtered):
             message(f"WARNING: filtered rwf file has different configs than filtered hdf5 file!")
+            non_common_cfgs = np.setxor1d(f_cfgs_filtered, rwf_cfgs_filtered)
+            message(f"Configs which are contained in hdf5 or rwf file but not in both: {non_common_cfgs}")
             if not accept_cfg_mismatch: 
-                non_common_cfgs = np.setxor1d(f_cfgs_filtered, rwf_cfgs_filtered)
-                message(f"Configs which are contained in hdf5 or rwf file but not in both: {non_common_cfgs}")
                 sys.exit(1)
             message(f"---> Add only common configs to database.")
         common_cfgs = np.array([cfg for cfg in rwf_cfgs_filtered if cfg in f_cfgs_filtered])
         message(f"Number of filtered configs in hdf5 file and rwf file: {common_cfgs.shape[0]}")
-        #rwf = np.loadtxt(rwf_fn)[:,1] 
         rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
+        # rever order of configs by reversing the order of values but not the order of keys
+        if reverse_order:
+            message(f"Reverse order of configs by reversing order of values. Note that the relative information of cfgs is lost.")
+            reverse_cfgs = np.arange(len(common_cfgs)) + 1
+            rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(reverse_cfgs, list(rwf.values())[::-1]) if cfg in common_cfgs}
     db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
     db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
     # data
@@ -54,6 +59,9 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
             if t in key:
                 f_vals = f["data"].get(key)[:]
                 sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
+                # rever order of configs by reversing the order of values but not the order of keys
+                if reverse_order:
+                    sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(reverse_cfgs, list(sample.values())[::-1]) if cfg in common_cfgs}
                 f_tag = f"{stream_tag}/{key}" if run_tag is None else f"{stream_tag}/{run_tag}/{key}"
                 db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
     message(f"---------------------------------")
