@@ -38,6 +38,8 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
         if not np.array_equal(f_cfgs_filtered, rwf_cfgs_filtered):
             message(f"WARNING: filtered rwf file has different configs than filtered hdf5 file!")
             if not accept_cfg_mismatch: 
+                non_common_cfgs = np.setxor1d(f_cfgs_filtered, rwf_cfgs_filtered)
+                message(f"Configs which are contained in hdf5 or rwf file but not in both: {non_common_cfgs}")
                 sys.exit(1)
             message(f"---> Add only common configs to database.")
         common_cfgs = np.array([cfg for cfg in rwf_cfgs_filtered if cfg in f_cfgs_filtered])
