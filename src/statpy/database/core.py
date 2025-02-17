@@ -18,11 +18,11 @@ from statpy.statistics import jackknife, bootstrap
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key=lambda x: (try_int(x[0].split("r")[-1].split("-")[0]),int(x[0].split("-")[-1])), dev_mode=False, repo_path=None):
+    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key="default", stream_order=None, reverse_order=None, dev_mode=False, repo_path=None):
         self.t0 = time()
         self.num_proc = num_proc
         self.verbosity = verbosity
-        self.sorting_key = sorting_key
+        self.sorting_key = lambda tag: default_sorting_key(tag[0], custom_major_order=stream_order, reverse_minor_order=reverse_order) if sorting_key == "default" else sorting_key
         self.dev_mode = dev_mode
         self.database = {} 
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
@@ -313,3 +313,17 @@ def try_int(x):
         return int(x)
     except ValueError:
         return int(0)
+    
+def default_sorting_key(tag, custom_major_order, reverse_minor_order):
+    # Extract the major part (H101rXXX)
+    major_match = re.match(r"(.+?r\d+)", tag)
+    if not major_match:
+        raise ValueError(f"Invalid tag format: {tag}")
+    major_part = major_match.group(1) 
+    # Use custom index for sorting
+    major_index = int(major_part.split("r")[-1]) if custom_major_order is None else custom_major_order.index(major_part)
+    # Extract the minor number (after "-")
+    minor_part = int(tag.split("-")[-1])
+    if reverse_minor_order is not None:
+        minor_part = minor_part if not reverse_minor_order[major_index] else -minor_part
+    return (major_index, minor_part)

@@ -3,7 +3,7 @@ import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None, reverse_order=False, accept_cfg_mismatch=False, verbosity=0):
+def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None, accept_cfg_mismatch=False, verbosity=0):
     assert os.path.isfile(fn), f"{fn} not found!"
     assert isinstance(cfgs_to_be_removed, list) or isinstance(cfgs_to_be_removed, np.ndarray) or cfgs_to_be_removed is None
     message(f"---------------------------------")
@@ -13,7 +13,6 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     message(f" -- ensemble tag = {stream_tag}")
     message(f" -- run tag: {run_tag}")
     message(f" -- cfgs to be removed: {cfgs_to_be_removed}")
-    message(f" -- reverse order of configs: {reverse_order}")
     message(f" -- accept cfg mismatch: {accept_cfg_mismatch}")
     # data
     f = h5py.File(fn, "r")["messpec"]
@@ -46,11 +45,6 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
         common_cfgs = np.array([cfg for cfg in rwf_cfgs_filtered if cfg in f_cfgs_filtered])
         message(f"Number of filtered configs in hdf5 file and rwf file: {common_cfgs.shape[0]}")
         rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
-        # rever order of configs by reversing the order of values but not the order of keys
-        if reverse_order:
-            message(f"Reverse order of configs by reversing order of values. Note that the relative information of cfgs is lost.")
-            reverse_cfgs = np.arange(len(common_cfgs)) + 1
-            rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(reverse_cfgs, list(rwf.values())[::-1]) if cfg in common_cfgs}
     db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
     db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
     # data
@@ -59,9 +53,6 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
             if t in key:
                 f_vals = f["data"].get(key)[:]
                 sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
-                # rever order of configs by reversing the order of values but not the order of keys
-                if reverse_order:
-                    sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(reverse_cfgs, list(sample.values())[::-1]) if cfg in common_cfgs}
                 f_tag = f"{stream_tag}/{key}" if run_tag is None else f"{stream_tag}/{run_tag}/{key}"
                 db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
     message(f"---------------------------------")
