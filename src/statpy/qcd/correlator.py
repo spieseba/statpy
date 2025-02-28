@@ -278,6 +278,7 @@ class LatticeCharmToolkit():
             if (tsrc >= tbulk[0]) and (tsrc <= tbulk[-1]):
                 Ct_tags_in_bulk.append(Ct_tag)
                 tsrcs_in_bulk.append(tsrc)
+        message(f"tsrcs in bulk: {tsrcs_in_bulk}")
         tmax_fw, tmax_bw = self._get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
         for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
             self.db.combine_sample(Ct_tag, f=lambda Ct: self._get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", verbosity=-1)
