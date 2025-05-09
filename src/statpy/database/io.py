@@ -22,9 +22,11 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     db = DB(verbosity=verbosity)
     # rwfs
     if rwf_fn is None:
-        message(f"rwf file not available. Use rwf=1.0 for all configs.")
-        common_cfgs = f_cfgs_filtered
-        rwf = {f"{stream_tag}-{cfg}":1.0 for cfg in common_cfgs}
+        raise ValueError(f"rwf file must be provided!")
+        # debugging 
+        #message(f"rwf file not available. Use rwf=1.0 for all configs.")
+        #common_cfgs = f_cfgs_filtered
+        #rwf = {f"{stream_tag}-{cfg}":1.0 for cfg in common_cfgs}
     else:
         assert os.path.isfile(rwf_fn) 
         if rwf_fn.endswith(".rwf"):
