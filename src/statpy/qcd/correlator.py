@@ -269,7 +269,7 @@ class LatticeCharmToolkit():
         assert isinstance(Ct_tag, str)
         self.db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
 
-    def correlator_avg_obc(self, Ct_tags, tbulk, dst_tag, antiperiodic=False):
+    def correlator_avg_obc(self, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiperiodic=False):
         message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
         assert len(Ct_tags) == len(tsrcs)
@@ -280,6 +280,10 @@ class LatticeCharmToolkit():
                 tsrcs_in_bulk.append(tsrc)
         message(f"tsrcs in bulk: {tsrcs_in_bulk}")
         tmax_fw, tmax_bw = self._get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
+        if tmax_from_tsrc is not None:
+            tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc)
+            tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc)
+            
         for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
             self.db.combine_sample(Ct_tag, f=lambda Ct: self._get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", verbosity=-1)
         combined_sample = self.db.combine_sample(*[f"{Ct_tag}/masked" for Ct_tag in Ct_tags_in_bulk], f=lambda *Cts_ma: np.ma.concatenate(Cts_ma, axis=0).mean(axis=0).compressed())
@@ -669,7 +673,7 @@ class LatticeCharmToolkit():
 
 
     #### BOUNDARY EFFECTS ####
-    def boundary_avg(self, Ct_tags, tmin_excited, binsize, antiperiodic=False, cleanup=False):
+    def boundary_avg(self, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False):
         message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
         message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
@@ -678,7 +682,7 @@ class LatticeCharmToolkit():
         mt_tags = []
         for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
             # get masked Ct at each source
-            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
+            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
             binned_Ct_tag = self.db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
             # compute effective mass on masked Ct for each source
             mt_tag = f"{binned_Ct_tag}/am_t"; mt_tags.append(mt_tag)
@@ -834,13 +838,22 @@ def bare_decay_constant(p):
 
 
 # These functions are used to perform the boundary average - defined here to avoid slowdown (don't know why at the moment)
-def _get_masked_Cts_boundary(Cts, tsrc, tmin_excited): 
+# mask excited states and time slices further away than tmax from source position
+def _get_masked_Cts_boundary(Cts, tsrc, tmin_excited, tmax_from_tsrc=None): 
+    # get Cts in terms of original lattice
+    Cts_aligned = np.roll(Cts, tsrc, axis=1)
     num_Cts = Cts.shape[0]
+    # 1: create masked array
     Cts_ma = np.ma.empty((num_Cts, Cts.shape[1]) )
     Cts_ma.mask = True
-    Cts_aligned = np.roll(Cts, tsrc, axis=1)
+    # 2: fill in all elements that are not excited states
     Cts_ma[:,:tsrc-(tmin_excited-1)] = Cts_aligned[:,:tsrc-(tmin_excited-1)]
     Cts_ma[:,tsrc+tmin_excited:] = Cts_aligned[:,tsrc+tmin_excited:]
+    # 3: make sure all time slices that are further away than tmax from source position are masked
+    if tmax_from_tsrc is not None:
+        times = np.arange(Cts.shape[1])
+        tmax_mask = np.abs(times - tsrc) > tmax_from_tsrc
+        Cts_ma.mask = np.logical_or(Cts_ma.mask, tmax_mask[np.newaxis,:])
     return Cts_ma
     
 def _fold_boundary(arr, antiperiodic):
