@@ -1,4 +1,4 @@
-import h5py, os, sys
+import h5py, os, sys, json
 import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
@@ -29,6 +29,16 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
         #rwf = {f"{stream_tag}-{cfg}":1.0 for cfg in common_cfgs}
     else:
         assert os.path.isfile(rwf_fn) 
+        message(f"Found rwf file {rwf_fn}")
+        rwf_fn_git = rwf_fn + ".git"
+        if os.path.isfile(rwf_fn_git):
+            message(f"Corresponding .git file found")
+            with open(rwf_fn_git) as rwf_f:
+                rwf_info_dict = json.load(rwf_f)
+            for key, val in rwf_info_dict.items():
+                message(f"--- {key}: {val}") 
+        else:
+            message(f"Corresponding .git file not found!")
         if rwf_fn.endswith(".rwf"):
             rwf_cfgs, rwf = _load_rwf(rwf_fn)
         elif rwf_fn.endswith(".rwms.txt"):
