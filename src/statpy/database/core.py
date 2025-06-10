@@ -197,6 +197,9 @@ class DB:
         if binsize == 1:
             message(f"{tag} is already in database. Nothing to do.")
             return tag
+        if "binsize" in tag:
+            message(f"{tag} is already binned. Can only bin unbinned leafs.")
+            raise AssertionError
         jks = self.jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
