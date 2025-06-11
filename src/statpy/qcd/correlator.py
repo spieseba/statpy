@@ -281,8 +281,10 @@ class LatticeCharmToolkit():
         message(f"tsrcs in bulk: {tsrcs_in_bulk}")
         tmax_fw, tmax_bw = self._get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
         if tmax_from_tsrc is not None:
-            tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc)
-            tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc)
+            print(tmax_fw)
+            tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1) # add 1 time slice since this is distance
+            print(tmax_fw)
+            tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
             
         for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
             self.db.combine_sample(Ct_tag, f=lambda Ct: self._get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", verbosity=-1)
@@ -331,7 +333,9 @@ class LatticeCharmToolkit():
             message(f"--- Signal to noise ratio never smaller than {min_stn_val} -> return tmax = len(mt) = {tmax}")
         else:
             message(f"--- Signal to noise ratio smaller than {min_stn_val} for tmax = {tmax} (this value is returned) -> can use all time slices up to t={tmax-1}")
-        if debug: message(f"--- Signal to noise ratios: {signal_to_noise}")
+        if debug: 
+            message(f"--- Signal to noise ratios: {signal_to_noise}")
+            message(f"--- len(stn) = {len(signal_to_noise)}")
         return tmax
     
     def get_tmax_from_deviation(self, mt_mean, mt_var, tmax_stn, n, debug=False):
@@ -852,10 +856,10 @@ def _get_masked_Cts_boundary(Cts, tsrc, tmin_excited, tmax_from_tsrc=None):
     # 3: make sure all time slices that are further away than tmax from source position are masked
     if tmax_from_tsrc is not None:
         times = np.arange(Cts.shape[1])
-        tmax_mask = np.abs(times - tsrc) > tmax_from_tsrc
+        tmax_mask = np.abs(times - tsrc) > tmax_from_tsrc 
         Cts_ma.mask = np.logical_or(Cts_ma.mask, tmax_mask[np.newaxis,:])
     return Cts_ma
-    
+
 def _fold_boundary(arr, antiperiodic):
     half = len(arr) // 2
     arr0 = arr[:half]
