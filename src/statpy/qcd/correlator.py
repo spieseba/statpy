@@ -281,9 +281,7 @@ class LatticeCharmToolkit():
         message(f"tsrcs in bulk: {tsrcs_in_bulk}")
         tmax_fw, tmax_bw = self._get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
         if tmax_from_tsrc is not None:
-            print(tmax_fw)
             tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1) # add 1 time slice since this is distance
-            print(tmax_fw)
             tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
             
         for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
