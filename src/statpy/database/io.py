@@ -18,6 +18,14 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     f = h5py.File(fn, "r")["messpec"]
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")]) 
     f_cfgs_filtered = f_cfgs[~np.isin(f_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else f_cfgs
+    # try to get hdf5 git info - if available stored in hdf5 file
+    f_git_dict = f["description"].get("git")
+    if f_git_dict is not None:
+        message("hdf5 git info:")
+        for key, val in f_git_dict.items():
+                message(f"--- {key}: {val[()].decode()}") 
+    else: 
+        message("Git info not found for hdf5 file!")
     message(f"Number of cfgs in hdf5 file: {len(f_cfgs)} | Number of filtered configs in hdf5 file: {len(f_cfgs_filtered)}")
     db = DB(verbosity=verbosity)
     # rwfs
@@ -30,15 +38,16 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     else:
         assert os.path.isfile(rwf_fn) 
         message(f"Found rwf file {rwf_fn}")
+        # try to get rwf git info - if available stored in separate .git file
         rwf_fn_git = rwf_fn + ".git"
         if os.path.isfile(rwf_fn_git):
-            message(f"Corresponding .git file found")
+            message(f"rwf git info:")
             with open(rwf_fn_git) as rwf_f:
                 rwf_info_dict = json.load(rwf_f)
             for key, val in rwf_info_dict.items():
                 message(f"--- {key}: {val}") 
         else:
-            message(f"Corresponding .git file not found!")
+            message(f"Git info not found for rwf filte!")
         if rwf_fn.endswith(".rwf"):
             rwf_cfgs, rwf = _load_rwf(rwf_fn)
         elif rwf_fn.endswith(".rwms.txt"):
