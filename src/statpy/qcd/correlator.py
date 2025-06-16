@@ -399,7 +399,7 @@ class LatticeCharmToolkit():
             message(f"---> [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
         return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
-    def excited_contributions_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity, Nt=None, MIN_TCRIT_LEN=7):
+    def excited_contributions_fit(self, tag, binsize, initial_fit_ranges, p0, fit_model, verbosity, Nt=None, MIN_TCRIT_LEN=7, folded=False):
         def _sort_params(p):
             if p[3] <  p[1]: return [p[2], p[3], p[0], p[1]]
             else: return p
@@ -416,7 +416,8 @@ class LatticeCharmToolkit():
         Nt = len(self.db.database[binned_tag].mean) if Nt is None else Nt
         model_func = {"double-cosh": double_cosh_model(Nt),
                       "double-sinh": double_sinh_model(Nt),
-                      "double-exp": double_exp_model()}[fit_model]       
+                      "double-exp": double_exp_model()}[fit_model]     
+        bc = "open" if fit_model == "double-exp" else "periodic"  
         excited_contribtions_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         suggested_fit_ranges = []
@@ -478,9 +479,15 @@ class LatticeCharmToolkit():
                 message(f"{ce} for correlated mean fit") 
                 message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
-            #message(f"excited state contributions: {[model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]}")
-            #message(f"var**5/4 = {(var[t]**.5)/4.}")
-            criterion = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t]) < (var[t]**.5)/4.
+            excited_state_contribution = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t])
+            std_over_four = (var[t]**.5)/4.
+            # symmetrize criterion for periodic BC
+            if bc == "periodic" and not folded:
+                symmetrized_std_over_four = (std_over_four + std_over_four[::-1]) / 2
+                criterion = excited_state_contribution < symmetrized_std_over_four
+            # regular criterion for open BC and when correlator is folded
+            else:
+                criterion = excited_state_contribution < std_over_four
             t_crit = t[criterion]; suggested_fit_ranges.append(t_crit)
             if len(t_crit) < MIN_TCRIT_LEN:
                 message(f"DETERMINED FIT RANGE {t_crit} HAS FEWER THAN {MIN_TCRIT_LEN} ELEMENTS", verbosity)
