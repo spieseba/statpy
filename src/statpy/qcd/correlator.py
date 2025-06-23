@@ -271,6 +271,7 @@ class LatticeCharmToolkit():
 
     def correlator_avg_obc(self, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiperiodic=False):
         message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
+        message(f"tmax_from_tsrc: {tmax_from_tsrc}")
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
         assert len(Ct_tags) == len(tsrcs)
         Ct_tags_in_bulk = []; tsrcs_in_bulk = []
