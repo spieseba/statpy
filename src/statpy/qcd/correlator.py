@@ -683,14 +683,27 @@ class LatticeCharmToolkit():
 
 
     #### BOUNDARY EFFECTS ####
-    def boundary_avg(self, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False):
+    def boundary_avg(self, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False, excluded_tsrcs=[]):
         message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
         message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
+        message(f"tmax_from_tsrc = {tmax_from_tsrc}")
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
+        message(f"Exclude the following srcs: {excluded_tsrcs}")
+        for tsrc in excluded_tsrcs:
+            if tsrc not in tsrcs:
+                message(f"tsrc = {tsrc} not in tags anyway -> continue")
+                continue
+            tsrc_str = re.search(r'tsrc(\d+)', Ct_tags[0]).group()
+            tag_to_be_removed = Ct_tags[0].replace(tsrc_str, f"tsrc{tsrc}")
+            tsrcs.remove(tsrc)
+            Ct_tags.remove(tag_to_be_removed)
+            message(f"---> filtered tags: {Ct_tags}")
+            message(f"---> filtered tsrcs: {tsrcs}")
         assert len(Ct_tags) == len(tsrcs)
         # get effective mass estimate for each source first and then average over sources
         mt_tags = []
         for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
+
             # get masked Ct at each source
             self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
             binned_Ct_tag = self.db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
