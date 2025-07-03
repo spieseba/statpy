@@ -243,7 +243,7 @@ def combined_exp_exp_model_chi2(t0, t1, p, y, W):
 ##############################################################################################################################
     
 class LatticeCharmToolkit():
-    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":1000, "tol":1e-07}, res_fit_method=None, res_fit_params=None, bootstrap_available=True):
+    def __init__(self, db, fit_method="Nelder-Mead", fit_params={"maxiter":5000, "tol":1e-07}, res_fit_method=None, res_fit_params=None, bootstrap_available=True):
         self.db = db
         self.fit_method = fit_method
         self.fit_params = fit_params
@@ -721,14 +721,31 @@ class LatticeCharmToolkit():
             for mt_tag in mt_tags: self.db.remove_leaf(mt_tag)
         return dst_tag
 
-    def boundary_fits(self, mt_folded_tag, t0s, MIN_TCRIT_LEN=1):
+    def boundary_fits(self, mt_folded_tag, t0s, tsrcs=None, MIN_TCRIT_LEN=1):
         ts = np.arange(self.db.database[mt_folded_tag].mean.shape[0])
         mt_cov = self.db.jackknife_covariance(mt_folded_tag); mt_var = np.diag(mt_cov)
         boundary_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
 
+        # exclude time slices, where no source position is available
+        tmax_nsrc = None
+        if tsrcs is not None:
+            mt_unfolded_tag = mt_folded_tag.replace("/folded", "")
+            mt_tags = [mt_unfolded_tag.replace("tsrcNone", f"tsrc{tsrc}") for tsrc in tsrcs if tsrc != 1]
+            nsrc_hist = np.zeros_like(self.db.database[mt_unfolded_tag].mean)
+            for mt_tag in mt_tags:
+                nsrc_hist += (self.db.database[mt_tag].mean != 0).astype(int)
+            tmp = np.where(nsrc_hist == 0)[0][2:-2]
+            if len(tmp) > 0:
+                tmax_nsrc = tmp[0]
+                message(f"No time slices available beginning at t = {tmax_nsrc}.")
+        
+        # exclude time slices, where mt_folded is zero
         zero_idxs = np.where(self.db.database[mt_folded_tag].mean == 0)[0]
         tmax = ts[zero_idxs[2]] if len(zero_idxs) > 2 else ts[-1] + 1
+        if tmax_nsrc:
+            tmax = np.min((tmax, tmax_nsrc))
+
         initial_fit_ranges = [np.arange(t0, tmax) for t0 in t0s]
         
         AIC_arr = []
@@ -771,6 +788,8 @@ class LatticeCharmToolkit():
             # test that exponential contribution is small compared to statistical error of the data
             criterion = np.abs([const_plus_exp(i, [best_parameter[0], best_parameter[1], 0]) for i in ts]) < (mt_var**.5)/4.
             t_crit = ts[criterion]
+            # make sure t_crit does not go beyond tmax
+            t_crit = t_crit[t_crit < tmax]
             if len(t_crit) < MIN_TCRIT_LEN:
                 message(f"SUGGESTED RANGE WITHOUT BOUNDARY EFFECTS {t_crit} IS CONTAINS LESS THAN {MIN_TCRIT_LEN} ELEMENTS")
                 message(f"---> SET P(M) = None")
