@@ -47,7 +47,7 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
             for key, val in rwf_info_dict.items():
                 message(f"--- {key}: {val}") 
         else:
-            message(f"Git info not found for rwf filte!")
+            message(f"Git info not found for rwf file!")
         if rwf_fn.endswith(".rwf"):
             rwf_cfgs, rwf = _load_rwf(rwf_fn)
         elif rwf_fn.endswith(".rwms.txt"):
