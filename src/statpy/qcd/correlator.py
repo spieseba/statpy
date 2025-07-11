@@ -453,32 +453,54 @@ class LatticeCharmToolkit():
             best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks))
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
             message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
-            # check pos.def.
+            message("Try correlated fit with binned covariance matrix")
+            correlated_converged = False
+            # check positive definiteness of binned cov
+            message(f"Check positive definiteness of binned covariance matrix for fit range [[{t[0]},{t[-1]}]].")
             pos_def = np.all(np.linalg.eigvals(cov[t][:,t]) > 0)
-            message(f"Check positive definiteness of binned covariance matrix for fit range [[{t[0]},{t[-1]}]]: {pos_def}")
-            cov_correlated = cov
-            if not pos_def:
+            if pos_def:
+                message(f"--> binned covariance matrix positive definite. Try correlated fit.")
+                cov_correlated = cov
+                try:
+                    W_correlated = np.linalg.inv(cov_correlated[t][:,t])
+                    chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
+                                            "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
+                                            "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
+                    message(f"p0 for fit: {p0_tmp}")
+                    best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                    misc_correlated["fit_model"] = fit_model
+                    best_parameter_correlated = _sort_params(best_parameter_correlated)
+                    print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
+                    correlated_converged = True
+                except ConvergenceError as ce:
+                    message(f"{ce} for correlated mean fit with binned covariance matrix") 
+                    message("---------------------------------------------------------------------------------", verbosity) 
+            else:
+                message(f"--> binned covariance matrix NOT positive definite.") 
+            if not correlated_converged:
+                message("Try correlated fit with unbinned covariance matrix.")
                 cov_unbinned = self.db.jackknife_covariance(tag)
+                message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{t[0]},{t[-1]}]].")
                 pos_def_unbinned = np.all(np.linalg.eigvals(cov_unbinned[t][:,t]) > 0)
-                message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{t[0]},{t[-1]}]]: {pos_def_unbinned}")
                 if pos_def_unbinned:
-                    message(f"Use unbinned covariance matrix for correlated fit.")
+                    message(f"--> unbinned covariance matrix positive definite. Try correlated fit.")
                     cov_correlated = cov_unbinned
-            try:
-                W_correlated = np.linalg.inv(cov_correlated[t][:,t])
-                chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
-                                        "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
-                                        "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
-                message(f"p0 for fit: {p0_tmp}")
-                best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
-                misc_correlated["fit_model"] = fit_model
-                best_parameter_correlated = _sort_params(best_parameter_correlated)
-                print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
-                correlated_converged = True
-            except ConvergenceError as ce:
-                correlated_converged = False
-                message(f"{ce} for correlated mean fit") 
-                message("---------------------------------------------------------------------------------", verbosity) 
+                    try:
+                        W_correlated = np.linalg.inv(cov_correlated[t][:,t])
+                        chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
+                                                "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
+                                                "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
+                        message(f"p0 for fit: {p0_tmp}")
+                        best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                        misc_correlated["fit_model"] = fit_model
+                        best_parameter_correlated = _sort_params(best_parameter_correlated)
+                        print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
+                        correlated_converged = True
+                    except ConvergenceError as ce:
+                        message(f"{ce} for correlated mean fit with unbinned covariance matrix") 
+                        message("---------------------------------------------------------------------------------", verbosity) 
+                else:
+                    message(f"--> unbinned covariance matrix NOT positive definite.")  
             message("---------------------------------------------------------------------------------", verbosity) 
             excited_state_contribution = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t])
             std_over_four = (var[t]**.5)/4.
@@ -541,30 +563,53 @@ class LatticeCharmToolkit():
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
             if b in [1,binsize]:
                 message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
-                try:
-                    cov = self.db.jackknife_covariance(binned_tag)[fit_range][:,fit_range]
-                    # check pos.def. of covariance matrix
-                    pos_def = np.all(np.linalg.eigvals(cov) > 0)
-                    if not pos_def:
-                        message("Covariance matrix is not positive definite -> try to use unbinned covariance matrix for correlated fit.")
-                        cov_unbinned = self.db.jackknife_covariance(tag)[fit_range][:,fit_range]
-                        pos_def_unbinned = np.all(np.linalg.eigvals(cov_unbinned) > 0)
-                        message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{fit_range[0]},{fit_range[-1]}]]: {pos_def_unbinned}")
-                        if pos_def_unbinned:
-                            message(f"Use unbinned covariance matrix for correlated fit.")
-                            cov = cov_unbinned
-                    W_correlated = np.linalg.inv(cov)
-                    # check pos.def.
-                    chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
+                message("Try correlated fit with binned covariance matrix")
+                cov = self.db.jackknife_covariance(binned_tag)[fit_range][:,fit_range]
+                correlated_converged = False
+                # check positive definiteness of binned cov
+                message(f"Check positive definiteness of binned covariance matrix for fit range [[{fit_range[0]},{fit_range[-1]}]].")
+                pos_def = np.all(np.linalg.eigvals(cov) > 0)
+                if pos_def:
+                    message(f"--> binned covariance matrix positive definite. Try correlated fit.")
+                    try: 
+                        W_correlated = np.linalg.inv(cov)
+                        chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
                                             "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_correlated, Nt),
                                             "exp": lambda t,p,y: exp_chi2(t, p, y, W_correlated)}[fit_model]
-                    best_parameter_correlated, _, misc_correlated = fit(self.db, fit_range, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
-                    misc_correlated["fit_model"] = fit_model
-                    print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
-                    self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
-                except ConvergenceError as ce:
-                    message(f"{ce} for correlated mean fit") 
-                    message("---------------------------------------------------------------------------------", verbosity) 
+                        best_parameter_correlated, _, misc_correlated = fit(self.db, fit_range, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                        misc_correlated["fit_model"] = fit_model
+                        print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
+                        self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
+                        correlated_converged = True
+                    except ConvergenceError as ce:
+                        message(f"{ce} for correlated mean fit with binned covariance matrix") 
+                        message("---------------------------------------------------------------------------------", verbosity) 
+                else:
+                    message(f"--> binned covariance matrix NOT positive definite.")  
+                if not correlated_converged:             
+                    message("Try correlated fit with unbinned covariance matrix.")
+                    cov_unbinned = self.db.jackknife_covariance(tag)[fit_range][:,fit_range]
+                    message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{fit_range[0]},{fit_range[-1]}]].")
+                    pos_def_unbinned = np.all(np.linalg.eigvals(cov_unbinned) > 0)
+                    if pos_def_unbinned:
+                        message(f"--> unbinned covariance matrix positive definite. Try correlated fit.")
+                        cov_correlated = cov_unbinned
+                        try: 
+                            W_correlated = np.linalg.inv(cov_correlated)
+                            chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
+                                            "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_correlated, Nt),
+                                            "exp": lambda t,p,y: exp_chi2(t, p, y, W_correlated)}[fit_model]
+                            best_parameter_correlated, _, misc_correlated = fit(self.db, fit_range, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                            misc_correlated["fit_model"] = fit_model
+                            print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
+                            self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
+                            correlated_converged = True
+                        except ConvergenceError as ce:
+                            message(f"{ce} for correlated mean fit with unbinned covariance matrix") 
+                            message("---------------------------------------------------------------------------------", verbosity) 
+                    else:
+                        message(f"--> unbinned covariance matrix NOT positive definite.")  
+                message("---------------------------------------------------------------------------------", verbosity) 
             if b == 1 and self.bootstrap_available:
                 message("--------------------------------- BOOTSTRAP FIT ---------------------------------", verbosity)
                 bss = self.db.bss(binned_tag); mean_bss = self.db.database[binned_tag].mean
