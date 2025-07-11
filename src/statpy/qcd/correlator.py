@@ -563,14 +563,15 @@ class LatticeCharmToolkit():
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
             if b in [1,binsize]:
                 message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
-                message("Try correlated fit with binned covariance matrix")
+                message(f"Try correlated fit with covariance matrix at binsize = {b}")
+                #cov = self.db.jackknife_covariance(tag)[fit_range][:,fit_range]
                 cov = self.db.jackknife_covariance(binned_tag)[fit_range][:,fit_range]
                 correlated_converged = False
                 # check positive definiteness of binned cov
-                message(f"Check positive definiteness of binned covariance matrix for fit range [[{fit_range[0]},{fit_range[-1]}]].")
+                message(f"Check positive definiteness of covariance matrix at binsize = {b} for fit range [[{fit_range[0]},{fit_range[-1]}]].")
                 pos_def = np.all(np.linalg.eigvals(cov) > 0)
                 if pos_def:
-                    message(f"--> binned covariance matrix positive definite. Try correlated fit.")
+                    message(f"--> covariance matrix positive definite. Try correlated fit.")
                     try: 
                         W_correlated = np.linalg.inv(cov)
                         chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
@@ -586,7 +587,7 @@ class LatticeCharmToolkit():
                         message("---------------------------------------------------------------------------------", verbosity) 
                 else:
                     message(f"--> binned covariance matrix NOT positive definite.")  
-                if not correlated_converged:             
+                if (not correlated_converged) and (b != 1):             
                     message("Try correlated fit with unbinned covariance matrix.")
                     cov_unbinned = self.db.jackknife_covariance(tag)[fit_range][:,fit_range]
                     message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{fit_range[0]},{fit_range[-1]}]].")
