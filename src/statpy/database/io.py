@@ -3,7 +3,7 @@ import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None, accept_cfg_mismatch=False, verbosity=0):
+def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None, accept_cfg_mismatch=False, meas_tag="messpec", verbosity=0):
     assert os.path.isfile(fn), f"{fn} not found!"
     assert isinstance(cfgs_to_be_removed, list) or isinstance(cfgs_to_be_removed, np.ndarray) or cfgs_to_be_removed is None
     message(f"---------------------------------")
@@ -15,7 +15,7 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
     message(f" -- cfgs to be removed: {cfgs_to_be_removed}")
     message(f" -- accept cfg mismatch: {accept_cfg_mismatch}")
     # data
-    f = h5py.File(fn, "r")["messpec"]
+    f = h5py.File(fn, "r")[meas_tag]
     f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")]) 
     f_cfgs_filtered = f_cfgs[~np.isin(f_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else f_cfgs
     # try to get hdf5 git info - if available stored in hdf5 file
