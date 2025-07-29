@@ -272,6 +272,7 @@ class LatticeCharmToolkit():
     def correlator_avg_obc(self, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiperiodic=False):
         message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
         message(f"tmax_from_tsrc: {tmax_from_tsrc}")
+        # Get src positions in bulk
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
         assert len(Ct_tags) == len(tsrcs)
         Ct_tags_in_bulk = []; tsrcs_in_bulk = []
@@ -280,14 +281,18 @@ class LatticeCharmToolkit():
                 Ct_tags_in_bulk.append(Ct_tag)
                 tsrcs_in_bulk.append(tsrc)
         message(f"tsrcs in bulk: {tsrcs_in_bulk}")
+        # Get maximum t in forward and backward direction for each src position based on tbulk
         tmax_fw, tmax_bw = self._get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
-        if tmax_from_tsrc is not None:
+        # ensure that this maximum t is not further away from src than tmax_from_tsrc
+        if tmax_from_tsrc is not None: 
             tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1) # add 1 time slice since this is distance
-            tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
-            
+            tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1) 
+        # mask correlators at each source position for every config based on tmax_fw and tmax_bw
         for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
             self.db.combine_sample(Ct_tag, f=lambda Ct: self._get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", verbosity=-1)
+        # concat masked correlators at each source position for every config and average over source positions
         combined_sample = self.db.combine_sample(*[f"{Ct_tag}/masked" for Ct_tag in Ct_tags_in_bulk], f=lambda *Cts_ma: np.ma.concatenate(Cts_ma, axis=0).mean(axis=0).compressed())
+        # add sample of averaged correlators as a leaf to db
         self.db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs":tsrcs_in_bulk, "tbulk":tbulk, "antiperiodic":antiperiodic})
         for Ct_tag in Ct_tags_in_bulk:
             self.db.remove_leaf(f"{Ct_tag}/masked", verbosity=-1)
