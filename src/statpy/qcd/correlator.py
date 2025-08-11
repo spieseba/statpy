@@ -282,14 +282,14 @@ class LatticeCharmToolkit():
                 tsrcs_in_bulk.append(tsrc)
         message(f"tsrcs in bulk: {tsrcs_in_bulk}")
         # Get maximum t in forward and backward direction for each src position based on tbulk
-        tmax_fw, tmax_bw = self._get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
+        tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
         # ensure that this maximum t is not further away from src than tmax_from_tsrc
         if tmax_from_tsrc is not None: 
             tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1) # add 1 time slice since this is distance
             tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1) 
         # mask correlators at each source position for every config based on tmax_fw and tmax_bw
         for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
-            self.db.combine_sample(Ct_tag, f=lambda Ct: self._get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", verbosity=-1)
+            self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", verbosity=-1)
         # concat masked correlators at each source position for every config and average over source positions
         combined_sample = self.db.combine_sample(*[f"{Ct_tag}/masked" for Ct_tag in Ct_tags_in_bulk], f=lambda *Cts_ma: np.ma.concatenate(Cts_ma, axis=0).mean(axis=0).compressed())
         # add sample of averaged correlators as a leaf to db
@@ -297,25 +297,64 @@ class LatticeCharmToolkit():
         for Ct_tag in Ct_tags_in_bulk:
             self.db.remove_leaf(f"{Ct_tag}/masked", verbosity=-1)
 
-    # get tmax for each src in forward and backward direction
-    def _get_tmax_fw_bw(self, tsrcs, tbulk):
-        tmin = tbulk[0]; tmax = tbulk[-1]
-        tmax_fw = tmax + 1 - np.array(tsrcs)
-        tmax_bw = np.array(tsrcs) - tmin + 1
-        return tmax_fw, tmax_bw
+    def am_t_avg_obc(self, Ct_tags, tbulk, dst_tag, binsize, tmax_from_tsrc=None, keep_am_t_per_src=False):
+        message(f"Perform obc tsrc average for effective mass over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with effective mass tags: {Ct_tags}")
+        message(f"WARNING: This method uses effective_mass_log2 and is only tested for PSPS_SMSMS")
+        message(f"tmax_from_tsrc: {tmax_from_tsrc}")
+        # Get src positions in bulk
+        tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
+        assert len(Ct_tags) == len(tsrcs)
+        Ct_tags_in_bulk = []; tsrcs_in_bulk = []
+        mt_tags_in_bulk = []
+        Ct_tags_binned = []
+        for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
+            if (tsrc >= tbulk[0]) and (tsrc <= tbulk[-1]):
+                Ct_tags_in_bulk.append(Ct_tag)
+                tsrcs_in_bulk.append(tsrc)
+                # compute binned correlator, average over cfgs
+                Ct_binned = self.db.add_binned_leaf(Ct_tag, binsize); Ct_tags_binned.append(Ct_binned)
+                # compute effective mass on binned and cfg-averaged correlator
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=RuntimeWarning) 
+                    self.db.combine(Ct_binned, f=lambda Ct: effective_mass_log2(Ct, ax=1), dst_tag=f"{Ct_binned}/am_t")
+                mt_tags_in_bulk.append(f"{Ct_binned}/am_t")            
+        message(f"tsrcs in bulk: {tsrcs_in_bulk}")
+        # Get maximum t in forward and backward direction for each src position based on tbulk
+        tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, tbulk) # these values can be used directly for time slices
+        # ensure that this maximum t is not further away from src than tmax_from_tsrc
+        if tmax_from_tsrc is not None:
+            tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1) # add 1 time slice since this is distance
+            tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
+        # mask effective masses at each source position
+        for src_idx, mt_tag in enumerate(mt_tags_in_bulk):
+            self.db.combine(mt_tag, f=lambda mt: _get_masked_Ct(mt, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic=True), dst_tag=f"{mt_tag}/masked")
+        self.db.combine(*[f"{mt_tag}/masked" for mt_tag in mt_tags_in_bulk], f=lambda *mts_ma: np.ma.concatenate(mts_ma, axis=0).mean(axis=0).compressed(), dst_tag=dst_tag)
+        for mt_tag in mt_tags_in_bulk:
+            if not keep_am_t_per_src:
+                self.db.remove_leaf(mt_tag)
+            self.db.remove_leaf(f"{mt_tag}/masked")
+        for Ct_tag_binned in Ct_tags_binned:
+            self.db.remove_leaf(Ct_tag_binned)
 
-    def _get_masked_Ct(self, Cts, tmax_fw, tmax_bw, antiperiodic):
-        num_Cts = Cts.shape[0]
-        # create masked array and mask all elements
-        Cts_ma = np.ma.empty( (2*num_Cts, Cts.shape[1]) )
-        Cts_ma.mask = True
-        # fill masked array up to tmax_fw and tmax_bw
-        for idx in range(num_Cts):
-            Ct = Cts[idx]
-            Cts_ma[idx, :tmax_fw] = Ct[:tmax_fw]
-            Cts_ma[idx+num_Cts, :tmax_bw] = np.roll(np.flip(Ct), 1)[:tmax_bw] 
-            if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_bw] *= -1
-        return Cts_ma 
+#    # get tmax for each src in forward and backward direction
+#    def _get_tmax_fw_bw(self, tsrcs, tbulk):
+#        tmin = tbulk[0]; tmax = tbulk[-1]
+#        tmax_fw = tmax + 1 - np.array(tsrcs)
+#        tmax_bw = np.array(tsrcs) - tmin + 1
+#        return tmax_fw, tmax_bw
+
+#    def _get_masked_Ct(self, Cts, tmax_fw, tmax_bw, antiperiodic):
+#        num_Cts = Cts.shape[0]
+#        # create masked array and mask all elements
+#        Cts_ma = np.ma.empty( (2*num_Cts, Cts.shape[1]) )
+#        Cts_ma.mask = True
+#        # fill masked array up to tmax_fw and tmax_bw
+#        for idx in range(num_Cts):
+#            Ct = Cts[idx]
+#            Cts_ma[idx, :tmax_fw] = Ct[:tmax_fw]
+#            Cts_ma[idx+num_Cts, :tmax_bw] = np.roll(np.flip(Ct), 1)[:tmax_bw] 
+#            if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_bw] *= -1
+#        return Cts_ma 
 
     def fold_correlator(self, Ct_tag, antiperiodic=False):
         message(f"Fold correlator {Ct_tag}.")
@@ -754,7 +793,6 @@ class LatticeCharmToolkit():
         # get effective mass estimate for each source first and then average over sources
         mt_tags = []
         for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
-
             # get masked Ct at each source
             self.db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
             binned_Ct_tag = self.db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
@@ -929,6 +967,27 @@ def bare_decay_constant(p):
     # p[0] = A_PSPS, p[1] = A_PSA4I, p[2] = m
     return np.sqrt(2.) * p[1] / np.sqrt(p[0] * p[2])
 
+
+# Get masked Cts for obc averaging
+def _get_masked_Ct(Cts, tmax_fw, tmax_bw, antiperiodic):
+    num_Cts = Cts.shape[0]
+    # create masked array and mask all elements
+    Cts_ma = np.ma.empty( (2*num_Cts, Cts.shape[1]) )
+    Cts_ma.mask = True
+    # fill masked array up to tmax_fw and tmax_bw
+    for idx in range(num_Cts):
+        Ct = Cts[idx]
+        Cts_ma[idx, :tmax_fw] = Ct[:tmax_fw]
+        Cts_ma[idx+num_Cts, :tmax_bw] = np.roll(np.flip(Ct), 1)[:tmax_bw] 
+        if antiperiodic: Cts_ma[idx+num_Cts, 1:tmax_bw] *= -1
+    return Cts_ma 
+
+# get tmax for each src in forward and backward direction
+def _get_tmax_fw_bw(tsrcs, tbulk):
+    tmin = tbulk[0]; tmax = tbulk[-1]
+    tmax_fw = tmax + 1 - np.array(tsrcs)
+    tmax_bw = np.array(tsrcs) - tmin + 1
+    return tmax_fw, tmax_bw
 
 # These functions are used to perform the boundary average - defined here to avoid slowdown (don't know why at the moment)
 # mask excited states and time slices further away than tmax from source position
