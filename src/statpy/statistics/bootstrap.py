@@ -16,16 +16,16 @@ def sample(x, bootstraps, weights=None, f=lambda x: x):
     return bss 
 
 def variance(bss, mean=None):
-    if mean is None: mean = np.mean(bss, axis=0)
-    B = len(bss)
-    return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / B
+    return np.var(bss, mean=mean, ddof=1, axis=0)
+    #B = len(bss)
+    #return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / (B-1)
 
 def covariance(bss, mean=None):
     if mean is None: mean = np.mean(bss, axis=0)
     B = len(bss)
     def outer_sqr(a):
         return np.outer(a,a)
-    return np.sum(np.array([outer_sqr(bss[b] - mean) for b in range(B)]), axis=0) / B 
+    return np.sum(np.array([outer_sqr(bss[b] - mean) for b in range(B)]), axis=0) / (B-1)
 
 def rescale(bss, s):
     mean = np.mean(bss, axis=0)
