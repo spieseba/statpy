@@ -17,8 +17,6 @@ def sample(x, bootstraps, weights=None, f=lambda x: x):
 
 def variance(bss, mean=None):
     return np.var(bss, mean=mean, ddof=1, axis=0)
-    #B = len(bss)
-    #return np.sum(np.array([(bss[b] - mean)**2 for b in range(B)]), axis=0) / (B-1)
 
 def covariance(bss, mean=None):
     if mean is None: mean = np.mean(bss, axis=0)
