@@ -24,11 +24,13 @@ def effective_mass_asinh(Ct):
 
 ### open boundary conditions ###
 def effective_mass_log1(Ct, ax=0):
-    return np.log(Ct / np.roll(Ct, -1, axis=ax))
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.log(Ct / np.roll(Ct, -1, axis=ax))
 
 # spectrum paper 
 def effective_mass_log2(Ct, ax=0):
-    return np.log(np.roll(Ct, 1, axis=ax) / np.roll(Ct, -1, axis=ax)) / 2
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.log(np.roll(Ct, 1, axis=ax) / np.roll(Ct, -1, axis=ax)) / 2
 
 # cosh
 def effective_amplitude_cosh(Ct, m):
@@ -375,7 +377,7 @@ class LatticeCharmToolkit():
             tmax = len(mean) #len(self.db.database[Ct_tag].mean)
             message(f"--- Signal to noise ratio never smaller than {min_stn_val} -> return tmax = len(mt) = {tmax}")
         else:
-            message(f"--- Signal to noise ratio smaller than {min_stn_val} for tmax = {tmax} (this value is returned) -> can use all time slices up to t={tmax-1}")
+            message(f"--- Signal to noise ratio smaller than {min_stn_val} for tmax = {tmax} -> return tmax = {tmax}") #(this value is returned) -> can use all time slices up to t={tmax-1}")
         if debug: 
             message(f"--- Signal to noise ratios: {signal_to_noise}")
             message(f"--- len(stn) = {len(signal_to_noise)}")
@@ -464,7 +466,8 @@ class LatticeCharmToolkit():
                       "double-exp": double_exp_model()}[fit_model]     
         bc = "open" if fit_model == "double-exp" else "periodic"  
         excited_contribtions_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
-        correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+        binned_correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+        unbinned_correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
         suggested_fit_ranges = []
         fit_range = initial_fit_ranges[0]
         for t in initial_fit_ranges:
@@ -498,7 +501,7 @@ class LatticeCharmToolkit():
             print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
             message("------------------------------ CORRELATED MEAN FIT ------------------------------", verbosity)
             message("Try correlated fit with binned covariance matrix")
-            correlated_converged = False
+            binned_correlated_converged = False
             # check positive definiteness of binned cov
             message(f"Check positive definiteness of binned covariance matrix for fit range [[{t[0]},{t[-1]}]].")
             pos_def = np.all(np.linalg.eigvals(cov[t][:,t]) > 0)
@@ -511,40 +514,41 @@ class LatticeCharmToolkit():
                                             "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
                                             "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
                     message(f"p0 for fit: {p0_tmp}")
-                    best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
-                    misc_correlated["fit_model"] = fit_model
-                    best_parameter_correlated = _sort_params(best_parameter_correlated)
-                    print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
-                    correlated_converged = True
+                    binned_best_parameter_correlated, _, binned_misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                    binned_misc_correlated["fit_model"] = fit_model
+                    binned_best_parameter_correlated = _sort_params(binned_best_parameter_correlated)
+                    print_fit_results(binned_best_parameter_correlated, None, binned_misc_correlated, verbosity)
+                    binned_correlated_converged = True
                 except ConvergenceError as ce:
                     message(f"{ce} for correlated mean fit with binned covariance matrix") 
                     message("---------------------------------------------------------------------------------", verbosity) 
             else:
                 message(f"--> binned covariance matrix NOT positive definite.") 
-            if not correlated_converged:
-                message("Try correlated fit with unbinned covariance matrix.")
-                cov_unbinned = self.db.jackknife_covariance(tag)
-                message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{t[0]},{t[-1]}]].")
-                pos_def_unbinned = np.all(np.linalg.eigvals(cov_unbinned[t][:,t]) > 0)
-                if pos_def_unbinned:
-                    message(f"--> unbinned covariance matrix positive definite. Try correlated fit.")
-                    cov_correlated = cov_unbinned
-                    try:
-                        W_correlated = np.linalg.inv(cov_correlated[t][:,t])
-                        chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
-                                                "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
-                                                "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
-                        message(f"p0 for fit: {p0_tmp}")
-                        best_parameter_correlated, _, misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
-                        misc_correlated["fit_model"] = fit_model
-                        best_parameter_correlated = _sort_params(best_parameter_correlated)
-                        print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
-                        correlated_converged = True
-                    except ConvergenceError as ce:
-                        message(f"{ce} for correlated mean fit with unbinned covariance matrix") 
-                        message("---------------------------------------------------------------------------------", verbosity) 
-                else:
-                    message(f"--> unbinned covariance matrix NOT positive definite.")  
+            
+            unbinned_correlated_converged = False
+            message("Try correlated fit with unbinned covariance matrix.")
+            cov_unbinned = self.db.jackknife_covariance(tag)
+            message(f"Check positive definiteness of unbinned covariance matrix for fit range [[{t[0]},{t[-1]}]].")
+            pos_def_unbinned = np.all(np.linalg.eigvals(cov_unbinned[t][:,t]) > 0)
+            if pos_def_unbinned:
+                message(f"--> unbinned covariance matrix positive definite. Try correlated fit.")
+                cov_correlated = cov_unbinned
+                try:
+                    W_correlated = np.linalg.inv(cov_correlated[t][:,t])
+                    chi2_func_correlated = {"double-cosh": lambda t,p,y: double_cosh_chi2(t, p, y, W_correlated, Nt),
+                                            "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
+                                            "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
+                    message(f"p0 for fit: {p0_tmp}")
+                    unbinned_best_parameter_correlated, _, unbinned_misc_correlated = fit(self.db, t, binned_tag, p0_tmp, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
+                    unbinned_misc_correlated["fit_model"] = fit_model
+                    unbinned_best_parameter_correlated = _sort_params(unbinned_best_parameter_correlated)
+                    print_fit_results(unbinned_best_parameter_correlated, None, unbinned_misc_correlated, verbosity)
+                    unbinned_correlated_converged = True
+                except ConvergenceError as ce:
+                    message(f"{ce} for correlated mean fit with unbinned covariance matrix") 
+                    message("---------------------------------------------------------------------------------", verbosity) 
+            else:
+                message(f"--> unbinned covariance matrix NOT positive definite.")  
             message("---------------------------------------------------------------------------------", verbosity) 
             excited_state_contribution = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t])
             std_over_four = (var[t]**.5)/4.
@@ -572,13 +576,18 @@ class LatticeCharmToolkit():
                 misc["fit_range_crit"] = t_crit; fit_range = t_crit
                 excited_contribtions_fit_dict["misc"] = misc
                 # store tag for correlated mean fit here even if it did not converge to avoid crashing of code
-                correlated_fit_dict["tag"] = f"{binned_tag}/correlated_excited_contributions_mean_fit"
-                if correlated_converged: 
-                    correlated_fit_dict["mean"] = best_parameter_correlated
-                    correlated_fit_dict["misc"] = misc_correlated
+                binned_correlated_fit_dict["tag"] = f"{binned_tag}/binned_correlated_excited_contributions_mean_fit"
+                if binned_correlated_converged: 
+                    binned_correlated_fit_dict["mean"] = binned_best_parameter_correlated
+                    binned_correlated_fit_dict["misc"] = binned_misc_correlated
+                unbinned_correlated_fit_dict["tag"] = f"{binned_tag}/unbinned_correlated_excited_contributions_mean_fit"
+                if unbinned_correlated_converged: 
+                    unbinned_correlated_fit_dict["mean"] = unbinned_best_parameter_correlated
+                    unbinned_correlated_fit_dict["misc"] = unbinned_misc_correlated
             message("---------------------------------------------------------------------------------", verbosity) 
             message("---------------------------------------------------------------------------------", verbosity) 
-        self.db.add_leaf(**correlated_fit_dict)
+        self.db.add_leaf(**binned_correlated_fit_dict)
+        self.db.add_leaf(**unbinned_correlated_fit_dict)
         if excited_contribtions_fit_dict["misc"] is not None:
             excited_contribtions_fit_dict["misc"]["tested_suggested_fit_ranges"] = (initial_fit_ranges, suggested_fit_ranges)
             self.db.add_leaf(**excited_contribtions_fit_dict)
@@ -814,7 +823,7 @@ class LatticeCharmToolkit():
         ts = np.arange(self.db.database[mt_folded_tag].mean.shape[0])
         mt_cov = self.db.jackknife_covariance(mt_folded_tag); mt_var = np.diag(mt_cov)
         boundary_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
-        correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
+        #correlated_fit_dict = {"tag": None, "mean": None, "jks": None, "sample":None, "misc": None}
 
         # exclude time slices, where no source position is available
         tmax_nsrc = None
@@ -837,130 +846,115 @@ class LatticeCharmToolkit():
 
         initial_fit_ranges = [np.arange(t0, tmax) for t0 in t0s]
         
-        AIC_arr = []
         suggested_fit_ranges = []
-        boundary_range = initial_fit_ranges[0]
-        best_parameters = []; best_parameters_jkss = [] # for AIC
+        #boundary_range = initial_fit_ranges[0]
+        best_parameter_arr = []; best_parameter_jks_arr = []; AIC_arr = []
         for fit_range in initial_fit_ranges:    
-            message(f"Perform const + exp fit of {mt_folded_tag} with fit range: \n\t [[{fit_range[0]},{fit_range[-1]}]]")
+            message(f"Perform const + exp fit of {mt_folded_tag} with fit range:   [[{fit_range[0]},{fit_range[-1]}]]")
             W = np.diag(1/mt_var[fit_range])
             chi2_func = lambda t,p,y: const_plus_exp_chi2(t,p,y,W)
             p0 = [1, 1, self.db.database[mt_folded_tag].mean[fit_range[-1]]]
+            # --- try uncorrelated fit ---
             try:
+                message("------------------------------- UNCORRELATED FIT --------------------------------")
                 best_parameter, best_parameter_jks, misc = fit(self.db, fit_range, mt_folded_tag, p0, chi2_func, self.fit_method, self.fit_params, jks_fit_method=self.res_fit_method, jks_fit_params=self.res_fit_params)
+                best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks))
+                print_fit_results(best_parameter, best_parameter_cov, misc) 
+                # compute aic
+                aic = compute_AIC(misc["chi2"], misc["dof"], len(p0))
+                message(f"AIC = chi2 - dof + k = {aic}")
             except ConvergenceError as ce:
                 AIC_arr.append(None)
                 suggested_fit_ranges.append(None)
-                best_parameters.append(None); best_parameters_jkss.append(None)
+                best_parameter_arr.append(None); best_parameter_jks_arr.append(None)
                 message(f"{ce} -> JUMP TO NEXT FIT RANGE")
                 message("---------------------------------------------------------------------------------") 
                 message("---------------------------------------------------------------------------------") 
                 continue
-            best_parameter_cov = jackknife.covariance(self.db.as_array(best_parameter_jks))
-            misc["AIC"] = compute_AIC(misc["chi2"], misc["dof"], len(p0)) #; misc["log[P(M)]"] = -misc["AIC"]/2.0
-            print_fit_results(best_parameter, best_parameter_cov, misc)
-            message(f"P(M) = exp(-AIC / 2) = exp(- [chi2 - dof + k] / 2) = exp(-{misc['AIC']} / 2)")
-            message("------------------------------ CORRELATED MEAN FIT ------------------------------")
-            W_correlated = np.linalg.inv(mt_cov[fit_range][:,fit_range])
-            chi2_func_correlated = lambda t,p,y: const_plus_exp_chi2(t,p,y,W_correlated)
-            try:
-                p0_correlated = best_parameter
-                message(f"p0 for fit: {p0_correlated}")
-                best_parameter_correlated, _, misc_correlated =  fit(self.db, fit_range, mt_folded_tag, p0_correlated, chi2_func_correlated, self.fit_method, self.fit_params, jks_fit_method=self.res_fit_method, jks_fit_params=self.res_fit_params, perform_jks_fit=False)
-                print_fit_results(best_parameter_correlated, None, misc_correlated)
-                correlated_converged = True
-            except ConvergenceError as ce:
-                correlated_converged = False
-                message(f"{ce} for correlated mean fit") 
-                message("---------------------------------------------------------------------------------") 
-            message("---------------------------------------------------------------------------------") 
-            # test that exponential contribution is small compared to statistical error of the data
+            # --- try correlated mean fit ---
+            #message("------------------------- CORRELATED MEAN FIT (binned cov) --------------------------")
+            #W_correlated = np.linalg.inv(mt_cov[fit_range][:,fit_range])
+            #chi2_func_correlated = lambda t,p,y: const_plus_exp_chi2(t,p,y,W_correlated)
+            #try:
+            #    p0_correlated = best_parameter
+            #    message(f"p0 for fit: {p0_correlated}")
+            #    best_parameter_correlated, _, misc_correlated =  fit(self.db, fit_range, mt_folded_tag, p0_correlated, chi2_func_correlated, self.fit_method, self.fit_params, jks_fit_method=self.res_fit_method, jks_fit_params=self.res_fit_params, perform_jks_fit=False)
+            #    print_fit_results(best_parameter_correlated, None, misc_correlated)
+            #except ConvergenceError as ce:
+            #    message(f"{ce} for correlated mean fit") 
+            #    message("---------------------------------------------------------------------------------") 
+            # --- apply criterion to determine boundary ---
             criterion = np.abs([const_plus_exp(i, [best_parameter[0], best_parameter[1], 0]) for i in ts]) < (mt_var**.5)/4.
             t_crit = ts[criterion]
-            # make sure t_crit does not go beyond tmax
-            t_crit = t_crit[t_crit < tmax]
+            t_crit = t_crit[t_crit < tmax] # make sure t_crit does not go beyond tmax
+            message(f"SUGGESTED BULK RANGE WITHOUT BOUNDARY EFFECTS [[{t_crit[0]},{t_crit[-1]}]]")
+            # check that suggested range without boundary effects contains at least MIN_TCRIT_LEN elements
             if len(t_crit) < MIN_TCRIT_LEN:
-                message(f"SUGGESTED RANGE WITHOUT BOUNDARY EFFECTS {t_crit} IS CONTAINS LESS THAN {MIN_TCRIT_LEN} ELEMENTS")
-                message(f"---> SET P(M) = None")
                 AIC_arr.append(None)
                 suggested_fit_ranges.append(None)
-                best_parameters.append(best_parameter); best_parameters_jkss.append(best_parameter_jks) # wont be used for AIC calculation
+                best_parameter_arr.append(None); best_parameter_jks_arr.append(None) # wont be used for AIC calculation
+                message(f"---> SUGGESTED RANGE WITHOUT BOUNDARY EFFECTS {t_crit} CONTAINS LESS THAN {MIN_TCRIT_LEN} ELEMENTS")
+                message(f"---> JUMP TO NEXT FIT RANGE")
                 message("---------------------------------------------------------------------------------") 
-                message("---------------------------------------------------------------------------------") 
-                continue
-            AIC_arr.append(misc["AIC"])
-            suggested_fit_ranges.append(t_crit)       
-            best_parameters.append(best_parameter); best_parameters_jkss.append(best_parameter_jks)
-            message(f"SUGGESTED BULK RANGE WITHOUT BOUNDARY EFFECTS [[{t_crit[0]},{t_crit[-1]}]]")
-            if len(t_crit) < len(boundary_range):
-                message(f"---> STORED BULK RANGE IS UPDATED")
-                boundary_range = t_crit
-                boundary_fit_dict["tag"] = f"{mt_folded_tag}/const_plus_exp_fit"
-                boundary_fit_dict["mean"] = best_parameter
-                boundary_fit_dict["jks"] = best_parameter_jks
-                misc["boundary_range_fit"] = t_crit
-                boundary_fit_dict["misc"] = misc
-                # store correlated tag already here s.t. correlated dict can be added even if the correlated fit did not converge
-                correlated_fit_dict["tag"] = f"{mt_folded_tag}/correlated_const_plus_exp_fit" 
-                if correlated_converged: 
-                    correlated_fit_dict["mean"] = best_parameter_correlated
-                    correlated_fit_dict["misc"] = misc_correlated
-            message("---------------------------------------------------------------------------------") 
-            message("---------------------------------------------------------------------------------") 
-        # compute boundary end with AIC model average of t0s
-        message(f"AIC_arr {AIC_arr}")
-        # use only valid AIC values for P(M) calculation
-        AIC_valid_idxs = np.array([True if AIC_arr[i] is not None else False for i in range(len(AIC_arr))]) # get all non-None AIC idxs
-        AIC_valid = [AIC_arr[i] for i in range(len(AIC_arr)) if AIC_valid_idxs[i]] # get all non-None AIC values
-        # Numerically more stable calculation of P(M) using AIC
-        AIC_min = np.min(AIC_valid)
-        delta_AIC = AIC_valid - AIC_min 
-        log_P_M = -delta_AIC / 2.0
-        max_log_P_M = np.max(log_P_M)
-        P_M_valid = np.exp(log_P_M - max_log_P_M)
-        P_M_valid = P_M_valid / np.sum(P_M_valid)
-        P_M_arr = np.zeros(len(AIC_arr))
-        P_M_arr[AIC_valid_idxs] = P_M_valid
-        P_M_arr[~AIC_valid_idxs] = None
-        message(f"P_M_arr {P_M_arr}")
+                message("---------------------------------------------------------------------------------")
+                continue             
+            AIC_arr.append(aic)
+            best_parameter_arr.append(best_parameter)
+            best_parameter_jks_arr.append(best_parameter_jks)
+            suggested_fit_ranges.append(t_crit)
+            # --- store most conservative bulk range ---
+            #if len(t_crit) < len(boundary_range):
+            #    message(f"---> STORED BULK RANGE IS UPDATED")
+            #    boundary_range = t_crit
+            #    boundary_fit_dict["tag"] = f"{mt_folded_tag}/const_plus_exp_fit"
+            #    boundary_fit_dict["mean"] = best_parameter
+            #    boundary_fit_dict["jks"] = best_parameter_jks
+            #    misc["boundary_range_fit"] = t_crit
+            #    boundary_fit_dict["misc"] = misc
+            #if correlated_converged:
+            #    misc["correlated_mean_fit"] = best_parameter_correlated
+            #    misc["correlated_misc"] = misc_correlated            
+            message("----------------------------------------------------------------------------------------------------------------------------------------") 
+            message("----------------------------------------------------------------------------------------------------------------------------------------") 
+            
+        # AIC -> AIC - AIC_min
+        AIC_min = min((a for a in AIC_arr if a is not None))
+        AIC_arr = [a - AIC_min if a is not None else None for a in AIC_arr]
+        # P(M_i) = exp(-(AIC_i-AIC_min)/2) / sum_j exp(-(AIC_j-AIC_min)/2)
+        P_M_arr = [np.exp(-a/2.0) if a is not None else None for a in AIC_arr]; P_M_sum = np.sum([p for p in P_M_arr if p is not None])
+        P_M_arr = [p/P_M_sum if p is not None else None for p in P_M_arr]
 
-        # P_M_arr can contain None values
-        # best_parameter too
-        filtered_P_M_arr = np.array([p for p in P_M_arr if not np.isnan(p)])
-        filtered_t0s_crit = np.array([suggested_fit_range[0] for suggested_fit_range, p in zip(suggested_fit_ranges, P_M_arr) if not np.isnan(p)])
-
-        # compute begin of bulk with AIC model average of t0s
-        t_crit_AIC_t0 = np.sum(filtered_t0s_crit * filtered_P_M_arr)
-        t_crit_AIC_t0_rounded = int(np.round(t_crit_AIC_t0))
-        message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF T0s: {t_crit_AIC_t0} -> rounded to {t_crit_AIC_t0_rounded}")
-        boundary_fit_dict["misc"]["boundary_end_AIC_t0"] = t_crit_AIC_t0_rounded
-
-        # compute boundary end with AIC model average of parameters
-        filtered_best_parameters = [bp for bp, p in zip(best_parameters, P_M_arr) if not np.isnan(p)]
-        filtered_best_parameters_jkss = [self.db.as_array(bp_jks) for bp_jks, p in zip(best_parameters_jkss, P_M_arr) if not np.isnan(p)]
-        best_parameter_AIC = np.sum(filtered_best_parameters * filtered_P_M_arr[:,np.newaxis], axis=0)
-        best_parameter_AIC_jks = np.sum(filtered_best_parameters_jkss * filtered_P_M_arr[:,np.newaxis,np.newaxis], axis=0)
-        best_parameter_AIC_sys_var = np.sum([ p * (bp - best_parameter_AIC)**2 for bp, p in zip(filtered_best_parameters, filtered_P_M_arr)], axis=0)
+        # compute end of boundary with AIC average of suggested_fit_range[0]
+        P_M_arr_filtered = np.array([p for p in P_M_arr if p is not None])
+        t0_arr_filtered = np.array([fit_range[0] for fit_range, p in zip(suggested_fit_ranges, P_M_arr) if p is not None])
+        t0_AIC = np.sum(P_M_arr_filtered * t0_arr_filtered)
+        t0_AIC_rounded = int(np.round(t0_AIC))
+        message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF T0s: {t0_AIC} -> rounded to {t0_AIC_rounded}")
+        # compute end of boundary with AIC model average of parameters
+        best_parameter_filtered = [bp for bp, p in zip(best_parameter_arr, P_M_arr) if p is not None]
+        best_parameter_AIC = np.sum(best_parameter_filtered * P_M_arr_filtered[:,np.newaxis], axis=0)
         criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
-        t_crit_AIC_params = ts[criterion_AIC][0]
-        message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF BEST_PARAMETERs: {t_crit_AIC_params}")
+        t0_crit_AIC = ts[criterion_AIC][0]
+        message(f"BEGIN OF BULK DETERMINED BY APPLYING CRITERION TO AIC MODEL AVERAGE OF FIT PARAMS: {t0_crit_AIC}")
 
-        # store AIC average of boundary fits
-        aic_average_dict = {"tag": f"{mt_folded_tag}/const_plus_exp_fit_AIC_avg", 
-                            "mean": None, 
-                            "jks": None, 
-                            "sample": None, 
-                            "misc": {"mean": best_parameter_AIC, "jks": best_parameter_AIC_jks, "sys_var": best_parameter_AIC_sys_var,
-                                     "t0s": t0s, "tmax": tmax-1, "P_M_arr": P_M_arr, "suggested_fit_ranges": suggested_fit_ranges,
-                                     "bulk_begin_AIC_t0": t_crit_AIC_t0_rounded, "bulk_begin_AIC_params": t_crit_AIC_params
-                                     }
-                            }
-        
-        self.db.add_leaf(**aic_average_dict)
-        self.db.add_leaf(**correlated_fit_dict)
-        self.db.add_leaf(**boundary_fit_dict)
-
-
+        aic_dict = {
+            "tag": f"{mt_folded_tag}/const_plus_exp_fit_AIC_avg",
+            "mean": None,
+            "jks": None,
+            "sample": None,
+            "misc": {
+                "AIC_arr": AIC_arr,
+                "P_M_arr": P_M_arr,
+                "best_parameter_arr": best_parameter_arr,
+                "best_parameter_jks_arr": best_parameter_jks_arr,
+                "tmax": tmax-1,
+                "t0s": t0s,
+                "suggest_fit_ranges": suggested_fit_ranges,
+                "bulk_begin_AIC_t0": t0_AIC_rounded,
+                "bulk_begin_AIC_params": t0_crit_AIC
+            }
+        }
+        self.db.add_leaf(**aic_dict)
      
            
 def bare_decay_constant(p):
