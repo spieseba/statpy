@@ -928,14 +928,24 @@ class LatticeCharmToolkit():
         P_M_arr_filtered = np.array([p for p in P_M_arr if p is not None])
         t0_arr_filtered = np.array([fit_range[0] for fit_range, p in zip(suggested_fit_ranges, P_M_arr) if p is not None])
         t0_AIC = np.sum(P_M_arr_filtered * t0_arr_filtered)
-        t0_AIC_rounded = int(np.round(t0_AIC))
-        message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF T0s: {t0_AIC} -> rounded to {t0_AIC_rounded}")
-        # compute end of boundary with AIC model average of parameters
-        best_parameter_filtered = [bp for bp, p in zip(best_parameter_arr, P_M_arr) if p is not None]
+        t_t0_AIC_rounded = int(np.round(t0_AIC))
+        message(f"BEGIN OF BULK DETERMINED BY AIC MODEL AVERAGE OF T0s: {t0_AIC} -> rounded to {t_t0_AIC_rounded}")
+        
+        # compute end of boundary with AIC model average of boundary contributions
+        best_parameter_filtered = np.array([bp for bp, p in zip(best_parameter_arr, P_M_arr) if p is not None])
+        boundary_contributions_filtered = np.array([
+            [const_plus_exp(t, [best_parameter_filtered[m][0], best_parameter_filtered[m][1], 0]) for t in ts] for m in range(len(best_parameter_filtered))
+        ])
+        boundary_contributions_AIC = np.sum(boundary_contributions_filtered * P_M_arr_filtered[:, np.newaxis], axis=0)
+        criterion_AIC = boundary_contributions_AIC < (mt_var**.5)/4.
+        t_boundary_AIC = ts[criterion_AIC][0]
+        message(f"BEGIN OF BULK DETERMINED BY APPLYING CRITERION TO AIC MODEL AVERAGE OF BOUNDARY CONTRIBUTIONS: {t_boundary_AIC}")
+
+        # previous approach for completeness: compute AIC average of bester parameters and apply criterions to averaged parameters
         best_parameter_AIC = np.sum(best_parameter_filtered * P_M_arr_filtered[:,np.newaxis], axis=0)
-        criterion_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
-        t0_crit_AIC = ts[criterion_AIC][0]
-        message(f"BEGIN OF BULK DETERMINED BY APPLYING CRITERION TO AIC MODEL AVERAGE OF FIT PARAMS: {t0_crit_AIC}")
+        criterion_param_AIC = np.abs([const_plus_exp(i, [best_parameter_AIC[0], best_parameter_AIC[1], 0]) for i in ts]) < (mt_var**.5)/4.
+        t_parameter_AIC = ts[criterion_param_AIC][0]        
+        message(f"BEGIN OF BULK DETERMINED BY APPLYING CRITERION TO AIC MODEL AVERAGE OF FIT PARAMS: {t_parameter_AIC}")
 
         aic_dict = {
             "tag": f"{mt_folded_tag}/const_plus_exp_fit_AIC_avg",
@@ -949,9 +959,10 @@ class LatticeCharmToolkit():
                 "best_parameter_jks_arr": best_parameter_jks_arr,
                 "tmax": tmax-1,
                 "t0s": t0s,
-                "suggest_fit_ranges": suggested_fit_ranges,
-                "bulk_begin_AIC_t0": t0_AIC_rounded,
-                "bulk_begin_AIC_params": t0_crit_AIC
+                "suggested_fit_ranges": suggested_fit_ranges,
+                "bulk_begin_AIC_t0": t_t0_AIC_rounded,
+                "bulk_begin_AIC_boundary": t_boundary_AIC,
+                "bulk_begin_AIC_params": t_parameter_AIC
             }
         }
         self.db.add_leaf(**aic_dict)
