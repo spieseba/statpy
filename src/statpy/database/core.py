@@ -293,7 +293,12 @@ class DB:
             configlist = f.readlines()[3][:-1].replace("n", "-").split(" ")[1:]
         message(f"Add bootstraps for {branch_tag} from {fn} to database.")
         self.add_leaf(f"{branch_tag}/bootstraps", mean=bootstraps, jks=None, sample=None, misc={"configlist": configlist})
-        self.database[f"{branch_tag}/bootstraps"].mean
+        #self.database[f"{branch_tag}/bootstraps"].mean
+
+    def add_bootstrap(self, branch_tag, bootstraps, configlist):
+        message(f"Add bootstraps for {branch_tag} to database.")
+        self.add_leaf(f"{branch_tag}/bootstraps", mean=bootstraps, jks=None, sample=None, misc={"configlist": configlist})
+        #self.database[f"{branch_tag}/bootstraps"].mean 
 
     def bss(self, tag):
         assert "binsize" not in tag, "Can only compute bss for unbinned leafs"
