@@ -262,9 +262,14 @@ class LatticeCharmToolkit():
                 tags_to_be_combined = {tsrc: [t for t in sorted_correlator_tags[st][ct] if f"tsrc{tsrc}" in t] for tsrc in tsrcs[st]}
                 pseudo_tags = []
                 for tsrc in tags_to_be_combined:
+                    if len(tags_to_be_combined[tsrc]) == 0:
+                        message(f"tsrc = {tsrc} not available for {ct} -> can't be added to database.")
+                        continue
                     pseudo_tag = f"{st}/{tags_to_be_combined[tsrc][0].split("/")[-1]}"; pseudo_tags.append(pseudo_tag)
                     self.db.combine_sample(*tags_to_be_combined[tsrc], f=lambda *x: np.concatenate(x, axis=0), dst_tag=pseudo_tag)
                 pseudo_correlator_tags[st][ct] = pseudo_tags
+                print("---------------")
+                print("---------------")
         return pseudo_correlator_tags
     
     def correlator_avg_pbc(self, Ct_tag, dst_tag):
@@ -630,7 +635,7 @@ class LatticeCharmToolkit():
                         best_parameter_correlated, _, misc_correlated = fit(self.db, fit_range, binned_tag, p0, chi2_func_correlated, self.fit_method, self.fit_params, self.res_fit_method, self.res_fit_params, perform_jks_fit=False)
                         misc_correlated["fit_model"] = fit_model
                         print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
-                        self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
+                        self.db.add_leaf(tag=f"{binned_tag}/{fit_model}_binned_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
                     except ConvergenceError as ce:
                         message(f"{ce} for correlated mean fit with covariance matrix") 
                         message("---------------------------------------------------------------------------------", verbosity) 
