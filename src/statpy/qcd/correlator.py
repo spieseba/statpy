@@ -889,7 +889,6 @@ class LatticeCharmToolkit():
             criterion = np.abs([const_plus_exp(i, [best_parameter[0], best_parameter[1], 0]) for i in ts]) < (mt_var**.5)/4.
             t_crit = ts[criterion]
             t_crit = t_crit[t_crit < tmax] # make sure t_crit does not go beyond tmax
-            message(f"SUGGESTED BULK RANGE WITHOUT BOUNDARY EFFECTS [[{t_crit[0]},{t_crit[-1]}]]")
             # check that suggested range without boundary effects contains at least MIN_TCRIT_LEN elements
             if len(t_crit) < MIN_TCRIT_LEN:
                 AIC_arr.append(None)
@@ -900,6 +899,7 @@ class LatticeCharmToolkit():
                 message("---------------------------------------------------------------------------------") 
                 message("---------------------------------------------------------------------------------")
                 continue             
+            message(f"SUGGESTED BULK RANGE WITHOUT BOUNDARY EFFECTS [[{t_crit[0]},{t_crit[-1]}]]")
             AIC_arr.append(aic)
             best_parameter_arr.append(best_parameter)
             best_parameter_jks_arr.append(best_parameter_jks)
