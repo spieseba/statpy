@@ -28,12 +28,12 @@ def to_json(obj):
 def from_json(obj):
     if isinstance(obj, dict):
         if '__ndarray__' in obj:
-            return np.fromstring(
+            return np.frombuffer(
                 base64.b64decode(obj['__ndarray__']),
                 dtype=np.dtype(obj['dtype'])
             ).reshape(obj['shape'])
         if '__npgeneric__' in obj:
-            return np.fromstring(
+            return np.frombuffer(
                 base64.b64decode(obj['__npgeneric__']),
                 dtype=np.dtype(obj['dtype'])
             )[0]
