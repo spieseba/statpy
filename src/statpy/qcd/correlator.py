@@ -259,13 +259,14 @@ class LatticeCharmToolkit():
             message(f"Combine runs for stream tag {st}")
             for ct in corr_types:
                 message(f"--- {ct}")
-                tags_to_be_combined = {tsrc: [t for t in sorted_correlator_tags[st][ct] if f"tsrc{tsrc}" in t] for tsrc in tsrcs[st]}
+                tags_to_be_combined = {tsrc: [t for t in sorted_correlator_tags[st][ct] if f"tsrc{tsrc}_" in t] for tsrc in tsrcs[st]}
                 pseudo_tags = []
                 for tsrc in tags_to_be_combined:
                     if len(tags_to_be_combined[tsrc]) == 0:
                         message(f"tsrc = {tsrc} not available for {ct} -> can't be added to database.")
                         continue
-                    pseudo_tag = f"{st}/{tags_to_be_combined[tsrc][0].split("/")[-1]}"; pseudo_tags.append(pseudo_tag)
+                    pseudo_tag = f"{st}/{tags_to_be_combined[tsrc][0].split("/")[-1]}" 
+                    pseudo_tags.append(pseudo_tag)
                     self.db.combine_sample(*tags_to_be_combined[tsrc], f=lambda *x: np.concatenate(x, axis=0), dst_tag=pseudo_tag)
                 pseudo_correlator_tags[st][ct] = pseudo_tags
                 print("---------------")
@@ -282,7 +283,8 @@ class LatticeCharmToolkit():
         # Get src positions in bulk
         tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
         assert len(Ct_tags) == len(tsrcs)
-        Ct_tags_in_bulk = []; tsrcs_in_bulk = []
+        Ct_tags_in_bulk = []
+        tsrcs_in_bulk = []
         for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
             if (tsrc >= tbulk[0]) and (tsrc <= tbulk[-1]):
                 Ct_tags_in_bulk.append(Ct_tag)
