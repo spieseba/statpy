@@ -1,14 +1,21 @@
 [build-system]
 build-backend = 'mesonpy'
-requires = ["meson-python"] #, "ninja"]
+requires = ["meson-python"] 
 
 [project]
-name="statpy"
+name = "statpy"
 dynamic = ["version"] 
 description = "Database system with statistics library for Lattice QCD simulations"
-readme="README.md"
-requires-python=">=3.11"
+readme = "README.md"
+requires-python = ">=3.12"
 authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
 ]
-dependencies=["numpy", "scipy", "iminuit", "dill", "frozendict", "numba"]
+dependencies = [
+    "dill>=0.4.1",
+    "frozendict>=2.4.7",
+    "iminuit>=2.32.0",
+    "numba>=0.64.0",
+    "numpy>=2.4.3",
+    "scipy>=1.17.1",
+]
