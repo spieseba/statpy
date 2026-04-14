@@ -56,8 +56,8 @@ def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None
             assert False, "Unknown rwf file format"    
         rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else rwf_cfgs
         message(f"Number of cfgs in rwf file: {rwf_cfgs.shape[0]} | Number of filtered configs in rwf file : {rwf_cfgs_filtered.shape[0]}")
-        if not np.array_equal(f_cfgs_filtered, rwf_cfgs_filtered):
-            message(f"WARNING: filtered rwf file has different configs than filtered hdf5 file!")
+        if not np.array_equal(sorted(f_cfgs_filtered), sorted(rwf_cfgs_filtered)):
+            message("WARNING: filtered rwf file has different configs than filtered hdf5 file!")
             non_common_cfgs = np.setxor1d(f_cfgs_filtered, rwf_cfgs_filtered)
             message(f"Configs which are contained in hdf5 or rwf file but not in both: {non_common_cfgs}")
             if not accept_cfg_mismatch: 
