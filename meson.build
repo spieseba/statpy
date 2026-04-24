@@ -1,4 +1,4 @@
-project('statpy', version: '1.0.0')
+project('statpy', version: '2.0.0')
 
 python = import('python').find_installation('python3') 
 

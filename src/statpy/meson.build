@@ -17,9 +17,19 @@ python.install_sources(
 )
 
 python.install_sources(
-  'qcd/__init__.py', 'qcd/correlator.py',
+  'qcd/__init__.py',
   pure: true,
   subdir: 'statpy/qcd'
+)
+
+python.install_sources(
+  'qcd/correlator/__init__.py',
+  'qcd/correlator/primitives.py',
+  'qcd/correlator/models.py',
+  'qcd/correlator/fits.py',
+  'qcd/correlator/_masking.py',
+  pure: true,
+  subdir: 'statpy/qcd/correlator'
 )
 
 python.install_sources(
