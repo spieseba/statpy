@@ -1,137 +1,173 @@
-import h5py, os, sys, json
+import os
+import json
+import re
+import h5py
 import numpy as np
 from statpy.log import message
 from statpy.database.core import DB
 
-def load_CLS(fn, rwf_fn, tags, stream_tag, run_tag=None, cfgs_to_be_removed=None, accept_cfg_mismatch=False, meas_tag="messpec", verbosity=0):
+_CFG_ID_RE = re.compile(r"n(\d+)$")
+
+
+def _parse_cfg_id(name):
+    """Parse the trailing ``n<digits>`` block of a CLS configlist entry."""
+    m = _CFG_ID_RE.search(name)
+    if m is None:
+        raise ValueError(f"Cannot parse cfg id from name: {name!r}")
+    return int(m.group(1))
+
+def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_removed=None, meas_group="messpec", verbosity=0):
+    """Load CLS hdf5 measurements + reweighting factors into a fresh ``DB``.
+
+    For each pattern in ``correlator_patterns``, every dataset under
+    ``f["data"]`` whose key contains the pattern becomes a leaf at
+    ``"{stream_tag}/{run_tag}/{key}"``. Sample keys within each leaf
+    are ``f"{stream_tag}-{cfg_id}"``. The rwf is added at
+    ``"{stream_tag}/rwf"`` together with its normalized form via
+    ``add_nrwf``.
+
+    Configs whose ids are listed in ``cfgs_to_be_removed`` are filtered
+    out of both the hdf5 and rwf streams before any leaves are added.
+    The remaining hdf5 and rwf cfg sets must agree exactly; otherwise a
+    ``ValueError`` is raised.
+
+    Args:
+        fn: Path to the hdf5 measurement file.
+        rwf_fn: Path to the rwf file (``.rwf`` or ``.rwms.txt``); required.
+        correlator_patterns: Substring patterns; any hdf5 dataset key
+            under ``meas_group/data`` containing one is loaded.
+        stream_tag: Ensemble/stream label, used as the top-level DB prefix.
+        run_tag: Sub-prefix between stream_tag and the hdf5 key.
+        cfgs_to_be_removed: Iterable of integer cfg ids to drop, or None.
+        meas_group: Top-level hdf5 group, e.g. ``"messpec"`` (mesons) or
+            ``"barspec"`` (baryons). Default ``"messpec"``.
+        verbosity: Forwarded to the underlying ``DB``/``add_leaf`` calls.
+
+    Returns:
+        A ``DB`` populated with the rwf leaf, nrwf leaf, and one leaf per
+        matched correlator key.
+
+    Raises:
+        ValueError: If ``rwf_fn`` is None, the rwf format is unknown, the
+            cfg id of a configlist entry cannot be parsed, or the hdf5
+            and rwf cfg sets disagree after filtering.
+    """
     assert os.path.isfile(fn), f"{fn} not found!"
     assert isinstance(cfgs_to_be_removed, list) or isinstance(cfgs_to_be_removed, np.ndarray) or cfgs_to_be_removed is None
-    message(f"---------------------------------")
+    if rwf_fn is None:
+        raise ValueError("rwf file must be provided")
+    message("---------------------------------")
     message(f"Load CLS data from {fn}")
     message(f"Load rw factors from: {rwf_fn}")
-    message(f" -- tags: {tags}")
+    message(f" -- correlator patterns: {correlator_patterns}")
     message(f" -- ensemble tag = {stream_tag}")
     message(f" -- run tag: {run_tag}")
     message(f" -- cfgs to be removed: {cfgs_to_be_removed}")
-    message(f" -- accept cfg mismatch: {accept_cfg_mismatch}")
-    # data
-    f = h5py.File(fn, "r")[meas_tag]
-    f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")]) 
-    f_cfgs_filtered = f_cfgs[~np.isin(f_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else f_cfgs
-    # try to get hdf5 git info - if available stored in hdf5 file
-    f_git_dict = f["description"].get("git")
-    if f_git_dict is not None:
-        message("hdf5 git info:")
-        for key, val in f_git_dict.items():
-                message(f"--- {key}: {val[()].decode()}") 
-    else: 
-        message("Git info not found for hdf5 file!")
-    message(f"Number of cfgs in hdf5 file: {len(f_cfgs)} | Number of filtered configs in hdf5 file: {len(f_cfgs_filtered)}")
-    db = DB(verbosity=verbosity)
-    # rwfs
-    if rwf_fn is None:
-        raise ValueError(f"rwf file must be provided!")
-        # debugging 
-        #message(f"rwf file not available. Use rwf=1.0 for all configs.")
-        #common_cfgs = f_cfgs_filtered
-        #rwf = {f"{stream_tag}-{cfg}":1.0 for cfg in common_cfgs}
-    else:
-        assert os.path.isfile(rwf_fn) 
+    with h5py.File(fn, "r") as h5:
+        f = h5[meas_group]
+        f_cfgs = np.array([_parse_cfg_id(cfg.decode("utf-8")) for cfg in f["configlist"]])
+        f_cfgs_filtered = f_cfgs[~np.isin(f_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else f_cfgs
+        _log_h5_git(f)
+        message(f"Number of cfgs in hdf5 file: {len(f_cfgs)} | Number of filtered configs in hdf5 file: {len(f_cfgs_filtered)}")
+        db = DB(verbosity=verbosity)
+        assert os.path.isfile(rwf_fn)
         message(f"Found rwf file {rwf_fn}")
-        # try to get rwf git info - if available stored in separate .git file
-        rwf_fn_git = rwf_fn + ".git"
-        if os.path.isfile(rwf_fn_git):
-            message(f"rwf git info:")
-            with open(rwf_fn_git) as rwf_f:
-                rwf_info_dict = json.load(rwf_f)
-            for key, val in rwf_info_dict.items():
-                message(f"--- {key}: {val}") 
-        else:
-            message(f"Git info not found for rwf file!")
-        if rwf_fn.endswith(".rwf"):
-            rwf_cfgs, rwf = _load_rwf(rwf_fn)
-        elif rwf_fn.endswith(".rwms.txt"):
-            rwf_cfgs, rwf = _load_rwms(rwf_fn)   
-        else:
-            assert False, "Unknown rwf file format"    
+        _log_rwf_git(rwf_fn)
+        rwf_cfgs, rwf = _load_rwf_dispatch(rwf_fn)
         rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else rwf_cfgs
         message(f"Number of cfgs in rwf file: {rwf_cfgs.shape[0]} | Number of filtered configs in rwf file : {rwf_cfgs_filtered.shape[0]}")
-        if not np.array_equal(sorted(f_cfgs_filtered), sorted(rwf_cfgs_filtered)):
-            message("WARNING: filtered rwf file has different configs than filtered hdf5 file!")
-            non_common_cfgs = np.setxor1d(f_cfgs_filtered, rwf_cfgs_filtered)
-            message(f"Configs which are contained in hdf5 or rwf file but not in both: {non_common_cfgs}")
-            if not accept_cfg_mismatch: 
-                sys.exit(1)
-            message(f"---> Add only common configs to database.")
-        common_cfgs = np.array([cfg for cfg in rwf_cfgs_filtered if cfg in f_cfgs_filtered])
+        common_cfgs = _resolve_common_cfgs(f_cfgs_filtered, rwf_cfgs_filtered, stream_tag)
         message(f"Number of filtered configs in hdf5 file and rwf file: {common_cfgs.shape[0]}")
-        rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
-    db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
-    db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
-    # data
-    for t in tags:
-        for key in f["data"].keys(): 
-            if t in key:
-                f_vals = f["data"].get(key)[:]
-                sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
-                f_tag = f"{stream_tag}/{key}" if run_tag is None else f"{stream_tag}/{run_tag}/{key}"
-                db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
-    message(f"---------------------------------")
+        rwf_mask = np.isin(rwf_cfgs, common_cfgs)
+        rwf = dict(zip(
+            (f"{stream_tag}-{int(c)}" for c in rwf_cfgs[rwf_mask]),
+            rwf[rwf_mask],
+        ))
+        db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
+        db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
+        _populate_data(db, f, f_cfgs, common_cfgs, correlator_patterns, stream_tag, run_tag, verbosity)
+    message("---------------------------------")
     return db
 
+
+def _log_h5_git(f):
+    """Log git info from ``f["description"]["git"]``, or warn if absent."""
+    git_dict = f["description"].get("git")
+    if git_dict is None:
+        message("Git info not found for hdf5 file!")
+        return
+    message("hdf5 git info:")
+    for key, val in git_dict.items():
+        message(f"--- {key}: {val[()].decode()}")
+
+
+def _log_rwf_git(rwf_fn):
+    """Log git info from the ``<rwf_fn>.git`` JSON sidecar, or warn if absent."""
+    rwf_fn_git = rwf_fn + ".git"
+    if not os.path.isfile(rwf_fn_git):
+        message("Git info not found for rwf file!")
+        return
+    message("rwf git info:")
+    with open(rwf_fn_git) as rwf_f:
+        rwf_info_dict = json.load(rwf_f)
+    for key, val in rwf_info_dict.items():
+        message(f"--- {key}: {val}")
+
+
+def _load_rwf_dispatch(rwf_fn):
+    """Dispatch to the loader matching ``rwf_fn``'s extension (``.rwf`` or ``.rwms.txt``)."""
+    if rwf_fn.endswith(".rwf"):
+        return _load_rwf(rwf_fn)
+    if rwf_fn.endswith(".rwms.txt"):
+        return _load_rwms(rwf_fn)
+    raise ValueError(f"Unknown rwf file format: {rwf_fn}")
+
+
 def _load_rwf(fn):
+    """Load a two-column ``.rwf`` file; returns ``(cfg_ids, rwf_values)``."""
     rwf_cfgs = np.array(np.loadtxt(fn)[:,0], dtype=int)
     rwf = np.loadtxt(fn)[:,1]
     return rwf_cfgs, rwf
 
+
 def _load_rwms(fn):
+    """Load a multi-column ``.rwms.txt`` file; returns ``(cfg_ids, prod_of_rwf_columns)``."""
     rwf_cfgs = np.array(np.loadtxt(fn)[:,0], dtype=int)
     rwf = np.prod(np.loadtxt(fn)[:,1:], axis=1)
     return rwf_cfgs, rwf
 
-# this is the old version of load_CLS used for the analysis presented at the Lattice 2024 conference 
-# it is deprecated and kept here for testing against the new version
-def load_CLS_deprecated(fn, rwf_fn, tags, stream_tag, run_tag=None, verbosity=0, accept_cfg_mismatch=False):
-    assert os.path.isfile(fn), f"{fn} not found!"
-    message(f"---------------------------------")
-    message(f"Load CLS data from {fn}")
-    message(f"reweighting factors: {rwf_fn}")
-    message(f"tags: {tags}")
-    message(f"ensemble tag = {stream_tag}")
-    message(f"run tag: {run_tag}")
-    # data
-    f = h5py.File(fn, "r")
-    f_cfgs = np.array([int(cfg.decode("utf-8").split("n")[1]) for cfg in f.get("configlist")])
-    message(f"# of cfgs in hdf5 file: {len(f_cfgs)}")
-    db = DB(verbosity=verbosity)
-    # rwfs
-    if rwf_fn is None:
-        message(f"rwf file not available. Use rwf=1.0 for all configs.")
-        common_cfgs = f_cfgs
-        rwf = {f"{stream_tag}-{cfg}":1.0 for cfg in common_cfgs}
-    else:
-        assert os.path.isfile(rwf_fn) 
-        rwf_cfgs = np.array(np.loadtxt(rwf_fn)[:,0], dtype=int)
-        common_cfgs = np.array([cfg for cfg in rwf_cfgs if cfg in f_cfgs])
-        message(f"# of cfgs in rwf file: {rwf_cfgs.shape[0]} | # of common configs with hdf5 file : {common_cfgs.shape[0]}")
-        if rwf_cfgs.shape[0] != common_cfgs.shape[0] or rwf_cfgs.shape[0] != f_cfgs.shape[0]:
-            message(f"WARNING: rwf file has different configs than hdf5 file!")
-            if not accept_cfg_mismatch: 
-                sys.exit(1)
-            message(f"---> Add only common configs to database.")
-        rwf = np.loadtxt(rwf_fn)[:,1] 
-        rwf = {f"{stream_tag}-{cfg}":val for cfg,val in zip(rwf_cfgs, rwf) if cfg in common_cfgs} 
-    db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
-    db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
-    # data
-    for t in tags:
-        for key in f.keys(): 
-            if t in key:
-                if "SRCPOS" in key:
-                    continue
-                f_vals = f.get(key)[:]
-                sample = {f"{stream_tag}-{cfg}":val for cfg,val in zip(f_cfgs, f_vals) if cfg in common_cfgs}
-                f_tag = f"{stream_tag}/{key}" if run_tag is None else f"{stream_tag}/{run_tag}/{key}"
+
+def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
+    """Verify hdf5 and rwf cfg sets match; return cfg ids in rwf order.
+
+    Raises ValueError if the two sets disagree, listing the symmetric
+    difference.
+    """
+    if set(h5_cfgs_filtered.tolist()) != set(rwf_cfgs_filtered.tolist()):
+        non_common = np.setxor1d(h5_cfgs_filtered, rwf_cfgs_filtered)
+        raise ValueError(
+            f"hdf5/rwf cfg mismatch for {stream_tag}: configs in only one file: {non_common}"
+        )
+    return np.array(rwf_cfgs_filtered)
+
+
+def _populate_data(db, f, h5_cfgs, common_cfgs, correlator_patterns, stream_tag, run_tag, verbosity):
+    """Add a leaf for every ``f["data"]`` key matching a correlator pattern.
+
+    Each leaf's sample dict is keyed by ``f"{stream_tag}-{cfg_id}"`` and
+    restricted to ``common_cfgs``. The mask and key list are precomputed
+    once and reused across all matched keys.
+    """
+    h5_mask = np.isin(h5_cfgs, common_cfgs)
+    sample_keys = [f"{stream_tag}-{int(c)}" for c in h5_cfgs[h5_mask]]
+    data_keys = list(f["data"].keys())
+    for pattern in correlator_patterns:
+        for key in data_keys:
+            if pattern in key:
+                f_vals = f["data"].get(key)[:]
+                sample = dict(zip(sample_keys, f_vals[h5_mask]))
+                f_tag = f"{stream_tag}/{run_tag}/{key}"
                 db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
-    message(f"---------------------------------")
-    return db
+
+
+
