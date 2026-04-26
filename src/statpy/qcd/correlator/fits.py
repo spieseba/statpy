@@ -38,12 +38,18 @@ from statpy.qcd.correlator._masking import (
 
 def _make_chi2(fit_model, W, Nt):
     """Return a chi^2 lambda(t, p, y) for the given fit model + weight matrix."""
-    if fit_model == "double-cosh": return lambda t, p, y: double_cosh_chi2(t, p, y, W, Nt)
-    if fit_model == "double-sinh": return lambda t, p, y: double_sinh_chi2(t, p, y, W, Nt)
-    if fit_model == "double-exp":  return lambda t, p, y: double_exp_chi2(t, p, y, W)
-    if fit_model == "cosh":        return lambda t, p, y: cosh_chi2(t, p, y, W, Nt)
-    if fit_model == "sinh":        return lambda t, p, y: sinh_chi2(t, p, y, W, Nt)
-    if fit_model == "exp":         return lambda t, p, y: exp_chi2(t, p, y, W)
+    if fit_model == "double-cosh": 
+        return lambda t, p, y: double_cosh_chi2(t, p, y, W, Nt)
+    if fit_model == "double-sinh": 
+        return lambda t, p, y: double_sinh_chi2(t, p, y, W, Nt)
+    if fit_model == "double-exp":  
+        return lambda t, p, y: double_exp_chi2(t, p, y, W)
+    if fit_model == "cosh":        
+        return lambda t, p, y: cosh_chi2(t, p, y, W, Nt)
+    if fit_model == "sinh":        
+        return lambda t, p, y: sinh_chi2(t, p, y, W, Nt)
+    if fit_model == "exp":         
+        return lambda t, p, y: exp_chi2(t, p, y, W)
     raise ValueError(f"Unknown fit_model: {fit_model!r}")
 
 

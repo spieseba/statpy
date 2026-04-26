@@ -1,5 +1,6 @@
 import numpy as np
-import json, base64
+import json
+import base64
 from statpy.database.leafs import Leaf 
 
 def to_json(obj):

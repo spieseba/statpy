@@ -1,20 +1,24 @@
-import os, subprocess, re
+import os
+import re 
+import subprocess
 import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
-
-# import multiprocessing module and overwrite its Pickle class using dill
-import dill, multiprocessing
-dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-multiprocessing.reduction.ForkingPickler = dill.Pickler
-multiprocessing.reduction.dump = dill.dump
 
 from statpy.log import message 
 from statpy.database import custom_json as json
 from statpy.database.leafs import Leaf
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife, bootstrap
+
+# import multiprocessing module and overwrite its Pickle class using dill
+import dill
+import multiprocessing
+dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+multiprocessing.reduction.ForkingPickler = dill.Pickler
+multiprocessing.reduction.dump = dill.dump
+
 
 
 class DB:
@@ -201,7 +205,8 @@ class DB:
         jks = self.jks(tag, binsize)
         mean = np.mean(jks, axis=0)
         src_lf = self.database[tag]
-        binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
+        binned_tag = f"{tag}/binsize{binsize}"
+        branch_tag = tag.split("/")[0]
         self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=src_lf.misc, weights_tag=src_lf.weights_tag)
         return binned_tag
 
@@ -235,7 +240,8 @@ class DB:
     def remove_cfgs(self, *cfgs, tag=None, dst_tag=None):
         self.rename_leaf(tag, f"{tag}/tmp")
         lf = self.database[f"{tag}/tmp"]
-        sample = dict(lf.sample); misc = dict(lf.misc) if lf.misc is not None else None
+        sample = dict(lf.sample)
+        misc = dict(lf.misc) if lf.misc is not None else None
         for cfg in cfgs:
             sample.pop(str(cfg), None)
         if dst_tag is None:
@@ -251,7 +257,8 @@ class DB:
         
     def add_nrwf(self, rwf_tag, silent=None):
         silent = self.silent if silent is None else silent
-        rwf = self.database[rwf_tag].sample; n = np.mean(self.as_array(rwf))
+        rwf = self.database[rwf_tag].sample
+        n = np.mean(self.as_array(rwf))
         self.add_leaf(tag=rwf_tag.replace("rwf","nrwf"), mean=None, jks=None, sample={cfg:rwf/n for cfg,rwf in rwf.items()}, misc=None, silent=silent)
 
     def get_nrwf(self, tag):
