@@ -321,7 +321,16 @@ def fold_correlator_leaf(db, Ct_tag, antiperiodic=False):
 # ---------------------------------------------------------------------------
 
 def get_p0_guess(db, tag, binsize, fit_model, fit_range):
-    assert fit_model in ["double-cosh", "double-sinh", "double-exp"]
+    """Heuristic two-state ``[A0, m0, A1, m1]`` initial guess for double-{cosh,sinh,exp} fits.
+
+    ``A0, m0`` come from the effective-mass / -amplitude averaged over a central
+    window ``[Nt/4, 3*Nt/8)``; ``A1, m1`` come from the residual ``Ct - C_ground``
+    evaluated at ``fit_range[0]``. Any element may be NaN when the effective
+    primitives encounter non-positive arguments — the caller (e.g.
+    ``_resolve_initial_p0``) is responsible for filling NaNs.
+    """
+    if fit_model not in ("double-cosh", "double-sinh", "double-exp"):
+        raise ValueError(f"Unknown fit_model: {fit_model!r}")
     message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
     binned_tag = db.add_binned_leaf(tag, binsize)
     Ct_mean = db.database[binned_tag].mean
@@ -330,15 +339,11 @@ def get_p0_guess(db, tag, binsize, fit_model, fit_range):
     effective_amplitude = {"double-cosh": Aeff_cosh, "double-sinh": Aeff_sinh, "double-exp": Aeff_exp}[fit_model]
     single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
     # ground state parameters
-    t0_probe = slice(Nt//4, Nt//4 + Nt//8)
+    window = slice(Nt//4, Nt//4 + Nt//8)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe])
-        A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe])
-        if isnan(m0_eff) or isnan(A0_eff):
-            t0_probe = Nt//4
-            m0_eff = np.mean(effective_mass(Ct_mean)[t0_probe])
-            A0_eff = np.mean(effective_amplitude(Ct_mean, m0_eff)[t0_probe])
+        m0_eff = np.nanmean(effective_mass(Ct_mean)[window])
+        A0_eff = np.nanmean(effective_amplitude(Ct_mean, m0_eff)[window])
     # excited state parameters
     Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff])
     Ct_excited = Ct_mean - Ct_ground
