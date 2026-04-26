@@ -4,41 +4,41 @@ from statpy.log import message
 
 
 ### periodic boundary conditions ###
-def effective_mass_acosh1(Ct, ax=0):
+def meff_cosh(Ct, ax=0):
     return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
 
 # spectrum paper
-def effective_mass_acosh2(Ct, a=1):
+def meff_cosh_midpoint(Ct, a=1):
     Nt = len(Ct)
     return np.abs((np.arccosh(np.roll(Ct,a)/Ct[Nt//2]) - np.arccosh(np.roll(Ct,-a)/Ct[Nt//2]))) / (2. * a)
 
-def effective_mass_asinh(Ct):
+def meff_sinh(Ct):
     Nt = len(Ct)
     eff_m = np.arcsinh(Ct/Ct[Nt-1])
     return np.abs(np.roll(eff_m, -1) - eff_m)
 
 ### open boundary conditions ###
-def effective_mass_log1(Ct, ax=0):
+def meff_exp_forward(Ct, ax=0):
     with np.errstate(divide='ignore', invalid='ignore'):
         return np.log(Ct / np.roll(Ct, -1, axis=ax))
 
 # spectrum paper
-def effective_mass_log2(Ct, ax=0):
+def meff_exp_symmetric(Ct, ax=0):
     with np.errstate(divide='ignore', invalid='ignore'):
         return np.log(np.roll(Ct, 1, axis=ax) / np.roll(Ct, -1, axis=ax)) / 2
 
 # cosh
-def effective_amplitude_cosh(Ct, m):
+def Aeff_cosh(Ct, m):
     Nt = len(Ct)
     return Ct / np.array([(np.exp(-m*t)) + np.exp(-m*(Nt-t)) for t in range(Nt)])
 
 # sinh
-def effective_amplitude_sinh(Ct, m):
+def Aeff_sinh(Ct, m):
     Nt = len(Ct)
     return Ct / np.array([(np.exp(-m*t)) - np.exp(-m*(Nt-t)) for t in range(Nt)])
 
 # exp
-def effective_amplitude_exp(Ct, m):
+def Aeff_exp(Ct, m):
     Nt = len(Ct)
     return Ct / np.array([(np.exp(-m*t)) for t in range(Nt)])
 

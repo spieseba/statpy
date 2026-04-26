@@ -16,8 +16,8 @@ from statpy.fitting.core import print_fit_results, get_pvalue
 from statpy.statistics import jackknife, bootstrap
 
 from statpy.qcd.correlator.primitives import (
-    effective_mass_acosh1, effective_mass_log1, effective_mass_log2,
-    effective_amplitude_cosh, effective_amplitude_sinh, effective_amplitude_exp,
+    meff_cosh, meff_exp_forward, meff_exp_symmetric,
+    Aeff_cosh, Aeff_sinh, Aeff_exp,
 )
 from statpy.qcd.correlator.models import (
     fit_model_dict,
@@ -330,8 +330,8 @@ def get_p0_guess(db, tag, binsize, fit_model, fit_range):
     binned_tag = db.add_binned_leaf(tag, binsize)
     Ct_mean = db.database[binned_tag].mean
     Nt = len(Ct_mean)
-    effective_mass = {"double-cosh": effective_mass_acosh1, "double-sinh": effective_mass_acosh1, "double-exp": effective_mass_log1}[fit_model]
-    effective_amplitude = {"double-cosh": effective_amplitude_cosh, "double-sinh": effective_amplitude_sinh, "double-exp": effective_amplitude_exp}[fit_model]
+    effective_mass = {"double-cosh": meff_cosh, "double-sinh": meff_cosh, "double-exp": meff_exp_forward}[fit_model]
+    effective_amplitude = {"double-cosh": Aeff_cosh, "double-sinh": Aeff_sinh, "double-exp": Aeff_exp}[fit_model]
     single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
     # ground state parameters
     t0_probe = slice(Nt//4, Nt//4 + Nt//8)
@@ -496,7 +496,7 @@ def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antipe
         binned_Ct_tag = db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
         mt_tag = f"{binned_Ct_tag}/am_t"
         mt_tags.append(mt_tag)
-        db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(effective_mass_log2(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
+        db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
         if cleanup:
             db.remove_leaf(f"{Ct_tag}/maskedES")
             db.remove_leaf(binned_Ct_tag)
