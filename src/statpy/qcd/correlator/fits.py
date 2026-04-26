@@ -128,15 +128,18 @@ def fit_bss(db, t, tag, p0, chi2_func, config: "FitConfig", eval_offset=True):
     Returns ``(best_parameter, best_parameter_bss, misc)``.
 
     Raises:
-        Same as :func:`fit_mean`. Bootstrap-sample fits do not raise
-        on convergence failure.
+        Same as :func:`fit_mean`, plus ``ConvergenceError`` if any
+        bootstrap sample fit fails.
     """
     best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
     t_eval = t if eval_offset else np.arange(len(t))
     fitter = Fitter(config.fit_method, config.fit_params)
-    best_bss = db.combine_bss(
-        tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], best)[0]
-    )
+    try:
+        best_bss = db.combine_bss(
+            tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], best)[0]
+        )
+    except ConvergenceError as e:
+        raise ConvergenceError(f"bootstrap fit for tag {tag!r} did not converge: {e}") from e
     return best, best_bss, misc
 
 
