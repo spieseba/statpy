@@ -314,67 +314,10 @@ def correlator_avg_obc(db, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiper
         db.remove_leaf(f"{Ct_tag}/masked", silent=True)
 
 
-def am_t_avg_obc(db, Ct_tags, tbulk, dst_tag, binsize, tmax_from_tsrc=None, keep_am_t_per_src=False):
-    message(f"Perform obc tsrc average for effective mass over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with effective mass tags: {Ct_tags}")
-    message("Warning: this method uses effective_mass_log2 and is only tested for PSPS_SMSMS")
-    message(f"tmax_from_tsrc: {tmax_from_tsrc}")
-    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
-    assert len(Ct_tags) == len(tsrcs)
-    Ct_tags_in_bulk = []
-    tsrcs_in_bulk = []
-    mt_tags_in_bulk = []
-    Ct_tags_binned = []
-    for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
-        if (tsrc >= tbulk[0]) and (tsrc <= tbulk[-1]):
-            Ct_tags_in_bulk.append(Ct_tag)
-            tsrcs_in_bulk.append(tsrc)
-            Ct_binned = db.add_binned_leaf(Ct_tag, binsize)
-            Ct_tags_binned.append(Ct_binned)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                db.combine(Ct_binned, f=lambda Ct: effective_mass_log2(Ct, ax=1), dst_tag=f"{Ct_binned}/am_t")
-            mt_tags_in_bulk.append(f"{Ct_binned}/am_t")
-    message(f"tsrcs in bulk: {tsrcs_in_bulk}")
-    tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, tbulk)
-    if tmax_from_tsrc is not None:
-        tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1)
-        tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
-    for src_idx, mt_tag in enumerate(mt_tags_in_bulk):
-        db.combine(mt_tag, f=lambda mt: _get_masked_Ct(mt, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic=True), dst_tag=f"{mt_tag}/masked")
-    db.combine(*[f"{mt_tag}/masked" for mt_tag in mt_tags_in_bulk], f=lambda *mts_ma: np.ma.concatenate(mts_ma, axis=0).mean(axis=0).compressed(), dst_tag=dst_tag)
-    for mt_tag in mt_tags_in_bulk:
-        if not keep_am_t_per_src:
-            db.remove_leaf(mt_tag)
-        db.remove_leaf(f"{mt_tag}/masked")
-    for Ct_tag_binned in Ct_tags_binned:
-        db.remove_leaf(Ct_tag_binned)
-
-
 def fold_correlator_leaf(db, Ct_tag, antiperiodic=False):
     from statpy.qcd.correlator.primitives import fold_correlator
     message(f"Fold correlator {Ct_tag}.")
     db.combine_sample(Ct_tag, f=lambda Ct: fold_correlator(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
-
-
-# ---------------------------------------------------------------------------
-# PSA4 improvement 
-# ---------------------------------------------------------------------------
-
-def determine_PSA4I(db, tag_PSPS_sml, tag_PSA4_sml, beta):
-    """Improved PSA4 correlator per https://arxiv.org/pdf/1502.04999.pdf"""
-    def compute_cA(beta):
-        p0 = 9.2056
-        p1 = -13.9847
-        return - 0.006033 * 6./beta * (1 + np.exp(p0 + p1*beta/6.))
-    def derivative(f):
-        return 0.5 * (np.roll(f, -1) - np.roll(f, 1))
-    def compute_PSA4I(PS_A4, PS_PS, beta):
-        PS_A4I = PS_A4 - compute_cA(beta) * derivative(PS_PS)
-        PS_A4I[0] = 0.
-        PS_A4I[-1] = 0
-        return PS_A4I
-    tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
-    db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PSA4I(x, y, beta), dst_tag=tag_PSA4I)
 
 
 # ---------------------------------------------------------------------------
@@ -526,6 +469,73 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
         message("---------------------------------------------------------------------------------", silent)
 
 
+# ---------------------------------------------------------------------------
+# boundary averaging
+# ---------------------------------------------------------------------------
+
+def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False, excluded_tsrcs=[]):
+    message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
+    message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
+    message(f"tmax_from_tsrc = {tmax_from_tsrc}")
+    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
+    message(f"Exclude the following srcs: {excluded_tsrcs}")
+    for tsrc in excluded_tsrcs:
+        if tsrc not in tsrcs:
+            message(f"tsrc = {tsrc} not in tags anyway -> continue")
+            continue
+        tsrc_str = re.search(r'tsrc(\d+)', Ct_tags[0]).group()
+        tag_to_be_removed = Ct_tags[0].replace(tsrc_str, f"tsrc{tsrc}")
+        tsrcs.remove(tsrc)
+        Ct_tags.remove(tag_to_be_removed)
+        message(f"---> filtered tags: {Ct_tags}")
+        message(f"---> filtered tsrcs: {tsrcs}")
+    assert len(Ct_tags) == len(tsrcs)
+    mt_tags = []
+    for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
+        db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
+        binned_Ct_tag = db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
+        mt_tag = f"{binned_Ct_tag}/am_t"
+        mt_tags.append(mt_tag)
+        db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(effective_mass_log2(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
+        if cleanup:
+            db.remove_leaf(f"{Ct_tag}/maskedES")
+            db.remove_leaf(binned_Ct_tag)
+    dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
+    db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag)
+    db.combine(dst_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), dst_tag=f"{dst_tag}/folded")
+    if cleanup:
+        for mt_tag in mt_tags:
+            db.remove_leaf(mt_tag)
+    return dst_tag
+
+
+# ---------------------------------------------------------------------------
+# Decay-constant / combined PSPS+PSA4I fit machinery.
+#
+# Currently unused. Kept here pending a planned refactor for decay constant
+# project;
+# Touches: ``determine_PSA4I`` (PSA4 improvement) and ``correlator_combined_fit``
+# (joint PSPS/PSA4I jackknife + correlated + bootstrap fit, plus the bare decay
+# constant ``afbare`` derived from each).
+# ---------------------------------------------------------------------------
+
+def determine_PSA4I(db, tag_PSPS_sml, tag_PSA4_sml, beta):
+    """Improved PSA4 correlator per https://arxiv.org/pdf/1502.04999.pdf"""
+    def compute_cA(beta):
+        p0 = 9.2056
+        p1 = -13.9847
+        return - 0.006033 * 6./beta * (1 + np.exp(p0 + p1*beta/6.))
+    def derivative(f):
+        return 0.5 * (np.roll(f, -1) - np.roll(f, 1))
+    def compute_PSA4I(PS_A4, PS_PS, beta):
+        PS_A4I = PS_A4 - compute_cA(beta) * derivative(PS_PS)
+        PS_A4I[0] = 0.
+        PS_A4I[-1] = 0
+        return PS_A4I
+    tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
+    db.combine_sample(tag_PSA4_sml, tag_PSPS_sml, f=lambda x,y: compute_PSA4I(x, y, beta), dst_tag=tag_PSA4I)
+
+
 def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, config: FitConfig, Nt=None, silent=False):
     message("------------------ combined correlator fit PSPS/PSA4I ---------------------")
     fit_model_PS = fit_model_combined.split("-")[1]
@@ -601,47 +611,7 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
             db.add_leaf(tag=f"{bootstrap_tag}/afbare", mean=fbare_bss_mean, jks=None, sample=None, bss=fbare_bss)
             fbare_bs_str = f"         {fbare_bss_mean:.8f} +- {bootstrap.variance(fbare_bss)**.5:.8f} (bootstrap)"
         message(f"a*fbare = {db.database[f'{binned_tag}/{fit_model_combined}_fit/afbare'].mean:.8f} +- {db.jackknife_variance(f'{binned_tag}/{fit_model_combined}_fit/afbare')**.5:.8f} (jackknife)")
-        if b == 1 and config.bootstrap_available: 
+        if b == 1 and config.bootstrap_available:
             message(fbare_bs_str)
         message("---------------------------------------------------------------------------------", silent)
         message("---------------------------------------------------------------------------------", silent)
-
-
-# ---------------------------------------------------------------------------
-# boundary averaging
-# ---------------------------------------------------------------------------
-
-def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False, excluded_tsrcs=[]):
-    message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
-    message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
-    message(f"tmax_from_tsrc = {tmax_from_tsrc}")
-    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
-    message(f"Exclude the following srcs: {excluded_tsrcs}")
-    for tsrc in excluded_tsrcs:
-        if tsrc not in tsrcs:
-            message(f"tsrc = {tsrc} not in tags anyway -> continue")
-            continue
-        tsrc_str = re.search(r'tsrc(\d+)', Ct_tags[0]).group()
-        tag_to_be_removed = Ct_tags[0].replace(tsrc_str, f"tsrc{tsrc}")
-        tsrcs.remove(tsrc)
-        Ct_tags.remove(tag_to_be_removed)
-        message(f"---> filtered tags: {Ct_tags}")
-        message(f"---> filtered tsrcs: {tsrcs}")
-    assert len(Ct_tags) == len(tsrcs)
-    mt_tags = []
-    for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
-        db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
-        binned_Ct_tag = db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
-        mt_tag = f"{binned_Ct_tag}/am_t"
-        mt_tags.append(mt_tag)
-        db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(effective_mass_log2(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
-        if cleanup:
-            db.remove_leaf(f"{Ct_tag}/maskedES")
-            db.remove_leaf(binned_Ct_tag)
-    dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
-    db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag)
-    db.combine(dst_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), dst_tag=f"{dst_tag}/folded")
-    if cleanup:
-        for mt_tag in mt_tags: 
-            db.remove_leaf(mt_tag)
-    return dst_tag
