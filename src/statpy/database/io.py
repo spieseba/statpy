@@ -48,14 +48,21 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         matched correlator key.
 
     Raises:
-        ValueError: If ``rwf_fn`` is None, the rwf format is unknown, the
-            cfg id of a configlist entry cannot be parsed, or the hdf5
-            and rwf cfg sets disagree after filtering.
+        FileNotFoundError: If ``fn`` or ``rwf_fn`` does not point to an
+            existing file.
+        TypeError: If ``cfgs_to_be_removed`` is not a ``list``,
+            ``np.ndarray``, or ``None``.
+        ValueError: If the rwf file extension is unknown, a configlist
+            entry's cfg id cannot be parsed, or the hdf5 and rwf cfg
+            sets disagree after filtering.
     """
-    assert os.path.isfile(fn), f"{fn} not found!"
-    assert isinstance(cfgs_to_be_removed, list) or isinstance(cfgs_to_be_removed, np.ndarray) or cfgs_to_be_removed is None
-    if rwf_fn is None:
-        raise ValueError("rwf file must be provided")
+    if not os.path.isfile(fn):
+        raise FileNotFoundError(f"hdf5 file {fn!r} not found!")
+    if not os.path.isfile(rwf_fn):
+        raise FileNotFoundError(f"rwf file {rwf_fn!r} not found!")
+    if cfgs_to_be_removed is not None and not isinstance(cfgs_to_be_removed, (list, np.ndarray)):
+        raise TypeError("'cfgs_to_be_removed' must be list | np.ndarray | None")
+
     message("---------------------------------")
     message(f"Load CLS data from {fn}")
     message(f"Load rw factors from: {rwf_fn}")
@@ -64,14 +71,13 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
     message(f" -- run tag: {run_tag}")
     message(f" -- cfgs to be removed: {cfgs_to_be_removed}")
     with h5py.File(fn, "r") as h5:
+        # hdf5
         f = h5[meas_group]
         f_cfgs = np.array([_parse_cfg_id(cfg.decode("utf-8")) for cfg in f["configlist"]])
         f_cfgs_filtered = f_cfgs[~np.isin(f_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else f_cfgs
         _log_h5_git(f)
         message(f"Number of cfgs in hdf5 file: {len(f_cfgs)} | Number of filtered configs in hdf5 file: {len(f_cfgs_filtered)}")
-        db = DB(verbosity=verbosity)
-        assert os.path.isfile(rwf_fn)
-        message(f"Found rwf file {rwf_fn}")
+        # rwf
         _log_rwf_git(rwf_fn)
         rwf_cfgs, rwf = _load_rwf_dispatch(rwf_fn)
         rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else rwf_cfgs
@@ -83,6 +89,8 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
             (f"{stream_tag}-{int(c)}" for c in rwf_cfgs[rwf_mask]),
             rwf[rwf_mask],
         ))
+        # database
+        db = DB(verbosity=verbosity)
         db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
         db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
         _populate_data(db, f, f_cfgs, common_cfgs, correlator_patterns, stream_tag, run_tag, verbosity)
