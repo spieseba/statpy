@@ -40,15 +40,7 @@ from statpy.qcd.correlator._masking import (
 class FitConfig:
     fit_method: str = "Nelder-Mead"
     fit_params: dict = field(default_factory=lambda: {"maxiter": 5000, "tol": 1e-07})
-    res_fit_method: str | None = None     # falls back to fit_method
-    res_fit_params: dict | None = None    # falls back to fit_params
     bootstrap_available: bool = True
-
-    def __post_init__(self):
-        if self.res_fit_method is None:
-            self.res_fit_method = self.fit_method
-        if self.res_fit_params is None: 
-            self.res_fit_params = self.fit_params
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +229,7 @@ def excited_contributions_fit(db, tag, binsize, initial_fit_ranges, p0, fit_mode
             message(f"p0 guess contains NaN, use fit result from previous fit range if available, else use available params to estimate NaNs or default to 1: {p0_tmp}")
         try:
             message(f"p0 for fit: {p0_tmp}")
-            best_parameter, best_parameter_jks, misc = fit(db, t, binned_tag, p0_tmp, chi2_func, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params)
+            best_parameter, best_parameter_jks, misc = fit(db, t, binned_tag, p0_tmp, chi2_func, config.fit_method, config.fit_params)
             misc["fit_model"] = fit_model
         except ConvergenceError as ce:
             suggested_fit_ranges.append(None)
@@ -263,7 +255,7 @@ def excited_contributions_fit(db, tag, binsize, initial_fit_ranges, p0, fit_mode
                                         "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
                                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
                 message(f"p0 for fit: {p0_tmp}")
-                binned_best_parameter_correlated, _, binned_misc_correlated = fit(db, t, binned_tag, p0_tmp, chi2_func_correlated, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params, perform_jks_fit=False)
+                binned_best_parameter_correlated, _, binned_misc_correlated = fit(db, t, binned_tag, p0_tmp, chi2_func_correlated, config.fit_method, config.fit_params, perform_jks_fit=False)
                 binned_misc_correlated["fit_model"] = fit_model
                 binned_best_parameter_correlated = _sort_params(binned_best_parameter_correlated)
                 print_fit_results(binned_best_parameter_correlated, None, binned_misc_correlated, verbosity)
@@ -288,7 +280,7 @@ def excited_contributions_fit(db, tag, binsize, initial_fit_ranges, p0, fit_mode
                                         "double-sinh": lambda t,p,y: double_sinh_chi2(t, p, y, W_correlated, Nt),
                                         "double-exp": lambda t,p,y: double_exp_chi2(t, p, y, W_correlated)}[fit_model]
                 message(f"p0 for fit: {p0_tmp}")
-                unbinned_best_parameter_correlated, _, unbinned_misc_correlated = fit(db, t, binned_tag, p0_tmp, chi2_func_correlated, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params, perform_jks_fit=False)
+                unbinned_best_parameter_correlated, _, unbinned_misc_correlated = fit(db, t, binned_tag, p0_tmp, chi2_func_correlated, config.fit_method, config.fit_params, perform_jks_fit=False)
                 unbinned_misc_correlated["fit_model"] = fit_model
                 unbinned_best_parameter_correlated = _sort_params(unbinned_best_parameter_correlated)
                 print_fit_results(unbinned_best_parameter_correlated, None, unbinned_misc_correlated, verbosity)
@@ -359,7 +351,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
         chi2_func = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W, Nt),
                      "sinh": lambda t,p,y: sinh_chi2(t, p, y, W, Nt),
                      "exp": lambda t,p,y: exp_chi2(t, p, y, W)}[fit_model]
-        best_parameter, best_parameter_jks, misc = fit(db, fit_range, binned_tag, p0, chi2_func, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params)
+        best_parameter, best_parameter_jks, misc = fit(db, fit_range, binned_tag, p0, chi2_func, config.fit_method, config.fit_params)
         misc["fit_model"] = fit_model
         best_parameter_cov = jackknife.covariance(db.as_array(best_parameter_jks))
         print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
@@ -376,7 +368,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
                     chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
                                         "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_correlated, Nt),
                                         "exp": lambda t,p,y: exp_chi2(t, p, y, W_correlated)}[fit_model]
-                    best_parameter_correlated, _, misc_correlated = fit(db, fit_range, binned_tag, p0, chi2_func_correlated, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params, perform_jks_fit=False)
+                    best_parameter_correlated, _, misc_correlated = fit(db, fit_range, binned_tag, p0, chi2_func_correlated, config.fit_method, config.fit_params, perform_jks_fit=False)
                     misc_correlated["fit_model"] = fit_model
                     print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
                     db.add_leaf(tag=f"{binned_tag}/{fit_model}_binned_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
@@ -399,7 +391,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
                         chi2_func_correlated = {"cosh": lambda t,p,y: cosh_chi2(t, p, y, W_correlated, Nt),
                                         "sinh": lambda t,p,y: sinh_chi2(t, p, y, W_correlated, Nt),
                                         "exp": lambda t,p,y: exp_chi2(t, p, y, W_correlated)}[fit_model]
-                        best_parameter_correlated, _, misc_correlated = fit(db, fit_range, binned_tag, p0, chi2_func_correlated, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params, perform_jks_fit=False)
+                        best_parameter_correlated, _, misc_correlated = fit(db, fit_range, binned_tag, p0, chi2_func_correlated, config.fit_method, config.fit_params, perform_jks_fit=False)
                         misc_correlated["fit_model"] = fit_model
                         print_fit_results(best_parameter_correlated, None, misc_correlated, verbosity)
                         db.add_leaf(tag=f"{binned_tag}/{fit_model}_unbinned_correlated_mean_fit", mean=best_parameter_correlated, jks=None, sample=None, misc=misc_correlated)
@@ -433,14 +425,11 @@ def _fit_bootstrap(db, t, mean, bss, p0, chi2_func, config: FitConfig, eval_offs
     if not eval_offset: 
         assert len(t) == len(mean)
     fitter = Fitter(config.fit_method, config.fit_params)
-    #fit_func = lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], p0)[0]
     def fit_func(y):
         return fitter.estimate_parameters(t, chi2_func, y[t_eval], p0)[0]
     best_parameter = fit_func(mean)
-    fitter_bss = Fitter(config.res_fit_method, config.res_fit_params)
-    #fit_func_bss = lambda y: fitter_bss.estimate_parameters(t, chi2_func, y[t_eval], best_parameter)[0]
     def fit_func_bss(y):
-        return fitter_bss.estimate_parameters(t, chi2_func, y[t_eval], best_parameter)[0]
+        return fitter.estimate_parameters(t, chi2_func, y[t_eval], best_parameter)[0]
     best_parameter_bss = db.combine_bss(bss, f=fit_func_bss)
     chi2 = chi2_func(t, best_parameter, mean[t_eval])
     dof = len(t) - len(best_parameter)
@@ -474,7 +463,7 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
         W = np.linalg.inv(np.diag(var))
         chi2_func = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W, Nt),
                      "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[fit_model_combined]
-        best_parameter, best_parameter_jks, misc = fit(db, fit_range_combined, binned_tag, p0, chi2_func, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params, eval_offset=False)
+        best_parameter, best_parameter_jks, misc = fit(db, fit_range_combined, binned_tag, p0, chi2_func, config.fit_method, config.fit_params, eval_offset=False)
         misc["fit_model_PSPS"] = fit_model_PS
         misc["fit_model_PSA4I"] = fit_model_A4I
         misc["fit_model"] = fit_model_combined
@@ -488,7 +477,7 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
                 W_correlated = np.linalg.inv(db.jackknife_covariance(binned_tag))
                 chi2_func_correlated = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated, Nt),
                                         "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated)}[fit_model_combined]
-                best_parameter_correlated, _, misc_correlated = fit(db, fit_range_combined, binned_tag, best_parameter, chi2_func_correlated, config.fit_method, config.fit_params, config.res_fit_method, config.res_fit_params, perform_jks_fit=False, eval_offset=False)
+                best_parameter_correlated, _, misc_correlated = fit(db, fit_range_combined, binned_tag, best_parameter, chi2_func_correlated, config.fit_method, config.fit_params, perform_jks_fit=False, eval_offset=False)
                 misc_correlated["fit_model_PSPS"] = fit_model_PS
                 misc_correlated["fit_model_PSA4I"] = fit_model_A4I
                 misc_correlated["fit_model"] = fit_model_combined

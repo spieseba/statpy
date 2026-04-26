@@ -38,7 +38,6 @@ class Fitter:
         opt_res = opt.minimize(lambda p: f(p, y), p0, method="Nelder-Mead", tol=self.min_params["tol"], options={"maxiter": self.min_params["maxiter"]})
         if opt_res.success is not True:
             raise ConvergenceError("Nelder-Mead did not converge")
-        assert opt_res.success == True
         return opt_res.x, opt_res.fun, None
 
     def _opt_Migrad(self, f, y, p0):
@@ -68,41 +67,55 @@ def model_prediction_var(t, best_parameter, best_parameter_cov, model_parameter_
 ########################################################################## STATPY DB #############################################################################
 ##################################################################################################################################################################
 
-def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, perform_jks_fit=True, eval_offset=True, dst_tag=None, verbosity=0):
-    if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
+def fit(db, t, tag, p0, chi2_func, fit_method, fit_params, perform_jks_fit=True, eval_offset=True, dst_tag=None, verbosity=0):
+    # --- input validation ---
+    if isinstance(p0, (list, tuple)):
+        p0 = np.asarray(p0, dtype=float)
+    elif not isinstance(p0, np.ndarray):
+        raise TypeError(f"'p0' must be list, tuple, or np.ndarray, got {type(p0).__name__}")
+    if p0.ndim != 1 or p0.size == 0:
+        raise ValueError(f"'p0' must be a non-empty 1-D array, got shape {p0.shape}")
+    if tag not in db.database:
+        raise KeyError(f"tag {tag!r} not in database")
+    n_data = len(db.database[tag].mean)
+    if not eval_offset and len(t) != n_data:
+        raise ValueError(
+            f"with eval_offset=False, len(t)={len(t)} must equal data length {n_data} for tag {tag!r}"
+        )
+    dof = len(t) - len(p0)
+    if dof <= 0:
+        raise ValueError(
+            f"non-positive degrees of freedom: len(t)={len(t)}, n_params={len(p0)}, dof={dof}"
+        )
+
+    # --- run fits ---
     t_eval = t if eval_offset else np.arange(len(t))
-    if not eval_offset: assert len(t) == len(db.database[tag].mean)
-    fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
-    best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], p0)[0])
-    best_parameter_jks = db.combine_jks(tag, f=lambda y: jks_fitter.estimate_parameters(t, chi2_func, y[t_eval], best_parameter)[0]) if perform_jks_fit else None
+    fitter = Fitter(fit_method, fit_params)
+    try:
+        best_parameter = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], p0)[0])
+    except ConvergenceError as e:
+        raise ConvergenceError(f"mean fit for tag {tag!r} did not converge: {e}") from e
+    if not np.isfinite(best_parameter).all():
+        raise ConvergenceError(f"mean fit for tag {tag!r} produced non-finite parameters: {best_parameter}")
+    if perform_jks_fit:
+        try:
+            best_parameter_jks = db.combine_jks(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], best_parameter)[0])
+        except ConvergenceError as e:
+            raise ConvergenceError(f"jackknife fit for tag {tag!r} did not converge: {e}") from e
+    else:
+        best_parameter_jks = None
+
     chi2 = chi2_func(t, best_parameter, db.database[tag].mean[t_eval])
-    dof = len(t) - len(best_parameter)
+    if not np.isfinite(chi2):
+        raise ConvergenceError(f"non-finite chi^2 = {chi2} for tag {tag!r}")
     pval = get_pvalue(chi2, dof)
     misc = {"t": t, "chi2": chi2, "dof": dof, "pval": pval}
-    if dst_tag is None:
-        return best_parameter, best_parameter_jks, misc
-    db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
-    best_parameter_cov = db.jackknife_covariance(dst_tag)
-    print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
 
-def fitMultiple(db, t_tags, y_tags, p0, chi2_func, fit_method, fit_params, jks_fit_method, jks_fit_params, perform_jks_fit=True, dst_tag=None, verbosity=0):
-    if isinstance(p0, list): p0 = np.array(p0); assert isinstance(p0, np.ndarray)
-    tags = np.concatenate((t_tags, y_tags))
-    fitter = Fitter(fit_method, fit_params); jks_fitter = Fitter(jks_fit_method, jks_fit_params)
-    def estimate_parameters(f, t, y, p):
-        t = np.array(t); y = np.array(y)
-        return f.estimate_parameters(t, chi2_func, y, p)[0]
-    best_parameter = db.combine_mean(*tags, f=lambda *tags: estimate_parameters(fitter, tags[:len(t_tags)], tags[len(t_tags):], p0)) 
-    best_parameter_jks = db.combine_jks(*tags, f=lambda *tags: estimate_parameters(jks_fitter, tags[:len(t_tags)], tags[len(t_tags):], best_parameter)) if perform_jks_fit else None
-    chi2 = chi2_func(np.array([db.database[tag].mean for tag in t_tags]), best_parameter, np.array([db.database[tag].mean for tag in y_tags]))
-    dof = len(t_tags) - len(best_parameter)
-    pval = get_pvalue(chi2, dof)
-    misc = {"t_tags": t_tags, "y_tags": y_tags, "chi2": chi2, "dof": dof, "pval": pval}
-    if dst_tag is None:
-        return best_parameter, best_parameter_jks, misc
-    db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
-    best_parameter_cov = db.jackknife_covariance(dst_tag)
-    print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
+    if dst_tag is not None:
+        db.add_leaf(dst_tag, best_parameter, best_parameter_jks, None, misc)
+        best_parameter_cov = db.jackknife_covariance(dst_tag)
+        print_fit_results(best_parameter, best_parameter_cov, misc, verbosity)
+    return best_parameter, best_parameter_jks, misc
 
 def print_fit_results(best_parameter, best_parameter_cov, misc, verbosity=0):
     if verbosity >= 0:
