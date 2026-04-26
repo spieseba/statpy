@@ -65,18 +65,3 @@ def get_tmax_signal_to_noise(mean, var, min_stn_val=100, tmin=15, debug=False):
         message(f"--- Signal to noise ratios: {signal_to_noise}")
         message(f"--- len(stn) = {len(signal_to_noise)}")
     return tmax
-
-
-def get_tmax_from_deviation(mt_mean, mt_var, tmax_stn, n, debug=False):
-    message(f"--- Check whether m(t+1) in [m(t) - n sigma, m(t) + n sigma] with n = {n} up to t = {tmax_stn}.")
-    diff_in_sigma = abs(mt_mean - np.roll(mt_mean,+1)) / (n * mt_var**.5)
-    is_in_range = (diff_in_sigma < 1)[:tmax_stn]
-    tmax = next((i for i,x in enumerate(is_in_range) if not x and (i > 15)), -1)
-    if tmax == -1:
-        tmax = tmax_stn
-        message(f"--- m(t+1) lies always in [m(t) - n sigma, m(t) + n sigma] with n = {n} up to t = {tmax_stn} -> return tmax = {tmax}")
-    else:
-        message(f"--- Found tmax = {tmax} -> can use first {tmax} time slices")
-    if debug: 
-        message(f"--- abs(m(t) - m(t-1)) / (n*sigma) up to t = {tmax_stn}:\n {diff_in_sigma[:tmax_stn]}")
-    return tmax
