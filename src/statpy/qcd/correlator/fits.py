@@ -106,7 +106,7 @@ def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
     return best, {"t": t, "chi2": chi2, "dof": dof, "pval": get_pvalue(chi2, dof)}
 
 
-def _fit_resamples(db, combiner, label, t, tag, seed, chi2_func, config, eval_offset):
+def _fit_resamples(combiner, label, t, tag, seed, chi2_func, config, eval_offset):
     """Run ``combiner(tag, f=...)`` to fit each resample, seeded with ``seed``.
 
     ``combiner`` is :meth:`combine_jks` or :meth:`combine_bss`; ``label``
@@ -129,7 +129,7 @@ def fit_jks(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
     Returns ``(best_parameter, best_parameter_jks, misc)``.
     """
     best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
-    best_jks = _fit_resamples(db, db.combine_jks, "jackknife", t, tag, best, chi2_func, config, eval_offset)
+    best_jks = _fit_resamples(db.combine_jks, "jackknife", t, tag, best, chi2_func, config, eval_offset)
     return best, best_jks, misc
 
 
@@ -142,7 +142,7 @@ def fit_bss(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
     Returns ``(best_parameter, best_parameter_bss, misc)``.
     """
     best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
-    best_bss = _fit_resamples(db, db.combine_bss, "bootstrap", t, tag, best, chi2_func, config, eval_offset)
+    best_bss = _fit_resamples(db.combine_bss, "bootstrap", t, tag, best, chi2_func, config, eval_offset)
     return best, best_bss, misc
 
 
