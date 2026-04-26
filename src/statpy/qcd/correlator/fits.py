@@ -36,6 +36,13 @@ from statpy.qcd.correlator._masking import (
 )
 
 
+@dataclass
+class FitConfig:
+    fit_method: str = "Nelder-Mead"
+    fit_params: dict = field(default_factory=lambda: {"maxiter": 5000, "tol": 1e-07})
+    bootstrap_available: bool = True
+
+
 def _make_chi2(fit_model, W, Nt):
     """Return a chi^2 lambda(t, p, y) for the given fit model + weight matrix."""
     if fit_model == "double-cosh": 
@@ -53,99 +60,89 @@ def _make_chi2(fit_model, W, Nt):
     raise ValueError(f"Unknown fit_model: {fit_model!r}")
 
 
-def fit_mean(db, t, tag, p0, chi2_func, config: "FitConfig", eval_offset=True):
+def _make_slicer(t, eval_offset):
+    """Return ``y -> y[t]`` if ``eval_offset`` else ``y -> y`` (data already sliced)."""
+    return (lambda y: y[t]) if eval_offset else (lambda y: y)
+
+
+def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
     """Fit the mean of the leaf at ``tag``.
 
     Returns ``(best_parameter, misc)``. ``misc`` carries
     ``{"t", "chi2", "dof", "pval"}``.
 
     Raises:
-        TypeError: ``p0`` is not list/tuple/ndarray.
-        ValueError: ``p0`` empty or non-1D, ``len(t)`` mismatch when
-            ``eval_offset=False``, or non-positive degrees of freedom.
-        KeyError: ``tag`` not in ``db.database``.
-        ConvergenceError: mean fit did not converge or produced
-            non-finite parameters / chi^2.
+        ValueError: ``p0`` not 1-D / empty / non-numeric, ``len(t)`` mismatch
+            when ``eval_offset=False``, or non-positive degrees of freedom.
+        KeyError: ``tag`` not in ``db.database`` (raised by ``combine_mean``).
+        ConvergenceError: fit did not converge or produced non-finite
+            parameters / chi^2.
     """
-    if isinstance(p0, (list, tuple)):
-        p0 = np.asarray(p0, dtype=float)
-    elif not isinstance(p0, np.ndarray):
-        raise TypeError(f"'p0' must be list, tuple, or np.ndarray, got {type(p0).__name__}")
+    p0 = np.asarray(p0, dtype=float)
     if p0.ndim != 1 or p0.size == 0:
         raise ValueError(f"'p0' must be a non-empty 1-D array, got shape {p0.shape}")
-    if tag not in db.database:
-        raise KeyError(f"tag {tag!r} not in database")
-    n_data = len(db.database[tag].mean)
-    if not eval_offset and len(t) != n_data:
+    if not eval_offset and len(t) != len(db.database[tag].mean):
         raise ValueError(
-            f"with eval_offset=False, len(t)={len(t)} must equal data length {n_data} for tag {tag!r}"
+            f"with eval_offset=False, len(t)={len(t)} must equal data length "
+            f"{len(db.database[tag].mean)} for tag {tag!r}"
         )
-    dof = len(t) - len(p0)
+    dof = len(t) - p0.size
     if dof <= 0:
         raise ValueError(
-            f"non-positive degrees of freedom: len(t)={len(t)}, n_params={len(p0)}, dof={dof}"
+            f"non-positive degrees of freedom: len(t)={len(t)}, n_params={p0.size}, dof={dof}"
         )
 
-    t_eval = t if eval_offset else np.arange(len(t))
+    sl = _make_slicer(t, eval_offset)
     fitter = Fitter(config.fit_method, config.fit_params)
     try:
-        best = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], p0)[0])
+        best = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, sl(y), p0)[0])
     except ConvergenceError as e:
         raise ConvergenceError(f"mean fit for tag {tag!r} did not converge: {e}") from e
     if not np.isfinite(best).all():
         raise ConvergenceError(f"mean fit for tag {tag!r} produced non-finite parameters: {best}")
-    chi2 = chi2_func(t, best, db.database[tag].mean[t_eval])
+    chi2 = chi2_func(t, best, sl(db.database[tag].mean))
     if not np.isfinite(chi2):
         raise ConvergenceError(f"non-finite chi^2 = {chi2} for tag {tag!r}")
-    misc = {"t": t, "chi2": chi2, "dof": dof, "pval": get_pvalue(chi2, dof)}
-    return best, misc
+    return best, {"t": t, "chi2": chi2, "dof": dof, "pval": get_pvalue(chi2, dof)}
 
 
-def fit_jks(db, t, tag, p0, chi2_func, config: "FitConfig", eval_offset=True):
-    """Fit mean + jackknife resamples for the leaf at ``tag``.
+def _fit_resamples(db, combiner, label, t, tag, seed, chi2_func, config, eval_offset):
+    """Run ``combiner(tag, f=...)`` to fit each resample, seeded with ``seed``.
 
-    Internally fits the mean via :func:`fit_mean`, then fits each
-    jackknife sample seeded from the mean's best parameter.
-
-    Returns ``(best_parameter, best_parameter_jks, misc)``.
-
-    Raises:
-        Same as :func:`fit_mean`, plus ``ConvergenceError`` if any
-        jackknife sample fit fails.
+    ``combiner`` is :meth:`combine_jks` or :meth:`combine_bss`; ``label``
+    ("jackknife" / "bootstrap") is used only in the error message.
     """
-    best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
-    t_eval = t if eval_offset else np.arange(len(t))
+    sl = _make_slicer(t, eval_offset)
     fitter = Fitter(config.fit_method, config.fit_params)
     try:
-        best_jks = db.combine_jks(
-            tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], best)[0]
-        )
+        return combiner(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, sl(y), seed)[0])
     except ConvergenceError as e:
-        raise ConvergenceError(f"jackknife fit for tag {tag!r} did not converge: {e}") from e
+        raise ConvergenceError(f"{label} fit for tag {tag!r} did not converge: {e}") from e
+
+
+def fit_jks(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
+    """Fit the mean and the jackknife resamples for the leaf at ``tag``.
+
+    Mean is fit first (via :func:`fit_mean`); each jackknife sample is then
+    fit seeded from the mean's best parameter.
+
+    Returns ``(best_parameter, best_parameter_jks, misc)``.
+    """
+    best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
+    best_jks = _fit_resamples(db, db.combine_jks, "jackknife", t, tag, best, chi2_func, config, eval_offset)
     return best, best_jks, misc
 
 
-def fit_bss(db, t, tag, p0, chi2_func, config: "FitConfig", eval_offset=True):
-    """Fit mean + bootstrap resamples for the leaf at ``tag``.
+def fit_bss(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
+    """Fit the mean and the bootstrap resamples for the leaf at ``tag``.
 
-    Internally fits the mean via :func:`fit_mean`, then fits each
-    bootstrap sample seeded from the mean's best parameter.
+    Mean is fit first (via :func:`fit_mean`); each bootstrap sample is then
+    fit seeded from the mean's best parameter.
 
     Returns ``(best_parameter, best_parameter_bss, misc)``.
-
-    Raises:
-        Same as :func:`fit_mean`, plus ``ConvergenceError`` if any
-        bootstrap sample fit fails.
     """
     best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
-    t_eval = t if eval_offset else np.arange(len(t))
-    fitter = Fitter(config.fit_method, config.fit_params)
-    try:
-        best_bss = db.combine_bss(
-            tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, y[t_eval], best)[0]
-        )
-    except ConvergenceError as e:
-        raise ConvergenceError(f"bootstrap fit for tag {tag!r} did not converge: {e}") from e
+    best_bss = _fit_resamples(db, db.combine_bss, "bootstrap", t, tag, best, chi2_func, config, eval_offset)
     return best, best_bss, misc
 
 
@@ -276,13 +273,6 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
         unbinned_corr_spec.mean = unbinned_best
         unbinned_corr_spec.misc = unbinned_misc
     return t_crit, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter
-
-
-@dataclass
-class FitConfig:
-    fit_method: str = "Nelder-Mead"
-    fit_params: dict = field(default_factory=lambda: {"maxiter": 5000, "tol": 1e-07})
-    bootstrap_available: bool = True
 
 
 # ---------------------------------------------------------------------------
