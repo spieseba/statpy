@@ -3,7 +3,10 @@ import numpy as np
 from statpy.log import message
 
 
-### periodic boundary conditions ###
+# ---------------------------------------------------------------------------
+# periodic boundary conditions
+# ---------------------------------------------------------------------------
+
 def meff_cosh(Ct, ax=0):
     with np.errstate(invalid='ignore'):
         return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
@@ -19,7 +22,10 @@ def meff_sinh(Ct):
     eff_m = np.arcsinh(Ct/Ct[Nt-1])
     return np.abs(np.roll(eff_m, -1) - eff_m)
 
-### open boundary conditions ###
+# ---------------------------------------------------------------------------
+# open boundary conditions
+# ---------------------------------------------------------------------------
+
 def meff_exp_forward(Ct, ax=0):
     with np.errstate(divide='ignore', invalid='ignore'):
         return np.log(Ct / np.roll(Ct, -1, axis=ax))

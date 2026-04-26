@@ -15,7 +15,9 @@ fit_model_dict = {
 }
 
 
-############################## cosh model to fit correlator with periodic boundary conditions ###########################
+# ---------------------------------------------------------------------------
+# cosh model to fit correlator with periodic boundary conditions
+# ---------------------------------------------------------------------------
 
 # C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1]
 class cosh_model:
@@ -32,7 +34,9 @@ def cosh_chi2(t, p, y, W, Nt):
     return (model - y) @ W @ (model - y)
 
 
-########################## double cosh model to fit correlator with periodic boundary conditions ########################
+# ---------------------------------------------------------------------------
+# double cosh model to fit correlator with periodic boundary conditions
+# ---------------------------------------------------------------------------
 
 # C(t) = A0 * [exp(-m0 t) + exp(-m0(Nt-t))] + A1 * [exp(-m1 t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
 class double_cosh_model():
@@ -50,7 +54,9 @@ def double_cosh_chi2(t, p, y, W, Nt):
     return (model - y) @ W @ (model - y)
 
 
-############################## sinh model to fit correlator with periodic boundary conditions ###########################
+# ---------------------------------------------------------------------------
+# sinh model to fit correlator with periodic boundary conditions
+# ---------------------------------------------------------------------------
 
 # C(t) = A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]
 class sinh_model:
@@ -67,7 +73,9 @@ def sinh_chi2(t, p, y, W, Nt):
     return (model - y) @ W @ (model - y)
 
 
-########################## double sinh model to fit correlator with periodic boundary conditions ########################
+# ---------------------------------------------------------------------------
+# double sinh model to fit correlator with periodic boundary conditions
+# ---------------------------------------------------------------------------
 
 # C(t) = A0 * [exp(-m0 t) - exp(-m0(Nt-t))] + A1 * [exp(-m1 t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
 class double_sinh_model():
@@ -87,7 +95,9 @@ def double_sinh_chi2(t, p, y, W, Nt):
     return (model - y) @ W @ (model - y)
 
 
-################################ exp model to fit correlator with open boundary conditions ##############################
+# ---------------------------------------------------------------------------
+# exp model to fit correlator with open boundary conditions
+# ---------------------------------------------------------------------------
 
 # f(t) = A * exp(-mt); A = p[0]; m = p[1]
 class exp_model:
@@ -104,7 +114,9 @@ def exp_chi2(t, p, y, W):
     return (model - y) @ W @ (model - y)
 
 
-############################ double exp model to fit correlator with open boundary conditions ###########################
+# ---------------------------------------------------------------------------
+# double exp model to fit correlator with open boundary conditions
+# ---------------------------------------------------------------------------
 
 # C(t) = A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
 class double_exp_model:
@@ -121,7 +133,9 @@ def double_exp_chi2(t, p, y, W):
     return (model - y) @ W @ (model - y)
 
 
-####################################### const model to fit effective mass plateau #######################################
+# ---------------------------------------------------------------------------
+# const model to fit effective mass plateau
+# ---------------------------------------------------------------------------
 
 class const_model:
         def __init__(self):
@@ -136,7 +150,9 @@ def const_chi2(t, p, y, W):
     return (p[0] - y) @ W @ (p[0] - y)
 
 
-####################################### const plus exp model to fit effective mass plateau #######################################
+# ---------------------------------------------------------------------------
+# const plus exp model to fit effective mass plateau
+# ---------------------------------------------------------------------------
 
 def const_plus_exp(t, p):
     return p[0] * np.exp(-p[1] * t) + p[2]
@@ -147,9 +163,13 @@ def const_plus_exp_chi2(t, p, y, W):
         return (model - y) @ W @ (model - y)
 
 
-#################################################### combined models ####################################################
+# ---------------------------------------------------------------------------
+# combined models
+# ---------------------------------------------------------------------------
 
-############## periodic boundary conditions #############
+# ---------------------------------------------------------------------------
+# periodic boundary conditions
+# ---------------------------------------------------------------------------
 
 # C0(t) = A0 * [exp(-mt) + exp(-m(Nt-t))]; A0 = p[0]; m = p[2]
 # C1(t) = A1 * [exp(-mt) - exp(-m(Nt-t))]; A1 = p[1]; m = p[2]
@@ -170,7 +190,9 @@ def combined_cosh_sinh_chi2(t0, t1, p, y, W, Nt):
     model = np.hstack((f0,f1))
     return (model - y) @ W @ (model - y)
 
-################ open boundary conditions ###############
+# ---------------------------------------------------------------------------
+# open boundary conditions
+# ---------------------------------------------------------------------------
 
 # C0(t) = A0 * exp(-mt); A0 = p[0]; m = p[2]
 # C1(t) = A1 * exp(-mt); A1 = p[1]; m = p[2]
