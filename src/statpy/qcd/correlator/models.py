@@ -142,8 +142,9 @@ def const_plus_exp(t, p):
     return p[0] * np.exp(-p[1] * t) + p[2]
 
 def const_plus_exp_chi2(t, p, y, W):
-    model = p[0] * np.exp(-p[1] * t) + p[2]
-    return (model - y) @ W @ (model - y)
+    with np.errstate(over='ignore', invalid='ignore'):
+        model = p[0] * np.exp(-p[1] * t) + p[2]
+        return (model - y) @ W @ (model - y)
 
 
 #################################################### combined models ####################################################

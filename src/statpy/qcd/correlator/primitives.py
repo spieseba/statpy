@@ -5,12 +5,14 @@ from statpy.log import message
 
 ### periodic boundary conditions ###
 def meff_cosh(Ct, ax=0):
-    return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
+    with np.errstate(invalid='ignore'):
+        return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
 
 # spectrum paper
 def meff_cosh_midpoint(Ct, a=1):
     Nt = len(Ct)
-    return np.abs((np.arccosh(np.roll(Ct,a)/Ct[Nt//2]) - np.arccosh(np.roll(Ct,-a)/Ct[Nt//2]))) / (2. * a)
+    with np.errstate(invalid='ignore'):
+        return np.abs((np.arccosh(np.roll(Ct,a)/Ct[Nt//2]) - np.arccosh(np.roll(Ct,-a)/Ct[Nt//2]))) / (2. * a)
 
 def meff_sinh(Ct):
     Nt = len(Ct)
