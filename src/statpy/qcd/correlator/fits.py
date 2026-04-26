@@ -18,6 +18,7 @@ from statpy.statistics import jackknife, bootstrap
 from statpy.qcd.correlator.primitives import (
     meff_cosh, meff_exp_forward, meff_exp_symmetric,
     Aeff_cosh, Aeff_sinh, Aeff_exp,
+    fold_correlator,
 )
 from statpy.qcd.correlator.models import (
     fit_model_dict,
@@ -311,7 +312,6 @@ def correlator_avg_obc(db, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiper
 
 
 def fold_correlator_leaf(db, Ct_tag, antiperiodic=False):
-    from statpy.qcd.correlator.primitives import fold_correlator
     message(f"Fold correlator {Ct_tag}.")
     db.combine_sample(Ct_tag, f=lambda Ct: fold_correlator(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
 
