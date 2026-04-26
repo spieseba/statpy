@@ -16,7 +16,7 @@ def _parse_cfg_id(name):
         raise ValueError(f"Cannot parse cfg id from name: {name!r}")
     return int(m.group(1))
 
-def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_removed=None, meas_group="messpec", verbosity=0):
+def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_removed=None, meas_group="messpec", silent=False):
     """Load CLS hdf5 measurements + reweighting factors into a fresh ``DB``.
 
     For each pattern in ``correlator_patterns``, every dataset under
@@ -41,7 +41,8 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         cfgs_to_be_removed: Iterable of integer cfg ids to drop, or None.
         meas_group: Top-level hdf5 group, e.g. ``"messpec"`` (mesons) or
             ``"barspec"`` (baryons). Default ``"messpec"``.
-        verbosity: Forwarded to the underlying ``DB``/``add_leaf`` calls.
+        silent: Forwarded to the underlying ``DB``/``add_leaf`` calls;
+            ``True`` suppresses all log output.
 
     Returns:
         A ``DB`` populated with the rwf leaf, nrwf leaf, and one leaf per
@@ -90,10 +91,10 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
             rwf[rwf_mask],
         ))
         # database
-        db = DB(verbosity=verbosity)
+        db = DB(silent=silent)
         db.add_leaf(tag=f"{stream_tag}/rwf", mean=None, jks=None, sample=rwf, misc=None)
         db.add_nrwf(rwf_tag=f"{stream_tag}/rwf")
-        _populate_data(db, f, f_cfgs, common_cfgs, correlator_patterns, stream_tag, run_tag, verbosity)
+        _populate_data(db, f, f_cfgs, common_cfgs, correlator_patterns, stream_tag, run_tag, silent)
     message("---------------------------------")
     return db
 
@@ -145,6 +146,19 @@ def _load_rwms(fn):
     return rwf_cfgs, rwf
 
 
+def parse_bootstrap_file(fn):
+    """Parse a CLS-style ``.boot.txt`` file.
+
+    Returns ``(bootstraps, configlist)``: the integer bootstrap-index
+    matrix plus the configuration label list parsed from line 4 of the
+    header.
+    """
+    bootstraps = np.loadtxt(fn, dtype=int)
+    with open(fn) as f:
+        configlist = f.readlines()[3][:-1].replace("n", "-").split(" ")[1:]
+    return bootstraps, configlist
+
+
 def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
     """Verify hdf5 and rwf cfg sets match; return cfg ids in rwf order.
 
@@ -159,7 +173,7 @@ def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
     return np.array(rwf_cfgs_filtered)
 
 
-def _populate_data(db, f, h5_cfgs, common_cfgs, correlator_patterns, stream_tag, run_tag, verbosity):
+def _populate_data(db, f, h5_cfgs, common_cfgs, correlator_patterns, stream_tag, run_tag, silent):
     """Add a leaf for every ``f["data"]`` key matching a correlator pattern.
 
     Each leaf's sample dict is keyed by ``f"{stream_tag}-{cfg_id}"`` and
@@ -175,7 +189,7 @@ def _populate_data(db, f, h5_cfgs, common_cfgs, correlator_patterns, stream_tag,
                 f_vals = f["data"].get(key)[:]
                 sample = dict(zip(sample_keys, f_vals[h5_mask]))
                 f_tag = f"{stream_tag}/{run_tag}/{key}"
-                db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, verbosity=verbosity)
+                db.add_leaf(tag=f_tag, mean=None, jks=None, sample=sample, misc=None, weights_tag=f"{stream_tag}/nrwf", silent=silent)
 
 
 

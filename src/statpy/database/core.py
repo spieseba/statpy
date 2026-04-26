@@ -18,111 +18,86 @@ from statpy.statistics import jackknife, bootstrap
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, verbosity=0, sorting_key="default", stream_order=None, reverse_order=None, dev_mode=False, repo_path=None):
+    def __init__(self, *args, num_proc=None, silent=False, stream_order=None, reverse_order=None, repo_path=None):
         self.t0 = time()
         self.num_proc = num_proc
-        self.verbosity = verbosity
-        self.sorting_key = lambda tag: default_sorting_key(tag[0], custom_major_order=stream_order, reverse_minor_order=reverse_order) if sorting_key == "default" else sorting_key
-        self.dev_mode = dev_mode
-        self.database = {} 
+        self.silent = silent
+        self._sort_key = lambda tag: _cls_sorting_key(tag, custom_major_order=stream_order, reverse_minor_order=reverse_order)
+        self.database = {}
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
-        if dev_mode: message(f"DEVELOPMENT MODE IS ACTIVATED - LEAFS CAN BE REPLACED")
         for src in args:
-            # init db using src files
             if isinstance(src, str):
                 self.load(src)
-            # init db using src database
-            if isinstance(src, DB):
-                self.merge(src)
+            elif isinstance(src, DB):
+                for t, lf in src.database.items():
+                    self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, bss=lf.bss, weights_tag=lf.weights_tag, silent=self.silent)
 
-    def load(self, *srcs):
-        for src in srcs:
-            message(f"Load {src}", self.verbosity)
-            assert os.path.isfile(src), f"{src} not found."
-            with open(src) as f:
-                src_db = json.load(f)
-            for t, lf in src_db.items():
-                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
+    def load(self, src):
+        """Load a JSON snapshot saved by :func:`save` and add every leaf."""
+        message(f"Load {src}", self.silent)
+        if not os.path.isfile(src):
+            raise FileNotFoundError(f"{src} not found")
+        with open(src) as f:
+            src_db = json.load(f)
+        for t, lf in src_db.items():
+            self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, bss=lf.bss, weights_tag=lf.weights_tag, silent=self.silent)
 
-    def merge(self, *srcs):
-        for src in srcs:
-            for t, lf in src.database.items():
-                message(f"Merge {t} into database.", verbosity=self.verbosity-1)
-                self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, verbosity=self.verbosity)
-
-    def save(self, dst, with_sample=True):
-        db = {}
-        for tag, lf in self.database.items():
-            sample = lf.sample if with_sample else None
-            misc = dict(lf.misc) if lf.misc is not None else dict(); misc["tag"] = tag
-            self.add_leaf(tag, lf.mean, lf.jks, sample, lf.misc, database=db, verbosity=self.verbosity-1)
+    def save(self, dst):
+        """Write the entire database (all fields, including samples) to ``dst``."""
         with open(dst, "w") as f:
-            json.dump(db, f)
+            json.dump(self.database, f)
 
-    def add_leaf(self, tag, mean, jks, sample, misc, database=None, verbosity=None):
-        verbosity = self.verbosity if verbosity is None else verbosity
+    def add_leaf(self, tag, mean, jks, sample, misc, bss=None, weights_tag=None, database=None, silent=None):
+        silent = self.silent if silent is None else silent
         db = self.database if database is None else database
-        if tag not in db or self.dev_mode:
+        if tag not in db:
             assert (isinstance(sample, dict) or sample is None)
             assert (isinstance(jks, dict) or jks is None)
             assert (isinstance(misc, dict) or misc is None)
-            if "rwf" in tag:
-                message(f"Add reweighting factors {tag} to database.", verbosity)
-                db[tag] = Leaf(None, None, sample, None)
-            else:
-                if sample is not None:
-                    if jks is None:
-                        sample_arr = self.as_array(sample)
-                        nrwf_arr = self.as_array(self.get_nrwf(tag))
-                        jks_arr = jackknife.sample(sample_arr, weights=nrwf_arr); jks = {cfg:jk for cfg,jk in zip(sample,jks_arr)}
-                        if mean is None:
-                            mean = np.mean(jks_arr, axis=0)
-                message(f"Add {tag} to database.", verbosity)                      
-                db[tag] = Leaf(mean, jks, sample, misc) 
+            # Auto-compute jks from sample when the leaf carries a weights reference.
+            # Leaves without weights_tag (rwf, nrwf, fit results, ...) skip this path.
+            if sample is not None and jks is None and weights_tag is not None:
+                sample_arr = self.as_array(sample)
+                nrwf_arr = self.as_array(self.database[weights_tag].sample)
+                jks_arr = jackknife.sample(sample_arr, weights=nrwf_arr)
+                jks = {cfg: jk for cfg, jk in zip(sample, jks_arr)}
+                if mean is None:
+                    mean = np.mean(jks_arr, axis=0)
+            message(f"Add {tag} to database.", silent)
+            db[tag] = Leaf(mean, jks, sample, bss=bss, misc=misc, weights_tag=weights_tag)
         else:
-            message(f"{tag} already in database. Leaf not added.", verbosity)
+            message(f"{tag} already in database. Leaf not added.", silent)
 
-    def remove_leaf(self, tag, verbosity=None):
-        verbosity = self.verbosity if verbosity is None else verbosity
+    def remove_leaf(self, tag, silent=None):
+        silent = self.silent if silent is None else silent
         if tag in self.database:
-            message(f"remove {tag} from database.", verbosity)
+            message(f"remove {tag} from database.", silent)
             del self.database[tag]
         else:
-            message(f"{tag} not in database.", verbosity)
+            message(f"{tag} not in database.", silent)
 
-    def rename_leaf(self, old, new, verbosity=None):
-        verbosity = self.verbosity if verbosity is None else verbosity
+    def rename_leaf(self, old, new, silent=None):
+        silent = self.silent if silent is None else silent
         if old in self.database:
             if new not in self.database:
-                old_lf = self.database[old]                
-                self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc, verbosity=verbosity)
-                self.remove_leaf(old, verbosity)
+                old_lf = self.database[old]
+                self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc, bss=old_lf.bss, weights_tag=old_lf.weights_tag, silent=silent)
+                self.remove_leaf(old, silent)
             else:
-                message(f"{new} already in database. Leaf not added.", verbosity)
+                message(f"{new} already in database. Leaf not added.", silent)
         else:
-            message(f"{old} not in database.", verbosity)
- 
-    ################################## VERBOSITY #######################################
-   
-    def print(self, pattern=".*", verbosity=None):
-        verbosity = self.verbosity if verbosity is None else verbosity
-        message(self.__str__(pattern, verbosity))    
-    
-    def __str__(self, pattern, verbosity):
+            message(f"{old} not in database.", silent)
+
+
+    def print(self, pattern=".*"):
+        message(self.__str__(pattern))
+
+    def __str__(self, pattern):
         s = '\n\n\tDatabase consists of\n\n'
         for tag, lf in self.database.items():
             if re.search(pattern, tag):
                 s += f'\t{tag:20s}\n'
-                if verbosity >= 1:
-                    if np.array(lf.mean).any() != None:
-                        s += f'\t└── mean\n'
-                    if np.array(lf.jks).any() != None:
-                        s += f'\t└── jks\n'
-                    if np.array(lf.sample).any() != None:
-                        s += f'\t└── sample\n' 
-                    if lf.misc != None:
-                        s += f'\t└── misc\n'
         return s
 
     def print_misc(self, tag):
@@ -142,21 +117,35 @@ class DB:
         return [tag for tag in self.database.keys() if re.search(pattern, tag)]
  
     def as_array(self, dictionary):
-        sorted_d = dict(sorted(dictionary.items(), key=self.sorting_key))
+        sorted_d = dict(sorted(dictionary.items(), key=lambda kv: self._sort_key(kv[0])))
         if isinstance(next(iter(sorted_d.values())), np.ma.MaskedArray):
             return np.ma.array(list(sorted_d.values()))
         return np.array(list(sorted_d.values()))
 
     ################################ JKS ######################################
     
-    def combine(self, *tags, f=lambda x: x, dst_tag=None, combine_bss=False):
+    def combine(self, *tags, f=lambda x: x, dst_tag=None):
+        """Combine ``f`` across mean, jackknife, and (when available) bootstrap
+        samples of ``tags``.
+
+        Bootstrap combination is performed only when every input leaf carries
+        a stored ``bss`` (e.g. bootstrap-fit results). For raw-data leaves
+        without stored ``bss``, call :func:`combine_bss` explicitly.
+
+        Returns ``(mean, jks, bss)`` where ``bss`` is ``None`` when not
+        combined. If ``dst_tag`` is given, the result is additionally added
+        as a leaf at ``dst_tag``.
+        """
         mean = self.combine_mean(*tags, f=f)
         jks = self.combine_jks(*tags, f=f)
-        # combine bootstrap
-        misc = self.combine_bss() if combine_bss else None
-        if dst_tag is None:
-            return mean, jks, misc
-        self.add_leaf(dst_tag, mean, jks, None, misc)
+        bss = (
+            self.combine_bss(*tags, f=f)
+            if all(self.database[tag].bss is not None for tag in tags)
+            else None
+        )
+        if dst_tag is not None:
+            self.add_leaf(dst_tag, mean, jks, None, None, bss=bss)
+        return mean, jks, bss
 
     def combine_mean(self, *tags, f=lambda x: x):
         lfs = [self.database[tag] for tag in tags]
@@ -172,24 +161,33 @@ class DB:
         else:
             def wrapped_f(cfg, *x):
                 return cfg, f(*x)
-            message(f"Spawn {self.num_proc} processes to compute jackknife sample.", verbosity=self.verbosity-1)
+            message(f"Spawn {self.num_proc} processes to compute jackknife sample.", silent=True)
             with multiprocessing.Pool(self.num_proc) as pool:
                 jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
         return jks
     
-    def combine_bss(self, src, f=lambda x: x):
-        if isinstance(src, str):
-            bss = self.bss(src) 
-        elif isinstance(src, np.ndarray):
-            bss = src
-        else: 
-            assert 0, "Invalid bss type."
+    def combine_bss(self, *tags, f=lambda x: x):
+        """Apply ``f`` to bootstrap samples of one or more leaves.
+
+        For each ``tag``, uses ``lf.bss`` if set (e.g. fit-result leaves)
+        or computes ``db.bss(tag)`` from the sample (raw-data leaves).
+        ``f`` receives the bootstrap value of each input leaf at the
+        same bootstrap index, parallel to :func:`combine_jks`.
+        """
+        bsses = []
+        for tag in tags:
+            lf = self.database[tag]
+            if lf.bss is not None:
+                bsses.append(lf.bss)
+            elif lf.sample is not None:
+                bsses.append(self.bss(tag))
+            else:
+                raise ValueError(f"leaf {tag!r} has neither sample nor bss")
+        n_bs = bsses[0].shape[0]
         if self.num_proc is None:
-            return np.array([f(bs) for bs in bss])
-        else:
-            with multiprocessing.Pool(self.num_proc) as pool:
-                result = pool.map(f, bss)
-            return np.array(result)
+            return np.array([f(*[bs[i] for bs in bsses]) for i in range(n_bs)])
+        with multiprocessing.Pool(self.num_proc) as pool:
+            return np.array(pool.starmap(f, [tuple(bs[i] for bs in bsses) for i in range(n_bs)]))
 
     ############################### SAMPLE ####################################
     
@@ -202,12 +200,13 @@ class DB:
             raise AssertionError
         jks = self.jks(tag, binsize)
         mean = np.mean(jks, axis=0)
+        src_lf = self.database[tag]
         binned_tag = f"{tag}/binsize{binsize}"; branch_tag = tag.split("/")[0]
-        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=self.database[tag].misc)
+        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=src_lf.misc, weights_tag=src_lf.weights_tag)
         return binned_tag
 
-    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, parallel=False, verbosity=None):
-        verbosity = self.verbosity if verbosity is None else verbosity
+    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, parallel=False, silent=None):
+        silent = self.silent if silent is None else silent
         lfs = [self.database[tag] for tag in tags]
         cfgs = np.unique(np.concatenate([list(lf.sample.keys()) for lf in lfs]))
         xs = {cfg:[lf.sample[cfg] if cfg in lf.sample else lf.mean for lf in lfs] for cfg in cfgs}
@@ -216,22 +215,22 @@ class DB:
         else:
             def wrapped_f(cfg, *x):
                 return cfg, f(*x)
-            message(f"Spawn {self.num_proc} processes to compute sample.", self.verbosity-1)
+            message(f"Spawn {self.num_proc} processes to compute sample.", silent=True)
             with multiprocessing.Pool(self.num_proc) as pool:
                 sample = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
         if dst_tag is None:
             return sample
-        self.add_leaf(dst_tag, None, None, sample, None, verbosity=verbosity)
+        self.add_leaf(dst_tag, None, None, sample, None, weights_tag=lfs[0].weights_tag, silent=silent)
 
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
         lfs = [self.database[tag] for tag in tags]
         if dst_cfgs is None:
-            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=self.sorting_key))
+            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=lambda kv: self._sort_key(kv[0])))
         else:
             sample = {cfg:val for cfg,val in zip(dst_cfgs, np.concatenate([self.as_array(lf.sample) for lf in lfs], axis=0))}
         if dst_tag is None:
-            return sample        
-        self.add_leaf(dst_tag, None, None, sample, None)     
+            return sample
+        self.add_leaf(dst_tag, None, None, sample, None, weights_tag=lfs[0].weights_tag)
 
     def remove_cfgs(self, *cfgs, tag=None, dst_tag=None):
         self.rename_leaf(tag, f"{tag}/tmp")
@@ -241,24 +240,25 @@ class DB:
             sample.pop(str(cfg), None)
         if dst_tag is None:
             return sample, misc
-        self.add_leaf(dst_tag, None, None, sample, misc)
+        self.add_leaf(dst_tag, None, None, sample, misc, weights_tag=lf.weights_tag)
 
-    def get_cfgs(self, tag, numeric=False):
+    def get_cfgs(self, tag):
         lf = self.database[tag]
         obj = lf.jks if lf.jks is not None else lf.sample
-        if numeric:
-            return sorted([self.sorting_key(x) for x in obj.items()])
-        return [x[0] for x in sorted(list(obj.items()), key=self.sorting_key)]
+        return [k for k, _ in sorted(obj.items(), key=lambda kv: self._sort_key(kv[0]))]
 
     ################################ RWF ######################################
         
-    def add_nrwf(self, rwf_tag, verbosity=None):
-        verbosity = self.verbosity if verbosity is None else verbosity
+    def add_nrwf(self, rwf_tag, silent=None):
+        silent = self.silent if silent is None else silent
         rwf = self.database[rwf_tag].sample; n = np.mean(self.as_array(rwf))
-        self.add_leaf(tag=rwf_tag.replace("rwf","nrwf"), mean=None, jks=None, sample={cfg:rwf/n for cfg,rwf in rwf.items()}, misc=None, verbosity=verbosity)
+        self.add_leaf(tag=rwf_tag.replace("rwf","nrwf"), mean=None, jks=None, sample={cfg:rwf/n for cfg,rwf in rwf.items()}, misc=None, silent=silent)
 
     def get_nrwf(self, tag):
-        return self.database[f"{tag.split('/')[0]}/nrwf"].sample
+        weights_tag = self.database[tag].weights_tag
+        if weights_tag is None:
+            raise KeyError(f"leaf {tag!r} has no weights_tag set")
+        return self.database[weights_tag].sample
     
     ################################## STATISTICS ######################################
 
@@ -287,51 +287,46 @@ class DB:
             var[b] = self.jackknife_variance(tag, b)
         return var
     
-    def load_bootstrap(self, branch_tag, fn):
-        bootstraps = np.loadtxt(fn, dtype=int)
-        with open(fn, "r") as f:
-            configlist = f.readlines()[3][:-1].replace("n", "-").split(" ")[1:]
-        message(f"Add bootstraps for {branch_tag} from {fn} to database.")
-        self.add_leaf(f"{branch_tag}/bootstraps", mean=bootstraps, jks=None, sample=None, misc={"configlist": configlist})
-        #self.database[f"{branch_tag}/bootstraps"].mean
-
     def add_bootstrap(self, branch_tag, bootstraps, configlist):
         message(f"Add bootstraps for {branch_tag} to database.")
         self.add_leaf(f"{branch_tag}/bootstraps", mean=bootstraps, jks=None, sample=None, misc={"configlist": configlist})
-        #self.database[f"{branch_tag}/bootstraps"].mean 
 
     def bss(self, tag):
         assert "binsize" not in tag, "Can only compute bss for unbinned leafs"
         lf = self.database[tag]
         bootstraps = self.database[f"{tag.split('/')[0]}/bootstraps"].mean
-        return bootstrap.sample(self.as_array(lf.sample), bootstraps, weights=self.as_array(self.get_nrwf(tag))) 
+        return bootstrap.sample(self.as_array(lf.sample), bootstraps, weights=self.as_array(self.get_nrwf(tag)))
     
     def bootstrap_variance(self, tag):
-        bss = self.database[tag].misc["bss"]
-        return bootstrap.variance(bss)
+        return bootstrap.variance(self.database[tag].bss)
 
     def bootstrap_covariance(self, tag):
-        bss = self.database[tag].misc["bss"]
-        return bootstrap.covariance(bss)
+        return bootstrap.covariance(self.database[tag].bss)
 
 
-# helper function to allow sorting of concatenated branch_tags without r
-def try_int(x):
-    try:
-        return int(x)
-    except ValueError:
-        return int(0)
-    
-def default_sorting_key(tag, custom_major_order, reverse_minor_order):
-    # Extract the major part (H101rXXX)
+def _cls_sorting_key(tag, custom_major_order, reverse_minor_order):
+    """Build a ``(major_index, minor_part)`` sort key for a CLS-style tag.
+
+    Tags are expected to look like ``"<ensemble>r<replica>-<cfg>"``
+    (e.g. ``"H101r000-123"``):
+
+    - The **major part** ``<ensemble>r<replica>`` selects the stream;
+      either parsed as ``int(replica)`` (when ``custom_major_order`` is
+      ``None``) or looked up in ``custom_major_order`` (a list of major
+      parts giving the desired stream order).
+    - The **minor part** is ``int(cfg)`` (the substring after the last
+      ``"-"``). If ``reverse_minor_order`` is provided (a per-major
+      boolean list), the minor part is negated for streams flagged
+      ``True`` so that the cfg sort runs backwards within those streams.
+
+    Raises ``ValueError`` if ``tag`` does not match the expected format.
+    """
     major_match = re.match(r"(.+?r\d+)", tag)
     if not major_match:
         raise ValueError(f"Invalid tag format: {tag}")
-    major_part = major_match.group(1) 
-    # Use custom index for sorting
+    major_part = major_match.group(1)
     major_index = int(major_part.split("r")[-1]) if custom_major_order is None else custom_major_order.index(major_part)
-    # Extract the minor number (after "-")
     minor_part = int(tag.split("-")[-1])
-    if reverse_minor_order is not None:
-        minor_part = minor_part if not reverse_minor_order[major_index] else -minor_part
+    if reverse_minor_order is not None and reverse_minor_order[major_index]:
+        minor_part = -minor_part
     return (major_index, minor_part)
