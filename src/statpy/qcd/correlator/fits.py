@@ -191,9 +191,9 @@ def _resolve_initial_p0(p0_guess, prev_mean):
     return p0_guess
 
 
-def _select_t_crit(t, var_t, best_parameter, model_func, bc, folded):
+def _select_plateau_range(t, var_t, best_parameter, model_func, bc, folded):
     """Indices in ``t`` where the excited-state contribution drops below sigma/4
-    (symmetrized for periodic + unfolded BC)."""
+    (symmetrized for periodic + unfolded BC) — i.e., the ground-state plateau."""
     excited = np.abs([model_func(i, [0, 0, best_parameter[2], best_parameter[3]]) for i in t])
     std_over_four = (var_t ** 0.5) / 4.0
     if bc == "periodic" and not folded:
@@ -229,9 +229,9 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
     """One iteration of the excited-state-contribution fit loop.
 
     Returns ``None`` on convergence error, otherwise
-    ``(t_crit, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter)``.
+    ``(t_plateau, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter)``.
     The caller decides whether the candidate specs supersede the running best
-    based on ``len(t_crit)`` vs the current accepted fit range.
+    based on ``len(t_plateau)`` vs the current accepted fit range.
     """
     message(f"Excited fit range: [[{t[0]},{t[-1]}]]", silent)
     message(_log_divider("uncorrelated fit"), silent)
@@ -270,7 +270,7 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
         print_fit_results(unbinned_best, None, unbinned_misc, silent)
     message(_log_divider(), silent)
 
-    t_crit = _select_t_crit(t, var[t], best_parameter, model_func, bc, folded)
+    t_plateau = _select_plateau_range(t, var[t], best_parameter, model_func, bc, folded)
 
     excited_spec = _LeafSpec(
         tag=f"{binned_tag}/excited_contributions_fit",
@@ -284,7 +284,7 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
     if unbinned_best is not None:
         unbinned_corr_spec.mean = unbinned_best
         unbinned_corr_spec.misc = unbinned_misc
-    return t_crit, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter
+    return t_plateau, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +375,7 @@ def get_p0_guess(db, tag, binsize, fit_model, fit_range):
 # excited-state / ground-state / combined fits
 # ---------------------------------------------------------------------------
 
-def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_model, config: FitConfig, silent=False, Nt=None, MIN_TCRIT_LEN=7, folded=False):
+def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_model, config: FitConfig, silent=False, Nt=None, MIN_PLATEAU_LEN=7, folded=False):
     message(f"Correlator: {tag}")
     if p0 is None:
         message("P0 is inferred for each initial fit range automatically.")
@@ -406,20 +406,20 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
         if result is None:
             suggested_fit_ranges.append(None)
             continue
-        t_crit, excited_cand, binned_cand, unbinned_cand, best_parameter = result
+        t_plateau, excited_cand, binned_cand, unbinned_cand, best_parameter = result
         last_best_parameter = best_parameter
-        suggested_fit_ranges.append(t_crit)
-        if len(t_crit) < MIN_TCRIT_LEN:
-            message(f"Determined fit range {t_crit} has fewer than {MIN_TCRIT_LEN} elements", silent)
+        suggested_fit_ranges.append(t_plateau)
+        if len(t_plateau) < MIN_PLATEAU_LEN:
+            message(f"Determined fit range {t_plateau} has fewer than {MIN_PLATEAU_LEN} elements", silent)
             message("---> Stored fit range is not updated", silent)
             message(_log_divider(), silent)
             message(_log_divider(), silent)
             continue
-        message(f"Determined fit range [[{t_crit[0]},{t_crit[-1]}]]", silent)
-        if len(t_crit) <= len(fit_range):
+        message(f"Determined fit range [[{t_plateau[0]},{t_plateau[-1]}]]", silent)
+        if len(t_plateau) <= len(fit_range):
             message("---> Stored fit range is updated", silent)
-            excited_cand.misc["fit_range_crit"] = t_crit
-            fit_range = t_crit
+            excited_cand.misc["plateau_fit_range"] = t_plateau
+            fit_range = t_plateau
             excited_spec, binned_corr_spec, unbinned_corr_spec = excited_cand, binned_cand, unbinned_cand
         message(_log_divider(), silent)
         message(_log_divider(), silent)
@@ -428,7 +428,7 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     if excited_spec.misc is not None:
         excited_spec.misc["tested_suggested_fit_ranges"] = (excited_fit_ranges, suggested_fit_ranges)
         db.add_leaf(**excited_spec.__dict__)
-        return excited_spec.misc["fit_range_crit"], last_best_parameter
+        return excited_spec.misc["plateau_fit_range"], last_best_parameter
     return None, None
 
 
