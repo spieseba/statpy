@@ -37,34 +37,21 @@ from statpy.qcd.correlator._masking import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
 @dataclass
 class FitConfig:
+    """Optimizer choice + parameters; ``bootstrap_available`` gates bootstrap fits."""
     fit_method: str = "Nelder-Mead"
     fit_params: dict = field(default_factory=lambda: {"maxiter": 5000, "tol": 1e-07})
     bootstrap_available: bool = True
 
 
-def _make_chi2(fit_model, W, Nt):
-    """Return a chi^2 lambda(t, p, y) for the given fit model + weight matrix."""
-    if fit_model == "double-cosh": 
-        return lambda t, p, y: double_cosh_chi2(t, p, y, W, Nt)
-    if fit_model == "double-sinh": 
-        return lambda t, p, y: double_sinh_chi2(t, p, y, W, Nt)
-    if fit_model == "double-exp":  
-        return lambda t, p, y: double_exp_chi2(t, p, y, W)
-    if fit_model == "cosh":        
-        return lambda t, p, y: cosh_chi2(t, p, y, W, Nt)
-    if fit_model == "sinh":        
-        return lambda t, p, y: sinh_chi2(t, p, y, W, Nt)
-    if fit_model == "exp":         
-        return lambda t, p, y: exp_chi2(t, p, y, W)
-    raise ValueError(f"Unknown fit_model: {fit_model!r}")
-
-
-def _make_slicer(t, eval_offset):
-    """Return ``y -> y[t]`` if ``eval_offset`` else ``y -> y`` (data already sliced)."""
-    return (lambda y: y[t]) if eval_offset else (lambda y: y)
-
+# ---------------------------------------------------------------------------
+# Internal utilities
+# ---------------------------------------------------------------------------
 
 _LOG_DIVIDER_WIDTH = 81
 
@@ -77,15 +64,49 @@ def _log_divider(title=None, fill="-"):
     return f"{fill * left} {title} {fill * (pad - left)}"
 
 
-def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
+def _make_slicer(t, slice_data):
+    """Return ``y -> y[t]`` if ``slice_data`` else ``y -> y`` (data already sliced)."""
+    return (lambda y: y[t]) if slice_data else (lambda y: y)
+
+
+def _make_chi2(fit_model, W, Nt):
+    """Return a chi^2 lambda(t, p, y) for the given fit model + weight matrix."""
+    if fit_model == "double-cosh":
+        return lambda t, p, y: double_cosh_chi2(t, p, y, W, Nt)
+    if fit_model == "double-sinh":
+        return lambda t, p, y: double_sinh_chi2(t, p, y, W, Nt)
+    if fit_model == "double-exp":
+        return lambda t, p, y: double_exp_chi2(t, p, y, W)
+    if fit_model == "cosh":
+        return lambda t, p, y: cosh_chi2(t, p, y, W, Nt)
+    if fit_model == "sinh":
+        return lambda t, p, y: sinh_chi2(t, p, y, W, Nt)
+    if fit_model == "exp":
+        return lambda t, p, y: exp_chi2(t, p, y, W)
+    raise ValueError(f"Unknown fit_model: {fit_model!r}")
+
+
+# ---------------------------------------------------------------------------
+# Core fit primitives
+# ---------------------------------------------------------------------------
+
+def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True):
     """Fit the mean of the leaf at ``tag``.
 
     Returns ``(best_parameter, misc)``. ``misc`` carries
     ``{"t", "chi2", "dof", "pval"}``.
 
+    ``slice_data=True`` (default): ``t`` is an index array into the data leaf;
+    the data is sliced as ``y[t]`` before being passed to ``chi2_func``.
+
+    ``slice_data=False``: the data leaf is *already* pre-sliced (length matches
+    ``len(t)``) and ``t`` is a structured key consumed by ``chi2_func`` directly
+    rather than used to index the data. Used by combined fits where the data is
+    a concatenation of two sub-ranges and ``t = np.hstack((range_A, range_B))``.
+
     Raises:
         ValueError: ``p0`` not 1-D / empty / non-numeric, ``len(t)`` mismatch
-            when ``eval_offset=False``, or non-positive degrees of freedom.
+            when ``slice_data=False``, or non-positive degrees of freedom.
         KeyError: ``tag`` not in ``db.database`` (raised by ``combine_mean``).
         ConvergenceError: fit did not converge or produced non-finite
             parameters / chi^2.
@@ -93,9 +114,9 @@ def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
     p0 = np.asarray(p0, dtype=float)
     if p0.ndim != 1 or p0.size == 0:
         raise ValueError(f"'p0' must be a non-empty 1-D array, got shape {p0.shape}")
-    if not eval_offset and len(t) != len(db.database[tag].mean):
+    if not slice_data and len(t) != len(db.database[tag].mean):
         raise ValueError(
-            f"with eval_offset=False, len(t)={len(t)} must equal data length "
+            f"with slice_data=False, len(t)={len(t)} must equal data length "
             f"{len(db.database[tag].mean)} for tag {tag!r}"
         )
     dof = len(t) - p0.size
@@ -104,7 +125,7 @@ def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
             f"non-positive degrees of freedom: len(t)={len(t)}, n_params={p0.size}, dof={dof}"
         )
 
-    sl = _make_slicer(t, eval_offset)
+    sl = _make_slicer(t, slice_data)
     fitter = Fitter(config.fit_method, config.fit_params)
     try:
         best = db.combine_mean(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, sl(y), p0)[0])
@@ -118,13 +139,13 @@ def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
     return best, {"t": t, "chi2": chi2, "dof": dof, "pval": get_pvalue(chi2, dof)}
 
 
-def _fit_resamples(combiner, label, t, tag, seed, chi2_func, config, eval_offset):
+def _fit_resamples(combiner, label, t, tag, seed, chi2_func, config, slice_data):
     """Run ``combiner(tag, f=...)`` to fit each resample, seeded with ``seed``.
 
     ``combiner`` is :meth:`combine_jks` or :meth:`combine_bss`; ``label``
     ("jackknife" / "bootstrap") is used only in the error message.
     """
-    sl = _make_slicer(t, eval_offset)
+    sl = _make_slicer(t, slice_data)
     fitter = Fitter(config.fit_method, config.fit_params)
     try:
         return combiner(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, sl(y), seed)[0])
@@ -132,31 +153,120 @@ def _fit_resamples(combiner, label, t, tag, seed, chi2_func, config, eval_offset
         raise ConvergenceError(f"{label} fit for tag {tag!r} did not converge: {e}") from e
 
 
-def fit_jks(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
+def fit_jks(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True):
     """Fit the mean and the jackknife resamples for the leaf at ``tag``.
 
     Mean is fit first (via :func:`fit_mean`); each jackknife sample is then
-    fit seeded from the mean's best parameter.
+    fit seeded from the mean's best parameter. See :func:`fit_mean` for the
+    meaning of ``slice_data``.
 
     Returns ``(best_parameter, best_parameter_jks, misc)``.
     """
-    best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
-    best_jks = _fit_resamples(db.combine_jks, "jackknife", t, tag, best, chi2_func, config, eval_offset)
+    best, misc = fit_mean(db, t, tag, p0, chi2_func, config, slice_data=slice_data)
+    best_jks = _fit_resamples(db.combine_jks, "jackknife", t, tag, best, chi2_func, config, slice_data)
     return best, best_jks, misc
 
 
-def fit_bss(db, t, tag, p0, chi2_func, config: FitConfig, eval_offset=True):
+def fit_bss(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True):
     """Fit the mean and the bootstrap resamples for the leaf at ``tag``.
 
     Mean is fit first (via :func:`fit_mean`); each bootstrap sample is then
-    fit seeded from the mean's best parameter.
+    fit seeded from the mean's best parameter. See :func:`fit_mean` for the
+    meaning of ``slice_data``.
 
     Returns ``(best_parameter, best_parameter_bss, misc)``.
     """
-    best, misc = fit_mean(db, t, tag, p0, chi2_func, config, eval_offset=eval_offset)
-    best_bss = _fit_resamples(db.combine_bss, "bootstrap", t, tag, best, chi2_func, config, eval_offset)
+    best, misc = fit_mean(db, t, tag, p0, chi2_func, config, slice_data=slice_data)
+    best_bss = _fit_resamples(db.combine_bss, "bootstrap", t, tag, best, chi2_func, config, slice_data)
     return best, best_bss, misc
 
+
+# ---------------------------------------------------------------------------
+# Correlator averaging / folding
+# ---------------------------------------------------------------------------
+
+def correlator_avg_pbc(db, Ct_tag, dst_tag):
+    """Average a PBC correlator over its source axis; write to ``dst_tag``."""
+    assert isinstance(Ct_tag, str)
+    db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
+
+
+def correlator_avg_obc(db, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiperiodic=False):
+    """OBC tsrc average: per-src mask to bulk fw/bw tmax, then concatenate-and-mean across sources."""
+    message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
+    message(f"tmax_from_tsrc: {tmax_from_tsrc}")
+    # Get src positions in bulk
+    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
+    assert len(Ct_tags) == len(tsrcs)
+    Ct_tags_in_bulk = []
+    tsrcs_in_bulk = []
+    for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
+        if (tsrc >= tbulk[0]) and (tsrc <= tbulk[-1]):
+            Ct_tags_in_bulk.append(Ct_tag)
+            tsrcs_in_bulk.append(tsrc)
+    message(f"tsrcs in bulk: {tsrcs_in_bulk}")
+    tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, tbulk)
+    if tmax_from_tsrc is not None:
+        tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1)
+        tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
+    for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
+        db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", silent=True)
+    combined_sample = db.combine_sample(*[f"{Ct_tag}/masked" for Ct_tag in Ct_tags_in_bulk], f=lambda *Cts_ma: np.ma.concatenate(Cts_ma, axis=0).mean(axis=0).compressed())
+    weights_tag = db.database[Ct_tags_in_bulk[0]].weights_tag
+    db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs":tsrcs_in_bulk, "tbulk":tbulk, "antiperiodic":antiperiodic}, weights_tag=weights_tag)
+    for Ct_tag in Ct_tags_in_bulk:
+        db.remove_leaf(f"{Ct_tag}/masked", silent=True)
+
+
+def fold_correlator_leaf(db, Ct_tag, antiperiodic=False):
+    """Fold correlator around the symmetric center; result stored at ``{Ct_tag}/folded``."""
+    message(f"Fold correlator {Ct_tag}.")
+    db.combine_sample(Ct_tag, f=lambda Ct: fold_correlator(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
+
+
+def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False, excluded_tsrcs=[]):
+    """Per-tsrc effective mass with excited-state region masked, averaged across sources, then folded.
+
+    Returns the dst tag (``tsrc<None>/am_t``); ``{dst}/folded`` is also written.
+    """
+    message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
+    message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
+    message(f"tmax_from_tsrc = {tmax_from_tsrc}")
+    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
+    message(f"Exclude the following srcs: {excluded_tsrcs}")
+    for tsrc in excluded_tsrcs:
+        if tsrc not in tsrcs:
+            message(f"tsrc = {tsrc} not in tags anyway -> continue")
+            continue
+        tsrc_str = re.search(r'tsrc(\d+)', Ct_tags[0]).group()
+        tag_to_be_removed = Ct_tags[0].replace(tsrc_str, f"tsrc{tsrc}")
+        tsrcs.remove(tsrc)
+        Ct_tags.remove(tag_to_be_removed)
+        message(f"---> filtered tags: {Ct_tags}")
+        message(f"---> filtered tsrcs: {tsrcs}")
+    assert len(Ct_tags) == len(tsrcs)
+    mt_tags = []
+    for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
+        db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
+        binned_Ct_tag = db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
+        mt_tag = f"{binned_Ct_tag}/am_t"
+        mt_tags.append(mt_tag)
+        db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
+        if cleanup:
+            db.remove_leaf(f"{Ct_tag}/maskedES")
+            db.remove_leaf(binned_Ct_tag)
+    dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
+    db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag)
+    db.combine(dst_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), dst_tag=f"{dst_tag}/folded")
+    if cleanup:
+        for mt_tag in mt_tags:
+            db.remove_leaf(mt_tag)
+    return dst_tag
+
+
+# ---------------------------------------------------------------------------
+# Two-state private helpers and heuristics
+# ---------------------------------------------------------------------------
 
 @dataclass
 class _LeafSpec:
@@ -199,6 +309,46 @@ def _select_plateau_range(t, var_t, best_parameter, model_func, bc, folded):
     if bc == "periodic" and not folded:
         std_over_four = (std_over_four + std_over_four[::-1]) / 2
     return t[excited < std_over_four]
+
+
+def get_p0_guess(db, tag, binsize, fit_model, fit_range):
+    """Heuristic two-state ``[A0, m0, A1, m1]`` initial guess for double-{cosh,sinh,exp} fits.
+
+    ``A0, m0`` come from the effective-mass / -amplitude averaged over a central
+    window ``[Nt/4, 3*Nt/8)``; ``A1, m1`` come from the residual ``Ct - C_ground``
+    evaluated at ``fit_range[0]``. Any element may be NaN when the effective
+    primitives encounter non-positive arguments — the caller (e.g.
+    ``_resolve_initial_p0``) is responsible for filling NaNs.
+    """
+    if fit_model not in ("double-cosh", "double-sinh", "double-exp"):
+        raise ValueError(f"Unknown fit_model: {fit_model!r}")
+    message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
+    binned_tag = db.add_binned_leaf(tag, binsize)
+    Ct_mean = db.database[binned_tag].mean
+    Nt = len(Ct_mean)
+    effective_mass = {"double-cosh": meff_cosh, "double-sinh": meff_cosh, "double-exp": meff_exp_forward}[fit_model]
+    effective_amplitude = {"double-cosh": Aeff_cosh, "double-sinh": Aeff_sinh, "double-exp": Aeff_exp}[fit_model]
+    single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
+    # ground state parameters
+    window = slice(Nt//4, Nt//4 + Nt//8)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        m0_eff = np.nanmean(effective_mass(Ct_mean)[window])
+        A0_eff = np.nanmean(effective_amplitude(Ct_mean, m0_eff)[window])
+    # excited state parameters
+    Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff])
+    Ct_excited = Ct_mean - Ct_ground
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        m1_eff = effective_mass(Ct_excited)[fit_range[0]]
+        A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
+    message(f"guessed p0 = [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
+    if m1_eff < 1.2 * m0_eff:
+        message("guess for excited state mass too small: p0[2] = abs(p0[2]); p0[3] = 2*p0[1]")
+        A1_eff = abs(A1_eff)
+        m1_eff = 2. * m0_eff
+        message(f"---> [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
+    return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
 
 def _try_correlated_fit(db, binned_tag, t, cov_t, p0, fit_model, Nt, config, label):
@@ -288,94 +438,15 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
 
 
 # ---------------------------------------------------------------------------
-# correlator averaging / folding
-# ---------------------------------------------------------------------------
-
-def correlator_avg_pbc(db, Ct_tag, dst_tag):
-    assert isinstance(Ct_tag, str)
-    db.combine_sample(Ct_tag, f=lambda x: np.mean(x, axis=0), dst_tag=dst_tag)
-
-
-def correlator_avg_obc(db, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiperiodic=False):
-    message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
-    message(f"tmax_from_tsrc: {tmax_from_tsrc}")
-    # Get src positions in bulk
-    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
-    assert len(Ct_tags) == len(tsrcs)
-    Ct_tags_in_bulk = []
-    tsrcs_in_bulk = []
-    for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
-        if (tsrc >= tbulk[0]) and (tsrc <= tbulk[-1]):
-            Ct_tags_in_bulk.append(Ct_tag)
-            tsrcs_in_bulk.append(tsrc)
-    message(f"tsrcs in bulk: {tsrcs_in_bulk}")
-    tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, tbulk)
-    if tmax_from_tsrc is not None:
-        tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1)
-        tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
-    for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
-        db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Ct(Ct, tmax_fw[src_idx], tmax_bw[src_idx], antiperiodic), dst_tag=f"{Ct_tag}/masked", silent=True)
-    combined_sample = db.combine_sample(*[f"{Ct_tag}/masked" for Ct_tag in Ct_tags_in_bulk], f=lambda *Cts_ma: np.ma.concatenate(Cts_ma, axis=0).mean(axis=0).compressed())
-    weights_tag = db.database[Ct_tags_in_bulk[0]].weights_tag
-    db.add_leaf(tag=dst_tag, mean=None, jks=None, sample=combined_sample, misc={"tsrcs":tsrcs_in_bulk, "tbulk":tbulk, "antiperiodic":antiperiodic}, weights_tag=weights_tag)
-    for Ct_tag in Ct_tags_in_bulk:
-        db.remove_leaf(f"{Ct_tag}/masked", silent=True)
-
-
-def fold_correlator_leaf(db, Ct_tag, antiperiodic=False):
-    message(f"Fold correlator {Ct_tag}.")
-    db.combine_sample(Ct_tag, f=lambda Ct: fold_correlator(Ct, antiperiodic), dst_tag=f"{Ct_tag}/folded")
-
-
-# ---------------------------------------------------------------------------
-# fit-parameter heuristics
-# ---------------------------------------------------------------------------
-
-def get_p0_guess(db, tag, binsize, fit_model, fit_range):
-    """Heuristic two-state ``[A0, m0, A1, m1]`` initial guess for double-{cosh,sinh,exp} fits.
-
-    ``A0, m0`` come from the effective-mass / -amplitude averaged over a central
-    window ``[Nt/4, 3*Nt/8)``; ``A1, m1`` come from the residual ``Ct - C_ground``
-    evaluated at ``fit_range[0]``. Any element may be NaN when the effective
-    primitives encounter non-positive arguments — the caller (e.g.
-    ``_resolve_initial_p0``) is responsible for filling NaNs.
-    """
-    if fit_model not in ("double-cosh", "double-sinh", "double-exp"):
-        raise ValueError(f"Unknown fit_model: {fit_model!r}")
-    message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
-    binned_tag = db.add_binned_leaf(tag, binsize)
-    Ct_mean = db.database[binned_tag].mean
-    Nt = len(Ct_mean)
-    effective_mass = {"double-cosh": meff_cosh, "double-sinh": meff_cosh, "double-exp": meff_exp_forward}[fit_model]
-    effective_amplitude = {"double-cosh": Aeff_cosh, "double-sinh": Aeff_sinh, "double-exp": Aeff_exp}[fit_model]
-    single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
-    # ground state parameters
-    window = slice(Nt//4, Nt//4 + Nt//8)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        m0_eff = np.nanmean(effective_mass(Ct_mean)[window])
-        A0_eff = np.nanmean(effective_amplitude(Ct_mean, m0_eff)[window])
-    # excited state parameters
-    Ct_ground = single_model_func(np.arange(Nt), [A0_eff,m0_eff])
-    Ct_excited = Ct_mean - Ct_ground
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        m1_eff = effective_mass(Ct_excited)[fit_range[0]]
-        A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
-    message(f"guessed p0 = [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
-    if m1_eff < 1.2 * m0_eff:
-        message("guess for excited state mass too small: p0[2] = abs(p0[2]); p0[3] = 2*p0[1]")
-        A1_eff = abs(A1_eff)
-        m1_eff = 2. * m0_eff
-        message(f"---> [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
-    return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
-
-
-# ---------------------------------------------------------------------------
-# excited-state / ground-state / combined fits
+# Excited-state / ground-state fits
 # ---------------------------------------------------------------------------
 
 def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_model, config: FitConfig, silent=False, Nt=None, MIN_PLATEAU_LEN=7, folded=False):
+    """Two-state fits across candidate ranges; pick the one whose plateau (where excited
+    contributions drop below sigma/4) is shortest but at least ``MIN_PLATEAU_LEN`` long.
+
+    Returns ``(plateau_fit_range, last_best_parameter)`` or ``(None, None)``.
+    """
     message(f"Correlator: {tag}")
     if p0 is None:
         message("P0 is inferred for each initial fit range automatically.")
@@ -433,6 +504,8 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
 
 
 def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, Nt=None, silent=False):
+    """Ground-state fit at every binsize 1..``binsize``: jackknife always; correlated mean
+    (binned + unbinned) at b=1 and b=``binsize``; bootstrap at b=1. Persists each fit as a leaf."""
     message(f"Correlator: {tag}")
     message(f"P0 = {p0}")
     message(f"Fit range {fit_range}")
@@ -481,46 +554,6 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
 
 
 # ---------------------------------------------------------------------------
-# boundary averaging
-# ---------------------------------------------------------------------------
-
-def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False, excluded_tsrcs=[]):
-    message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
-    message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
-    message(f"tmax_from_tsrc = {tmax_from_tsrc}")
-    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
-    message(f"Exclude the following srcs: {excluded_tsrcs}")
-    for tsrc in excluded_tsrcs:
-        if tsrc not in tsrcs:
-            message(f"tsrc = {tsrc} not in tags anyway -> continue")
-            continue
-        tsrc_str = re.search(r'tsrc(\d+)', Ct_tags[0]).group()
-        tag_to_be_removed = Ct_tags[0].replace(tsrc_str, f"tsrc{tsrc}")
-        tsrcs.remove(tsrc)
-        Ct_tags.remove(tag_to_be_removed)
-        message(f"---> filtered tags: {Ct_tags}")
-        message(f"---> filtered tsrcs: {tsrcs}")
-    assert len(Ct_tags) == len(tsrcs)
-    mt_tags = []
-    for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
-        db.combine_sample(Ct_tag, f=lambda Ct: _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0), dst_tag=f"{Ct_tag}/maskedES")
-        binned_Ct_tag = db.add_binned_leaf(f"{Ct_tag}/maskedES", binsize)
-        mt_tag = f"{binned_Ct_tag}/am_t"
-        mt_tags.append(mt_tag)
-        db.combine(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
-        if cleanup:
-            db.remove_leaf(f"{Ct_tag}/maskedES")
-            db.remove_leaf(binned_Ct_tag)
-    dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
-    db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag)
-    db.combine(dst_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), dst_tag=f"{dst_tag}/folded")
-    if cleanup:
-        for mt_tag in mt_tags:
-            db.remove_leaf(mt_tag)
-    return dst_tag
-
-
-# ---------------------------------------------------------------------------
 # Decay-constant / combined PSPS+PSA4I fit machinery.
 #
 # Currently unused. Kept here pending a planned refactor for decay constant
@@ -548,6 +581,11 @@ def determine_PSA4I(db, tag_PSPS_sml, tag_PSA4_sml, beta):
 
 
 def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, config: FitConfig, Nt=None, silent=False):
+    """Joint PSPS / PSA4I fit on the concatenated ``(PS ++ A4I)`` data leaf.
+
+    Same per-binsize structure as :func:`ground_state_fit` (jackknife, correlated mean,
+    bootstrap), plus the bare decay constant ``afbare`` derived from each fit.
+    """
     message(_log_divider("combined correlator fit PSPS/PSA4I"))
     fit_model_PS = fit_model_combined.split("-")[1]
     fit_model_A4I = fit_model_combined.split("-")[2]
@@ -572,7 +610,8 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
         W = np.linalg.inv(np.diag(var))
         chi2_func = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W, Nt),
                      "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[fit_model_combined]
-        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range_combined, binned_tag, p0, chi2_func, config, eval_offset=False)
+        # combined leaf is pre-sliced (PS ++ A4I); t is the structured PS/A4I index used inside chi2_func
+        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range_combined, binned_tag, p0, chi2_func, config, slice_data=False)
         misc["fit_model_PSPS"] = fit_model_PS
         misc["fit_model_PSA4I"] = fit_model_A4I
         misc["fit_model"] = fit_model_combined
@@ -586,7 +625,8 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
                 W_correlated = np.linalg.inv(db.jackknife_covariance(binned_tag))
                 chi2_func_correlated = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated, Nt),
                                         "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated)}[fit_model_combined]
-                best_parameter_correlated, misc_correlated = fit_mean(db, fit_range_combined, binned_tag, best_parameter, chi2_func_correlated, config, eval_offset=False)
+                # combined leaf is pre-sliced; t is the structured PS/A4I index used inside chi2_func_correlated
+                best_parameter_correlated, misc_correlated = fit_mean(db, fit_range_combined, binned_tag, best_parameter, chi2_func_correlated, config, slice_data=False)
                 misc_correlated["fit_model_PSPS"] = fit_model_PS
                 misc_correlated["fit_model_PSA4I"] = fit_model_A4I
                 misc_correlated["fit_model"] = fit_model_combined
@@ -603,7 +643,8 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
             W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)))
             chi2_func_bss = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss, Nt),
                              "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[fit_model_combined]
-            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_tag, best_parameter, chi2_func_bss, config, eval_offset=False)
+            # combined leaf is pre-sliced; t is the structured PS/A4I index used inside chi2_func_bss
+            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_tag, best_parameter, chi2_func_bss, config, slice_data=False)
             misc_bss["fit_model_PSPS"] = fit_model_PS
             misc_bss["fit_model_PSA4I"] = fit_model_A4I
             misc_bss["fit_model"] = fit_model_combined
