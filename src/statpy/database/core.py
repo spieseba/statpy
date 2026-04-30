@@ -251,7 +251,7 @@ class DB:
     def get_cfgs(self, tag):
         lf = self.database[tag]
         obj = lf.jks if lf.jks is not None else lf.sample
-        return [k for k, _ in sorted(obj.items(), key=lambda kv: self._sort_key(kv[0]))]
+        return [str(k) for k, _ in sorted(obj.items(), key=lambda kv: self._sort_key(kv[0]))]
 
     ################################ RWF ######################################
         
