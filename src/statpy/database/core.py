@@ -1,14 +1,18 @@
 import os
-import re 
+import pickle
+import re
+import struct
 import subprocess
+import zlib
 import numpy as np
 from time import time
 from functools import reduce
 from operator import ior
 
-from statpy.log import message 
-from statpy.database import custom_json as json
+from statpy.log import message
 from statpy.database.leafs import Leaf
+
+_MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC32 of payload
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife, bootstrap
 
@@ -38,19 +42,30 @@ class DB:
                     self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, bss=lf.bss, weights_tag=lf.weights_tag, silent=self.silent)
 
     def load(self, src):
-        """Load a JSON snapshot saved by :func:`save` and add every leaf."""
+        """Load a snapshot saved by :func:`save` and add every leaf."""
         message(f"Load {src}", self.silent)
         if not os.path.isfile(src):
             raise FileNotFoundError(f"{src} not found")
-        with open(src) as f:
-            src_db = json.load(f)
+        with open(src, "rb") as f:
+            header = f.read(8)
+            if len(header) < 8 or header[:4] != _MAGIC:
+                raise ValueError(f"{src}: not a statpy DB file (bad magic)")
+            (crc_expected,) = struct.unpack("<I", header[4:8])
+            payload = f.read()
+        if (zlib.crc32(payload) & 0xFFFFFFFF) != crc_expected:
+            raise ValueError(f"{src}: CRC mismatch -- file corrupted")
+        src_db = pickle.loads(payload)
         for t, lf in src_db.items():
             self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, bss=lf.bss, weights_tag=lf.weights_tag, silent=self.silent)
 
     def save(self, dst):
         """Write the entire database (all fields, including samples) to ``dst``."""
-        with open(dst, "w") as f:
-            json.dump(self.database, f)
+        payload = pickle.dumps(self.database, protocol=pickle.HIGHEST_PROTOCOL)
+        crc = zlib.crc32(payload) & 0xFFFFFFFF
+        with open(dst, "wb") as f:
+            f.write(_MAGIC)
+            f.write(struct.pack("<I", crc))
+            f.write(payload)
 
     def add_leaf(self, tag, mean, jks, sample, misc, bss=None, weights_tag=None, database=None, silent=None):
         silent = self.silent if silent is None else silent
