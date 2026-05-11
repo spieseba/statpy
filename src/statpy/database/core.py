@@ -12,21 +12,32 @@ from operator import ior
 from statpy.log import message
 from statpy.database.leafs import Leaf
 
-_MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC32 of payload
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife, bootstrap
 
-# import multiprocessing module and overwrite its Pickle class using dill
-import dill
 import multiprocessing
-dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-multiprocessing.reduction.ForkingPickler = dill.Pickler
-multiprocessing.reduction.dump = dill.dump
 
+_MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC32 of payload
+_DILL_MP_PATCH_INSTALLED = False
+
+def _install_dill_multiprocessing_patch():
+    # Swap multiprocessing's pickler for dill so DB workers can ship lambdas/closures.
+    # Done lazily on first DB(num_proc=...) so plain `import statpy` doesn't globally
+    # mutate multiprocessing.reduction for processes that never spawn a Pool.
+    global _DILL_MP_PATCH_INSTALLED
+    if _DILL_MP_PATCH_INSTALLED:
+        return
+    import dill
+    dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+    multiprocessing.reduction.ForkingPickler = dill.Pickler
+    multiprocessing.reduction.dump = dill.dump
+    _DILL_MP_PATCH_INSTALLED = True
 
 
 class DB:
     def __init__(self, *args, num_proc=None, silent=False, stream_order=None, reverse_order=None, repo_path=None):
+        if num_proc is not None:
+            _install_dill_multiprocessing_patch()
         self.t0 = time()
         self.num_proc = num_proc
         self.silent = silent
