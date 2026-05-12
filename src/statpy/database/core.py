@@ -35,15 +35,13 @@ def _install_dill_multiprocessing_patch():
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, silent=False, stream_order=None, reverse_order=None, repo_path=None, sort_key=None):
+    def __init__(self, *args, num_proc=None, silent=False, repo_path=None, sort_key=None):
         if num_proc is not None:
             _install_dill_multiprocessing_patch()
         self.t0 = time()
         self.num_proc = num_proc
         self.silent = silent
-        if sort_key is None:
-            sort_key = lambda tag: _sorting_key(tag, custom_major_order=stream_order, reverse_minor_order=reverse_order)
-        self._sort_key = sort_key
+        self.sort_key = sort_key if sort_key is not None else default_sort_key()
         self.database = {}
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
@@ -149,7 +147,7 @@ class DB:
         return [tag for tag in self.database.keys() if re.search(pattern, tag)]
  
     def as_array(self, dictionary):
-        sorted_d = dict(sorted(dictionary.items(), key=lambda kv: self._sort_key(kv[0])))
+        sorted_d = dict(sorted(dictionary.items(), key=lambda kv: self.sort_key(kv[0])))
         if isinstance(next(iter(sorted_d.values())), np.ma.MaskedArray):
             return np.ma.array(list(sorted_d.values()))
         return np.array(list(sorted_d.values()))
@@ -258,7 +256,7 @@ class DB:
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
         lfs = [self.database[tag] for tag in tags]
         if dst_cfgs is None:
-            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=lambda kv: self._sort_key(kv[0])))
+            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=lambda kv: self.sort_key(kv[0])))
         else:
             sample = {cfg:val for cfg,val in zip(dst_cfgs, np.concatenate([self.as_array(lf.sample) for lf in lfs], axis=0))}
         if dst_tag is None:
@@ -279,7 +277,7 @@ class DB:
     def get_cfgs(self, tag):
         lf = self.database[tag]
         obj = lf.jks if lf.jks is not None else lf.sample
-        return [str(k) for k, _ in sorted(obj.items(), key=lambda kv: self._sort_key(kv[0]))]
+        return [str(k) for k, _ in sorted(obj.items(), key=lambda kv: self.sort_key(kv[0]))]
 
     ################################ RWF ######################################
         
@@ -337,6 +335,11 @@ class DB:
 
     def bootstrap_covariance(self, tag):
         return bootstrap.covariance(self.database[tag].bss)
+
+
+def default_sort_key(stream_order=None, reverse_order=None):
+    """Default :class:`DB` ``sort_key`` factory; see :func:`_sorting_key`."""
+    return lambda tag: _sorting_key(tag, custom_major_order=stream_order, reverse_minor_order=reverse_order)
 
 
 def _sorting_key(tag, custom_major_order, reverse_minor_order):
