@@ -35,13 +35,15 @@ def _install_dill_multiprocessing_patch():
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, silent=False, stream_order=None, reverse_order=None, repo_path=None):
+    def __init__(self, *args, num_proc=None, silent=False, stream_order=None, reverse_order=None, repo_path=None, sort_key=None):
         if num_proc is not None:
             _install_dill_multiprocessing_patch()
         self.t0 = time()
         self.num_proc = num_proc
         self.silent = silent
-        self._sort_key = lambda tag: _cls_sorting_key(tag, custom_major_order=stream_order, reverse_minor_order=reverse_order)
+        if sort_key is None:
+            sort_key = lambda tag: _sorting_key(tag, custom_major_order=stream_order, reverse_minor_order=reverse_order)
+        self._sort_key = sort_key
         self.database = {}
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
@@ -337,29 +339,51 @@ class DB:
         return bootstrap.covariance(self.database[tag].bss)
 
 
-def _cls_sorting_key(tag, custom_major_order, reverse_minor_order):
-    """Build a ``(major_index, minor_part)`` sort key for a CLS-style tag.
+def _sorting_key(tag, custom_major_order, reverse_minor_order):
+    """Sort key ``(major_index, minor)`` for tag ``<major>[-bN]-<minor>``.
 
-    Tags are expected to look like ``"<ensemble>r<replica>-<cfg>"``
-    (e.g. ``"H101r000-123"``):
-
-    - The **major part** ``<ensemble>r<replica>`` selects the stream;
-      either parsed as ``int(replica)`` (when ``custom_major_order`` is
-      ``None``) or looked up in ``custom_major_order`` (a list of major
-      parts giving the desired stream order).
-    - The **minor part** is ``int(cfg)`` (the substring after the last
-      ``"-"``). If ``reverse_minor_order`` is provided (a per-major
-      boolean list), the minor part is negated for streams flagged
-      ``True`` so that the cfg sort runs backwards within those streams.
-
-    Raises ``ValueError`` if ``tag`` does not match the expected format.
+    Without ``custom_major_order``, ``major_index`` is the trailing
+    decimal in ``major`` — ``H101r001`` → 1, ``set2`` → 2, fallback ``0``
+    so streams sort numerically ascending. With it,
+    ``major_index = custom_major_order.index(major)``; if ``major``
+    isn't in the list, it falls back to the longest prefix of ``major``
+    that is — this maps multi-stream branch-tag jks keys (e.g.
+    ``D453r000+r001`` from :meth:`DB.add_binned_leaf` on a concatenated
+    leaf) to the first stream of the branch.
+    ``reverse_minor_order`` is a ``{major: bool}`` dict; majors with a
+    truthy value negate ``minor`` (cfg sort runs backwards), missing
+    majors are implicitly ``False``. The ``bN`` token (from
+    :meth:`DB.add_binned_leaf`) is stripped.
     """
-    major_match = re.match(r"(.+?r\d+)", tag)
-    if not major_match:
-        raise ValueError(f"Invalid tag format: {tag}")
-    major_part = major_match.group(1)
-    major_index = int(major_part.split("r")[-1]) if custom_major_order is None else custom_major_order.index(major_part)
-    minor_part = int(tag.split("-")[-1])
-    if reverse_minor_order is not None and reverse_minor_order[major_index]:
-        minor_part = -minor_part
-    return (major_index, minor_part)
+    binsize_re = re.compile(r"b\d+")
+    trailing_int_re = re.compile(r"(\d+)$")
+    parts = tag.split("-")
+    if len(parts) < 2:
+        raise ValueError(f"Invalid tag format: {tag!r} (expected '<major>-...-<int>')")
+    try:
+        minor = int(parts[-1])
+    except ValueError as e:
+        raise ValueError(f"Invalid tag format: {tag!r} (trailing token not int)") from e
+    rest = parts[:-1]
+    if binsize_re.fullmatch(rest[-1]):
+        rest = rest[:-1]
+    if not rest:
+        raise ValueError(f"Invalid tag format: {tag!r} (empty major)")
+    major = "-".join(rest)
+    major_key = major
+
+    if custom_major_order is not None:
+        if major in custom_major_order:
+            major_index = custom_major_order.index(major)
+        else:
+            matches = [(i, s) for i, s in enumerate(custom_major_order) if major.startswith(s)]
+            if not matches:
+                raise ValueError(f"major {major!r} not in custom_major_order={custom_major_order}")
+            major_index, major_key = max(matches, key=lambda x: len(x[1]))
+    else:
+        m = trailing_int_re.search(major)
+        major_index = int(m.group(1)) if m else 0
+
+    if reverse_minor_order and reverse_minor_order.get(major_key, False):
+        minor = -minor
+    return (major_index, minor)
