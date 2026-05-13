@@ -86,7 +86,7 @@ class double_sinh_model():
     def parameter_gradient(self, t, p):
         return np.array([np.exp(-p[1]*t) - np.exp(-p[1]*(self.Nt-t)),
                     p[0] * (np.exp(-p[1]*t) * (-t) - np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt)),
-                    np.exp(-p[3]*t) + np.exp(-p[3]*(self.Nt-t)),
+                    np.exp(-p[3]*t) - np.exp(-p[3]*(self.Nt-t)),
                     p[2] * (np.exp(-p[3]*t) * (-t) - np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))])
 
 @njit
@@ -125,7 +125,7 @@ class double_exp_model:
     def __call__(self, t, p):
         return p[0] * np.exp(-p[1]*t) + p[2] * np.exp(-p[3]*t)
     def parameter_gradient(self, t, p):
-        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t), np.exp(-p[3]*t), p[2] * np.exp(-p[3]*t) * (-t)], dtype=object)
+        return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t), np.exp(-p[3]*t), p[2] * np.exp(-p[3]*t) * (-t)])
 
 @njit
 def double_exp_chi2(t, p, y, W):

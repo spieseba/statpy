@@ -2,60 +2,40 @@ import os
 import pickle
 import re
 import struct
-import subprocess
 import zlib
 import numpy as np
-from time import time
 
+import statpy
 from statpy.log import message
-from statpy.database.leafs import Leaf
+from statpy.database.entries import Entry
 
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife, bootstrap
 
-import multiprocessing
-
 _MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC32 of payload
-_DILL_MP_PATCH_INSTALLED = False
-
-
-def _install_dill_multiprocessing_patch():
-    # Swap multiprocessing's pickler for dill so DB workers can ship lambdas/closures.
-    # Done lazily on first DB(num_proc=...) so plain `import statpy` doesn't globally
-    # mutate multiprocessing.reduction for processes that never spawn a Pool.
-    global _DILL_MP_PATCH_INSTALLED
-    if _DILL_MP_PATCH_INSTALLED:
-        return
-    import dill
-    dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-    multiprocessing.reduction.ForkingPickler = dill.Pickler
-    multiprocessing.reduction.dump = dill.dump
-    _DILL_MP_PATCH_INSTALLED = True
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, silent=False, repo_path=None):
-        if num_proc is not None:
-            _install_dill_multiprocessing_patch()
-        self.t0 = time()
-        self.num_proc = num_proc
-        self.silent = silent
+    """Entry store with statistics + I/O for lattice QCD analyses."""
+
+    def __init__(self, *args):
+        """Create an empty DB; ``*args`` of pickle paths or other ``DB``s are merged in."""
         self.database = {}
-        self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
-        message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
+        message(f"Initialized database with statpy commit hash {statpy.__commit__}.")
         for src in args:
             if isinstance(src, str):
                 self.load(src)
             elif isinstance(src, DB):
-                for t, lf in src.database.items():
-                    self.database[t] = Leaf(
-                        mean=lf.mean, jks=lf.jks, sample=lf.sample,
-                        weights=lf.weights, cfgs=lf.cfgs, bss=lf.bss, misc=lf.misc,
+                for t, entry in src.database.items():
+                    self.database[t] = Entry(
+                        mean=entry.mean, jks=entry.jks, sample=entry.sample,
+                        weights=entry.weights, cfgs=entry.cfgs, bss=entry.bss, misc=entry.misc,
+                        binsize=entry.binsize,
                     )
 
     def load(self, src):
-        """Load a snapshot saved by :func:`save` and add every leaf."""
-        message(f"Load {src}", self.silent)
+        """Load a snapshot saved by :func:`save` and add every entry."""
+        message(f"Load {src}")
         if not os.path.isfile(src):
             raise FileNotFoundError(f"{src} not found")
         with open(src, "rb") as f:
@@ -67,8 +47,8 @@ class DB:
         if (zlib.crc32(payload) & 0xFFFFFFFF) != crc_expected:
             raise ValueError(f"{src}: CRC mismatch -- file corrupted")
         src_db = pickle.loads(payload)
-        for t, lf in src_db.items():
-            self.database[t] = lf
+        for t, entry in src_db.items():
+            self.database[t] = entry
 
     def save(self, dst):
         """Write the entire database (all fields, including samples) to ``dst``."""
@@ -79,286 +59,246 @@ class DB:
             f.write(struct.pack("<I", crc))
             f.write(payload)
 
-    ################################ LEAF MANAGEMENT ###########################
+    ################################ ENTRY MANAGEMENT ##########################
 
-    def add_leaf(self, tag, *, mean=None, jks=None, sample=None, weights=None,
-                 cfgs=None, bss=None, misc=None, silent=None):
-        """Add a new leaf at ``tag``.
+    def add_entry(self, tag, *, mean=None, jks=None, sample=None, weights=None,
+                 cfgs=None, bss=None, misc=None, binsize=1):
+        """Add a new entry at ``tag``.
 
-        Invariants:
-          - Data leaf: ``sample`` requires ``weights`` and ``cfgs``, all of
-            matching length; ``jks`` must not be passed (it is computed
-            from ``sample``+``weights`` via :func:`jackknife.sample`).
-            ``mean`` is auto-computed from ``jks`` if not provided.
-          - Combined / derived leaf: ``sample`` is ``None`` but ``jks`` is
-            given; ``cfgs`` must match ``jks`` length.
-          - Result leaf (fit/bootstrap): ``sample=jks=cfgs=weights=None``;
-            carries ``mean`` and optionally ``bss``.
+        Three valid shapes:
+          - Data entry: ``sample`` + ``weights`` + ``cfgs`` (matching length);
+            ``jks`` and ``mean`` are auto-derived.
+          - Derived entry: ``sample=None`` but ``jks`` and ``cfgs`` given
+            (matching length).
+          - Result entry: only ``mean`` and optionally ``bss``.
+        ``binsize`` is 1 for raw, >1 for binned (set by :meth:`add_binned_entry`).
         """
-        silent = self.silent if silent is None else silent
         if tag in self.database:
-            message(f"{tag} already in database. Leaf not added.", silent)
+            message(f"{tag} already in database. Entry not added.")
             return
 
         if sample is not None:
-            assert weights is not None, "sample requires weights"
-            assert cfgs is not None,    "sample requires cfgs"
-            assert isinstance(sample, np.ndarray), "sample must be np.ndarray"
-            assert isinstance(weights, np.ndarray), "weights must be np.ndarray"
-            assert isinstance(cfgs, np.ndarray), "cfgs must be np.ndarray"
-            assert len(sample) == len(weights) == len(cfgs), \
-                f"length mismatch: sample={len(sample)} weights={len(weights)} cfgs={len(cfgs)}"
-            assert jks is None, "Don't pass jks when sample+weights are given; jks is derived."
+            if weights is None:
+                raise ValueError(f"add_entry({tag!r}): sample requires weights")
+            if cfgs is None:
+                raise ValueError(f"add_entry({tag!r}): sample requires cfgs")
+            if not isinstance(sample, np.ndarray):
+                raise TypeError(f"add_entry({tag!r}): sample must be np.ndarray, got {type(sample).__name__}")
+            if not isinstance(weights, np.ndarray):
+                raise TypeError(f"add_entry({tag!r}): weights must be np.ndarray, got {type(weights).__name__}")
+            if not isinstance(cfgs, np.ndarray):
+                raise TypeError(f"add_entry({tag!r}): cfgs must be np.ndarray, got {type(cfgs).__name__}")
+            if not (len(sample) == len(weights) == len(cfgs)):
+                raise ValueError(
+                    f"add_entry({tag!r}): length mismatch sample={len(sample)} "
+                    f"weights={len(weights)} cfgs={len(cfgs)}"
+                )
+            if jks is not None:
+                raise ValueError(f"add_entry({tag!r}): do not pass jks when sample+weights are given; jks is derived")
             jks = jackknife.sample(sample, weights=weights)
             if mean is None:
                 mean = np.mean(jks, axis=0)
         else:
-            if cfgs is not None and jks is not None:
-                assert len(jks) == len(cfgs), \
-                    f"jks/cfgs length mismatch: jks={len(jks)} cfgs={len(cfgs)}"
+            if cfgs is not None and jks is not None and len(jks) != len(cfgs):
+                raise ValueError(
+                    f"add_entry({tag!r}): jks/cfgs length mismatch jks={len(jks)} cfgs={len(cfgs)}"
+                )
 
-        message(f"Add {tag} to database.", silent)
-        self.database[tag] = Leaf(
+        self.database[tag] = Entry(
             mean=mean, jks=jks, sample=sample, weights=weights,
-            cfgs=cfgs, bss=bss, misc=misc,
+            cfgs=cfgs, bss=bss, misc=misc, binsize=binsize,
         )
 
-    def remove_leaf(self, tag, silent=None):
-        silent = self.silent if silent is None else silent
+    def remove_entry(self, tag):
+        """Drop the entry at ``tag``."""
         if tag in self.database:
-            message(f"remove {tag} from database.", silent)
             del self.database[tag]
         else:
-            message(f"{tag} not in database.", silent)
+            message(f"remove_entry: {tag!r} not in database.")
 
-    def rename_leaf(self, old, new, silent=None):
-        silent = self.silent if silent is None else silent
+    def rename_entry(self, old, new):
+        """Move the entry from ``old`` to ``new``."""
         if old not in self.database:
-            message(f"{old} not in database.", silent)
+            message(f"rename_entry: {old!r} not in database.")
             return
         if new in self.database:
-            message(f"{new} already in database. Leaf not added.", silent)
+            message(f"rename_entry: {new!r} already in database. Not renamed.")
             return
         self.database[new] = self.database[old]
         del self.database[old]
-        message(f"renamed {old} -> {new}.", silent)
 
-    def print(self, pattern=".*"):
-        message(self.__str__(pattern))
+    def __repr__(self):
+        return f"<DB n_entries={len(self.database)}>"
 
-    def __str__(self, pattern):
-        s = '\n\n\tDatabase consists of\n\n'
-        for tag, _ in self.database.items():
-            if re.search(pattern, tag):
-                s += f'\t{tag:20s}\n'
-        return s
-
-    def print_misc(self, tag):
-        message(self.__misc_str__(tag))
-
-    def __misc_str__(self, tag):
-        s = f'\n\n\tMisc dict for {tag} consists of\n\n'
-        for k, i in self.database[tag].misc.items():
-            s += f'\t{k:20s}: {i}\n'
-        return s
+    def __str__(self):
+        """Multi-line overview: entry counts per category."""
+        counts = {"raw data": 0, "binned data": 0, "derived (jks)": 0, "result (mean/bss)": 0}
+        for entry in self.database.values():
+            if entry.sample is not None and entry.binsize == 1:
+                counts["raw data"] += 1
+            elif entry.sample is not None:
+                counts["binned data"] += 1
+            elif entry.jks is not None:
+                counts["derived (jks)"] += 1
+            else:
+                counts["result (mean/bss)"] += 1
+        lines = [f"DB with {len(self.database)} entries:"]
+        for cat, n in counts.items():
+            lines.append(f"  {cat:20s} {n}")
+        return "\n".join(lines)
 
     ################################ QUERIES ###################################
 
     def get_tags(self, pattern=".*"):
+        """Tags matching the regex ``pattern`` (via :func:`re.search`)."""
         return [tag for tag in self.database.keys() if re.search(pattern, tag)]
 
     def get_cfgs(self, tag):
+        """Cfg labels of the entry at ``tag`` as a list."""
         return list(self.database[tag].cfgs)
 
     ################################ TRANSFORM #################################
 
     def transform(self, tag, f, dst_tag=None):
-        """Apply ``f`` to ``mean``, each jackknife sample, and each bootstrap
-        sample (when present) of the leaf at ``tag``.
-        """
-        lf = self.database[tag]
-        mean = f(lf.mean)
-        jks = self.transform_jks(tag, f) if lf.jks is not None else None
-        bss = self.transform_bss(tag, f) if lf.bss is not None else None
+        """Apply ``f`` to ``mean``, every jackknife and (if present) every
+        bootstrap sample of the entry at ``tag``; optionally store as ``dst_tag``."""
+        entry = self.database[tag]
+        mean = f(entry.mean)
+        jks = self.transform_jks(tag, f) if entry.jks is not None else None
+        bss = self.transform_bss(tag, f) if entry.bss is not None else None
         if dst_tag is not None:
-            self.add_leaf(dst_tag, mean=mean, jks=jks, cfgs=lf.cfgs, bss=bss)
+            self.add_entry(dst_tag, mean=mean, jks=jks, cfgs=entry.cfgs, bss=bss)
         return mean, jks, bss
 
     def transform_jks(self, tag, f):
-        """Return ``f``-mapped ``jks`` array of the leaf at ``tag``."""
-        lf = self.database[tag]
-        if self.num_proc is None:
-            return np.array([f(jk) for jk in lf.jks])
-        message(f"Spawn {self.num_proc} processes to transform jackknife sample.", silent=True)
-        with multiprocessing.Pool(self.num_proc) as pool:
-            return np.array(pool.map(f, lf.jks))
+        """Return ``f``-mapped ``jks`` array of the entry at ``tag``."""
+        return np.array([f(jk) for jk in self.database[tag].jks])
 
     def transform_bss(self, tag, f, bootstraps=None):
-        """Return ``f``-mapped ``bss`` array of the leaf at ``tag``.
+        """Return ``f``-mapped ``bss`` array of the entry at ``tag``.
 
-        If the leaf has no stored ``bss`` (raw-data leaf with sample+weights),
+        If the entry has no stored ``bss`` (raw-data entry with sample+weights),
         bootstrap samples are computed on the fly via :meth:`bss`; pass the
         ``(n_bs, n_cfgs)`` bootstrap-index matrix as ``bootstraps``.
         """
-        lf = self.database[tag]
-        if lf.bss is not None:
-            bss = lf.bss
+        entry = self.database[tag]
+        if entry.bss is not None:
+            bss = entry.bss
         else:
-            assert bootstraps is not None, \
-                f"transform_bss on {tag!r}: leaf has no stored bss; pass bootstraps=<index matrix>"
+            if bootstraps is None:
+                raise ValueError(f"transform_bss({tag!r}): entry has no stored bss; pass bootstraps=<index matrix>")
             bss = self.bss(tag, bootstraps)
-        if self.num_proc is None:
-            return np.array([f(b) for b in bss])
-        message(f"Spawn {self.num_proc} processes to transform bootstrap sample.", silent=True)
-        with multiprocessing.Pool(self.num_proc) as pool:
-            return np.array(pool.map(f, bss))
+        return np.array([f(b) for b in bss])
 
     ################################ COMBINE ###################################
 
     def combine(self, *tags, f, dst_tag=None):
-        """Combine leaves at ``tags`` cfg-wise by applying ``f`` across them.
+        """Combine multiple entries cfg-wise by applying ``f`` across them.
 
-        Cfg sets may differ: a union is taken in encounter order (first
-        leaf's cfgs in their leaf order, then any new cfgs from subsequent
-        leaves). For each cfg in the union, leaves missing that cfg
-        contribute their ``mean`` (= "no fluctuation at this cfg").
-
-        ``bss`` are aligned by bootstrap index (cfgs are irrelevant) and
-        combined only if every input leaf has ``bss`` set.
+        Cfg sets may differ — the union is taken in encounter order and
+        entries missing a cfg contribute their ``mean`` (= "no fluctuation
+        at this cfg"). ``bss`` are aligned by bootstrap index and combined
+        only if every input has ``bss`` set.
         """
-        lfs = [self.database[tag] for tag in tags]
-        for lf in lfs:
-            assert lf.cfgs is not None, "combine inputs must have cfgs"
-            assert lf.jks is not None,  "combine inputs must have jks"
+        entries = [self.database[tag] for tag in tags]
+        for tag, entry in zip(tags, entries):
+            if entry.cfgs is None:
+                raise ValueError(f"combine({tag!r}): input entry has no cfgs")
+            if entry.jks is None:
+                raise ValueError(f"combine({tag!r}): input entry has no jks")
 
         # Union cfgs in encounter order — preserves tags[0]'s ordering.
         seen = set()
         union_cfgs = []
-        for lf in lfs:
-            for c in lf.cfgs:
+        for entry in entries:
+            for c in entry.cfgs:
                 if c not in seen:
                     seen.add(c)
                     union_cfgs.append(c)
         union_cfgs = np.array(union_cfgs)
 
-        idx_maps = [{c: i for i, c in enumerate(lf.cfgs)} for lf in lfs]
+        idx_maps = [{c: i for i, c in enumerate(entry.cfgs)} for entry in entries]
 
-        mean = f(*[lf.mean for lf in lfs])
+        mean = f(*[entry.mean for entry in entries])
         jks = np.array([
-            f(*[lf.jks[idx_maps[i][c]] if c in idx_maps[i] else lf.mean
-                for i, lf in enumerate(lfs)])
+            f(*[entry.jks[idx_maps[i][c]] if c in idx_maps[i] else entry.mean
+                for i, entry in enumerate(entries)])
             for c in union_cfgs
         ])
         bss = None
-        if all(lf.bss is not None for lf in lfs):
-            n_bs = lfs[0].bss.shape[0]
-            bss = np.array([f(*[lf.bss[i] for lf in lfs]) for i in range(n_bs)])
+        if all(entry.bss is not None for entry in entries):
+            n_bs = entries[0].bss.shape[0]
+            bss = np.array([f(*[entry.bss[i] for entry in entries]) for i in range(n_bs)])
 
         if dst_tag is not None:
-            self.add_leaf(dst_tag, mean=mean, jks=jks, cfgs=union_cfgs, bss=bss)
+            self.add_entry(dst_tag, mean=mean, jks=jks, cfgs=union_cfgs, bss=bss)
         return mean, jks, bss
 
     ################################ BINNING / CONCAT ##########################
 
-    def add_binned_leaf(self, tag, binsize):
-        """Bin leaf ``tag`` into a new leaf at ``<tag>/binsize<binsize>``.
+    def add_binned_entry(self, tag, binsize, dst_tag=None):
+        """Bin ``tag`` (binsize-mean over ``sample`` and ``weights``) into a new entry.
 
-        Reshapes ``sample`` and ``weights`` into ``(n_bins, binsize, ...)``
-        and averages along axis 1. Cfgs become synthetic ``f"{src}-bin{i}"``
-        labels.
+        Default ``dst_tag`` is ``<tag>/binsize<binsize>``; cfgs become
+        synthetic ``f"{src}-bin{i}"`` labels and ``entry.binsize=binsize``.
+        Trailing incomplete bin is truncated.
         """
         if binsize == 1:
             message(f"{tag} is already in database. Nothing to do.")
             return tag
-        if "binsize" in tag:
-            raise AssertionError(f"{tag} is already binned. Can only bin unbinned leafs.")
-        src_lf = self.database[tag]
-        assert src_lf.sample is not None and src_lf.weights is not None, \
-            f"{tag} must be a data leaf (sample+weights) to bin"
+        src_entry = self.database[tag]
+        if src_entry.binsize != 1:
+            raise ValueError(f"add_binned_entry({tag!r}): entry is already binned (binsize={src_entry.binsize})")
+        if src_entry.sample is None or src_entry.weights is None:
+            raise ValueError(f"add_binned_entry({tag!r}): entry must carry sample and weights")
         # statistics.bin truncates a trailing incomplete bin.
-        n_bins = len(src_lf.sample) // binsize
-        binned_sample = statistics.bin(src_lf.sample, binsize, weights=src_lf.weights)
-        binned_weights = statistics.bin(src_lf.weights, binsize=binsize)
+        n_bins = len(src_entry.sample) // binsize
+        binned_sample = statistics.bin(src_entry.sample, binsize, weights=src_entry.weights)
+        binned_weights = statistics.bin(src_entry.weights, binsize=binsize)
         # Synthetic cfg labels for bins.
-        branch_tag = tag.split("/")[0]
-        binned_cfgs = np.array([f"{branch_tag}-bin{i}" for i in range(n_bins)])
-        binned_tag = f"{tag}/binsize{binsize}"
-        self.add_leaf(
-            binned_tag,
+        prefix = tag.split("/")[0]
+        binned_cfgs = np.array([f"{prefix}-bin{i}" for i in range(n_bins)])
+        if dst_tag is None:
+            dst_tag = f"{tag}/binsize{binsize}"
+        self.add_entry(
+            dst_tag,
             sample=binned_sample, weights=binned_weights, cfgs=binned_cfgs,
-            misc=src_lf.misc,
+            misc=src_entry.misc, binsize=binsize,
         )
-        return binned_tag
+        return dst_tag
 
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
-        """Concatenate the sample arrays of multiple data leaves.
+        """Concatenate ``sample``/``weights``/``cfgs`` of multiple data entries.
 
-        Cfgs are concatenated in order unless ``dst_cfgs`` is given
-        (must match total length).
+        Returns ``(cfgs, sample, weights)`` or adds the result at
+        ``dst_tag``. Cfgs are concatenated in input order unless
+        ``dst_cfgs`` overrides (must match total length).
         """
-        lfs = [self.database[tag] for tag in tags]
-        for lf in lfs:
-            assert lf.sample is not None and lf.weights is not None and lf.cfgs is not None, \
-                "concatenate_samples inputs must be data leaves"
-        sample = np.concatenate([lf.sample for lf in lfs], axis=0)
-        weights = np.concatenate([lf.weights for lf in lfs], axis=0)
+        entries = [self.database[tag] for tag in tags]
+        for tag, entry in zip(tags, entries):
+            if entry.sample is None or entry.weights is None or entry.cfgs is None:
+                raise ValueError(f"concatenate_samples({tag!r}): input must be a data entry (sample, weights, cfgs)")
+        sample = np.concatenate([entry.sample for entry in entries], axis=0)
+        weights = np.concatenate([entry.weights for entry in entries], axis=0)
         if dst_cfgs is None:
-            cfgs = np.concatenate([lf.cfgs for lf in lfs], axis=0)
+            cfgs = np.concatenate([entry.cfgs for entry in entries], axis=0)
         else:
             cfgs = np.asarray(dst_cfgs)
-            assert len(cfgs) == len(sample), \
-                f"dst_cfgs length {len(cfgs)} != total sample length {len(sample)}"
+            if len(cfgs) != len(sample):
+                raise ValueError(f"concatenate_samples: dst_cfgs length {len(cfgs)} != total sample length {len(sample)}")
         if dst_tag is None:
             return cfgs, sample, weights
-        self.add_leaf(dst_tag, sample=sample, weights=weights, cfgs=cfgs)
-
-    def remove_cfgs(self, tag, *cfgs, dst_tag=None):
-        """Drop cfgs from a data leaf by name; return or store a new leaf.
-
-        If ``dst_tag`` is given, the result is added as a new leaf;
-        otherwise returns the filtered ``(cfgs, sample, weights)`` tuple.
-        """
-        lf = self.database[tag]
-        assert lf.sample is not None, f"remove_cfgs requires a data leaf at {tag}"
-        cfgs_to_drop = set(str(c) for c in cfgs)
-        mask = np.array([c not in cfgs_to_drop for c in lf.cfgs])
-        new_cfgs = lf.cfgs[mask]
-        new_sample = lf.sample[mask]
-        new_weights = lf.weights[mask]
-        if dst_tag is None:
-            return new_cfgs, new_sample, new_weights
-        self.add_leaf(
-            dst_tag, sample=new_sample, weights=new_weights, cfgs=new_cfgs,
-            misc=lf.misc,
-        )
+        self.add_entry(dst_tag, sample=sample, weights=weights, cfgs=cfgs)
 
     ################################ STATISTICS ################################
 
-    def jks(self, tag, binsize):
-        """Compute jackknife resamples of ``tag``'s sample with ``binsize``."""
-        lf = self.database[tag]
-        bsample = statistics.bin(lf.sample, binsize, weights=lf.weights)
-        bweights = statistics.bin(lf.weights, binsize=binsize)
-        return jackknife.sample(bsample, weights=bweights)
+    def jackknife_variance(self, tag):
+        """Variance of the entry's stored jackknife samples."""
+        return jackknife.variance(self.database[tag].jks)
 
-    def jackknife_variance(self, tag, binsize=1):
-        assert ("binsize" not in tag) or (binsize == 1)
-        lf = self.database[tag]
-        jks = lf.jks if binsize == 1 else self.jks(tag, binsize)
-        return jackknife.variance(jks)
-
-    def jackknife_covariance(self, tag, binsize=1):
-        assert ("binsize" not in tag) or (binsize == 1)
-        lf = self.database[tag]
-        jks = lf.jks if binsize == 1 else self.jks(tag, binsize)
-        return jackknife.covariance(jks)
-
-    def sample_binning_study(self, tag, binsizes):
-        message(f"Binning study with unbinned sample size: {len(self.database[tag].sample)}")
-        var = {}
-        for b in binsizes:
-            var[b] = self.jackknife_variance(tag, b)
-        return var
+    def jackknife_covariance(self, tag):
+        """Covariance of the entry's stored jackknife samples."""
+        return jackknife.covariance(self.database[tag].jks)
 
     def bss(self, tag, bootstraps):
         """Compute bootstrap samples of ``tag``'s sample.
@@ -366,13 +306,16 @@ class DB:
         ``bootstraps`` is the ``(n_bs, n_cfgs)`` index matrix produced by
         :func:`statpy.statistics.bootstrap.generate_bootstraps` (or read
         from a ``.boot.txt`` file via :func:`parse_bootstrap_file`).
+        ``tag`` must point at an unbinned entry — the indices reference
+        cfg positions, not bin positions.
         """
-        assert "binsize" not in tag, "Can only compute bss for unbinned leafs"
-        lf = self.database[tag]
-        return bootstrap.sample(lf.sample, bootstraps, weights=lf.weights)
+        entry = self.database[tag]
+        return bootstrap.sample(entry.sample, bootstraps, weights=entry.weights)
 
     def bootstrap_variance(self, tag):
+        """Variance of the entry's stored bootstrap samples."""
         return bootstrap.variance(self.database[tag].bss)
 
     def bootstrap_covariance(self, tag):
+        """Covariance of the entry's stored bootstrap samples."""
         return bootstrap.covariance(self.database[tag].bss)

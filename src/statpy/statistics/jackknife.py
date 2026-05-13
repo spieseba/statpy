@@ -2,7 +2,9 @@ import numpy as np
 
 def sample(x, weights=None, f=lambda x: x):
     N = len(x)
-    w = np.ones(N) if weights is None else weights; assert len(w) == N
+    w = np.ones(N) if weights is None else weights
+    if len(w) != N:
+        raise ValueError(f"jackknife.sample: weights length {len(w)} != sample length {N}")
     with np.errstate(invalid='ignore'):
         mean = np.average(x, axis=0, weights=w)
         N_w = np.sum(w)

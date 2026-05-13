@@ -1,10 +1,10 @@
 import numpy as np
 
 
-class Leaf:
+class Entry:
     """Atomic data unit in a :class:`DB`.
 
-    A leaf either carries per-cfg data (``sample`` + ``weights`` + ``cfgs``,
+    A entry either carries per-cfg data (``sample`` + ``weights`` + ``cfgs``,
     plus the derived ``jks``) or a cfg-less result (``mean`` and optional
     ``bss``, with ``cfgs=None``).
 
@@ -13,7 +13,7 @@ class Leaf:
     """
 
     def __init__(self, *, mean=None, jks=None, sample=None, weights=None,
-                 cfgs=None, bss=None, misc=None):
+                 cfgs=None, bss=None, misc=None, binsize=1):
         self.mean = mean
         self.jks = jks          # np.ndarray, shape (n_cfgs, *value_shape)
         self.sample = sample    # np.ndarray, shape (n_cfgs, *value_shape)
@@ -21,3 +21,4 @@ class Leaf:
         self.cfgs = cfgs        # np.ndarray[str], shape (n_cfgs,)
         self.bss = bss          # np.ndarray, shape (n_bs, *value_shape)
         self.misc = misc        # dict or None
+        self.binsize = binsize  # 1 = unbinned/raw, N>1 = binned (jks/sample have n_bins entries)
