@@ -139,16 +139,18 @@ def fit_mean(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True):
     return best, {"t": t, "chi2": chi2, "dof": dof, "pval": get_pvalue(chi2, dof)}
 
 
-def _fit_resamples(transform, label, t, tag, seed, chi2_func, config, slice_data):
-    """Run ``transform(tag, f=...)`` to fit each resample, seeded with ``seed``.
+def _fit_resamples(transform, label, t, tag, seed, chi2_func, config, slice_data, **transform_kwargs):
+    """Run ``transform(tag, f=..., **transform_kwargs)`` to fit each resample.
 
     ``transform`` is :meth:`DB.transform_jks` or :meth:`DB.transform_bss`;
     ``label`` ("jackknife" / "bootstrap") is used only in the error message.
+    ``transform_kwargs`` are forwarded to ``transform`` (e.g. ``bootstraps=``
+    for :meth:`DB.transform_bss` on raw-data leaves).
     """
     sl = _make_slicer(t, slice_data)
     fitter = Fitter(config.fit_method, config.fit_params)
     try:
-        return transform(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, sl(y), seed)[0])
+        return transform(tag, f=lambda y: fitter.estimate_parameters(t, chi2_func, sl(y), seed)[0], **transform_kwargs)
     except ConvergenceError as e:
         raise ConvergenceError(f"{label} fit for tag {tag!r} did not converge: {e}") from e
 
@@ -167,17 +169,19 @@ def fit_jks(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True):
     return best, best_jks, misc
 
 
-def fit_bss(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True):
+def fit_bss(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True, bootstraps=None):
     """Fit the mean and the bootstrap resamples for the leaf at ``tag``.
 
     Mean is fit first (via :func:`fit_mean`); each bootstrap sample is then
     fit seeded from the mean's best parameter. See :func:`fit_mean` for the
-    meaning of ``slice_data``.
+    meaning of ``slice_data``. ``bootstraps`` is the index matrix passed
+    through to :meth:`DB.transform_bss` for raw-data leaves; ignored if the
+    leaf already carries ``lf.bss``.
 
     Returns ``(best_parameter, best_parameter_bss, misc)``.
     """
     best, misc = fit_mean(db, t, tag, p0, chi2_func, config, slice_data=slice_data)
-    best_bss = _fit_resamples(db.transform_bss, "bootstrap", t, tag, best, chi2_func, config, slice_data)
+    best_bss = _fit_resamples(db.transform_bss, "bootstrap", t, tag, best, chi2_func, config, slice_data, bootstraps=bootstraps)
     return best, best_bss, misc
 
 
@@ -522,9 +526,14 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     return None, None
 
 
-def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, Nt=None, silent=False):
+def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, Nt=None, silent=False, bootstraps=None):
     """Ground-state fit at every binsize 1..``binsize``: jackknife always; correlated mean
-    (binned + unbinned) at b=1 and b=``binsize``; bootstrap at b=1. Persists each fit as a leaf."""
+    (binned + unbinned) at b=1 and b=``binsize``; bootstrap at b=1. Persists each fit as a leaf.
+
+    ``bootstraps`` is the index matrix forwarded to :meth:`DB.bss` and
+    :func:`fit_bss` for the b=1 bootstrap branch; required when
+    ``config.bootstrap_available``.
+    """
     message(f"Correlator: {tag}")
     message(f"P0 = {p0}")
     message(f"Fit range {fit_range}")
@@ -559,10 +568,11 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
             message(_log_divider(), silent)
         if b == 1 and config.bootstrap_available:
             message(_log_divider("bootstrap fit"), silent)
-            bss = db.bss(binned_tag)
+            assert bootstraps is not None, "ground_state_fit needs bootstraps= when config.bootstrap_available"
+            bss = db.bss(binned_tag, bootstraps)
             W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)[fit_range]))
             chi2_func_bss = _make_chi2(fit_model, W_bss, Nt)
-            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_tag, best_parameter, chi2_func_bss, config)
+            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_tag, best_parameter, chi2_func_bss, config, bootstraps=bootstraps)
             best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
             print_fit_results(best_parameter_bmean, best_parameter_bcov, misc_bss)
             misc_bss["fit_model"] = fit_model
@@ -606,7 +616,7 @@ def determine_PSA4I(db, tag_PSPS_sml, tag_PSA4_sml, beta):
     db.add_leaf(tag_PSA4I, sample=new_sample, weights=lf_a.weights, cfgs=lf_a.cfgs)
 
 
-def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, config: FitConfig, Nt=None, silent=False):
+def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, config: FitConfig, Nt=None, silent=False, bootstraps=None):
     """Joint PSPS / PSA4I fit on the concatenated ``(PS ++ A4I)`` data leaf.
 
     Same per-binsize structure as :func:`ground_state_fit` (jackknife, correlated mean,
@@ -668,12 +678,13 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
                 message(_log_divider(), silent)
         if b == 1 and config.bootstrap_available:
             message(_log_divider("bootstrap fit"), silent)
-            bss = db.bss(binned_tag)
+            assert bootstraps is not None, "correlator_combined_fit needs bootstraps= when config.bootstrap_available"
+            bss = db.bss(binned_tag, bootstraps)
             W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)))
             chi2_func_bss = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss, Nt),
                              "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[fit_model_combined]
             # combined leaf is pre-sliced; t is the structured PS/A4I index used inside chi2_func_bss
-            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_tag, best_parameter, chi2_func_bss, config, slice_data=False)
+            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_tag, best_parameter, chi2_func_bss, config, slice_data=False, bootstraps=bootstraps)
             misc_bss["fit_model_PSPS"] = fit_model_PS
             misc_bss["fit_model_PSA4I"] = fit_model_A4I
             misc_bss["fit_model"] = fit_model_combined

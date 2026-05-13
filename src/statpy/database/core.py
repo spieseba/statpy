@@ -175,13 +175,6 @@ class DB:
     def transform(self, tag, f, dst_tag=None):
         """Apply ``f`` to ``mean``, each jackknife sample, and each bootstrap
         sample (when present) of the leaf at ``tag``.
-
-        Delegates to :meth:`transform_jks` / :meth:`transform_bss` for
-        the resamples so ``num_proc>1`` parallelisation kicks in
-        uniformly. Returns ``(mean, jks, bss)`` where ``bss`` is ``None``
-        when the input leaf has no stored ``bss`` (no on-the-fly
-        computation in this entry point). If ``dst_tag`` is given, the
-        result is added as a leaf, inheriting ``cfgs`` from the source.
         """
         lf = self.database[tag]
         mean = f(lf.mean)
@@ -200,14 +193,20 @@ class DB:
         with multiprocessing.Pool(self.num_proc) as pool:
             return np.array(pool.map(f, lf.jks))
 
-    def transform_bss(self, tag, f):
+    def transform_bss(self, tag, f, bootstraps=None):
         """Return ``f``-mapped ``bss`` array of the leaf at ``tag``.
 
         If the leaf has no stored ``bss`` (raw-data leaf with sample+weights),
-        bootstrap samples are computed on the fly via :meth:`bss`.
+        bootstrap samples are computed on the fly via :meth:`bss`; pass the
+        ``(n_bs, n_cfgs)`` bootstrap-index matrix as ``bootstraps``.
         """
         lf = self.database[tag]
-        bss = lf.bss if lf.bss is not None else self.bss(tag)
+        if lf.bss is not None:
+            bss = lf.bss
+        else:
+            assert bootstraps is not None, \
+                f"transform_bss on {tag!r}: leaf has no stored bss; pass bootstraps=<index matrix>"
+            bss = self.bss(tag, bootstraps)
         if self.num_proc is None:
             return np.array([f(b) for b in bss])
         message(f"Spawn {self.num_proc} processes to transform bootstrap sample.", silent=True)
@@ -276,7 +275,7 @@ class DB:
         src_lf = self.database[tag]
         assert src_lf.sample is not None and src_lf.weights is not None, \
             f"{tag} must be a data leaf (sample+weights) to bin"
-        # statistics.bin truncates a trailing incomplete bin (matches legacy behaviour).
+        # statistics.bin truncates a trailing incomplete bin.
         n_bins = len(src_lf.sample) // binsize
         binned_sample = statistics.bin(src_lf.sample, binsize, weights=src_lf.weights)
         binned_weights = statistics.bin(src_lf.weights, binsize=binsize)
@@ -361,19 +360,15 @@ class DB:
             var[b] = self.jackknife_variance(tag, b)
         return var
 
-    def add_bootstrap(self, branch_tag, bootstraps, configlist):
-        message(f"Add bootstraps for {branch_tag} to database.")
-        self.add_leaf(
-            f"{branch_tag}/bootstraps",
-            mean=bootstraps, misc={"configlist": configlist},
-        )
+    def bss(self, tag, bootstraps):
+        """Compute bootstrap samples of ``tag``'s sample.
 
-    def bss(self, tag):
-        """Compute bootstrap samples of ``tag``'s sample using the matching
-        ``/bootstraps`` leaf."""
+        ``bootstraps`` is the ``(n_bs, n_cfgs)`` index matrix produced by
+        :func:`statpy.statistics.bootstrap.generate_bootstraps` (or read
+        from a ``.boot.txt`` file via :func:`parse_bootstrap_file`).
+        """
         assert "binsize" not in tag, "Can only compute bss for unbinned leafs"
         lf = self.database[tag]
-        bootstraps = self.database[f"{tag.split('/')[0]}/bootstraps"].mean
         return bootstrap.sample(lf.sample, bootstraps, weights=lf.weights)
 
     def bootstrap_variance(self, tag):
