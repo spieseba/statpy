@@ -176,14 +176,17 @@ class DB:
         """Apply ``f`` to ``mean``, each jackknife sample, and each bootstrap
         sample (when present) of the leaf at ``tag``.
 
-        Returns ``(mean, jks, bss)`` where ``bss`` is ``None`` when the
-        input leaf has no ``bss``. If ``dst_tag`` is given, the result is
-        added as a leaf, inheriting ``cfgs`` from the source.
+        Delegates to :meth:`transform_jks` / :meth:`transform_bss` for
+        the resamples so ``num_proc>1`` parallelisation kicks in
+        uniformly. Returns ``(mean, jks, bss)`` where ``bss`` is ``None``
+        when the input leaf has no stored ``bss`` (no on-the-fly
+        computation in this entry point). If ``dst_tag`` is given, the
+        result is added as a leaf, inheriting ``cfgs`` from the source.
         """
         lf = self.database[tag]
         mean = f(lf.mean)
-        jks = np.array([f(jk) for jk in lf.jks]) if lf.jks is not None else None
-        bss = np.array([f(b) for b in lf.bss]) if lf.bss is not None else None
+        jks = self.transform_jks(tag, f) if lf.jks is not None else None
+        bss = self.transform_bss(tag, f) if lf.bss is not None else None
         if dst_tag is not None:
             self.add_leaf(dst_tag, mean=mean, jks=jks, cfgs=lf.cfgs, bss=bss)
         return mean, jks, bss
