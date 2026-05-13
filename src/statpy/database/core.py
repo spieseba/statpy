@@ -6,8 +6,6 @@ import subprocess
 import zlib
 import numpy as np
 from time import time
-from functools import reduce
-from operator import ior
 
 from statpy.log import message
 from statpy.database.leafs import Leaf
@@ -19,6 +17,7 @@ import multiprocessing
 
 _MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC32 of payload
 _DILL_MP_PATCH_INSTALLED = False
+
 
 def _install_dill_multiprocessing_patch():
     # Swap multiprocessing's pickler for dill so DB workers can ship lambdas/closures.
@@ -35,13 +34,12 @@ def _install_dill_multiprocessing_patch():
 
 
 class DB:
-    def __init__(self, *args, num_proc=None, silent=False, repo_path=None, sort_key=None):
+    def __init__(self, *args, num_proc=None, silent=False, repo_path=None):
         if num_proc is not None:
             _install_dill_multiprocessing_patch()
         self.t0 = time()
         self.num_proc = num_proc
         self.silent = silent
-        self.sort_key = sort_key if sort_key is not None else default_sort_key()
         self.database = {}
         self.commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(repo_path)).decode('utf-8').strip() if repo_path is not None else None
         message(f"Initialized database with statpy commit hash {self.commit_hash} and {num_proc} processes.")
@@ -50,7 +48,10 @@ class DB:
                 self.load(src)
             elif isinstance(src, DB):
                 for t, lf in src.database.items():
-                    self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, bss=lf.bss, weights_tag=lf.weights_tag, silent=self.silent)
+                    self.database[t] = Leaf(
+                        mean=lf.mean, jks=lf.jks, sample=lf.sample,
+                        weights=lf.weights, cfgs=lf.cfgs, bss=lf.bss, misc=lf.misc,
+                    )
 
     def load(self, src):
         """Load a snapshot saved by :func:`save` and add every leaf."""
@@ -67,7 +68,7 @@ class DB:
             raise ValueError(f"{src}: CRC mismatch -- file corrupted")
         src_db = pickle.loads(payload)
         for t, lf in src_db.items():
-            self.add_leaf(t, lf.mean, lf.jks, lf.sample, lf.misc, bss=lf.bss, weights_tag=lf.weights_tag, silent=self.silent)
+            self.database[t] = lf
 
     def save(self, dst):
         """Write the entire database (all fields, including samples) to ``dst``."""
@@ -78,26 +79,49 @@ class DB:
             f.write(struct.pack("<I", crc))
             f.write(payload)
 
-    def add_leaf(self, tag, mean, jks, sample, misc, bss=None, weights_tag=None, database=None, silent=None):
+    ################################ LEAF MANAGEMENT ###########################
+
+    def add_leaf(self, tag, *, mean=None, jks=None, sample=None, weights=None,
+                 cfgs=None, bss=None, misc=None, silent=None):
+        """Add a new leaf at ``tag``.
+
+        Invariants:
+          - Data leaf: ``sample`` requires ``weights`` and ``cfgs``, all of
+            matching length; ``jks`` must not be passed (it is computed
+            from ``sample``+``weights`` via :func:`jackknife.sample`).
+            ``mean`` is auto-computed from ``jks`` if not provided.
+          - Combined / derived leaf: ``sample`` is ``None`` but ``jks`` is
+            given; ``cfgs`` must match ``jks`` length.
+          - Result leaf (fit/bootstrap): ``sample=jks=cfgs=weights=None``;
+            carries ``mean`` and optionally ``bss``.
+        """
         silent = self.silent if silent is None else silent
-        db = self.database if database is None else database
-        if tag not in db:
-            assert (isinstance(sample, dict) or sample is None)
-            assert (isinstance(jks, dict) or jks is None)
-            assert (isinstance(misc, dict) or misc is None)
-            # Auto-compute jks from sample when the leaf carries a weights reference.
-            # Leaves without weights_tag (rwf, nrwf, fit results, ...) skip this path.
-            if sample is not None and jks is None and weights_tag is not None:
-                sample_arr = self.as_array(sample)
-                nrwf_arr = self.as_array(self.database[weights_tag].sample)
-                jks_arr = jackknife.sample(sample_arr, weights=nrwf_arr)
-                jks = {cfg: jk for cfg, jk in zip(sample, jks_arr)}
-                if mean is None:
-                    mean = np.mean(jks_arr, axis=0)
-            message(f"Add {tag} to database.", silent)
-            db[tag] = Leaf(mean, jks, sample, bss=bss, misc=misc, weights_tag=weights_tag)
-        else:
+        if tag in self.database:
             message(f"{tag} already in database. Leaf not added.", silent)
+            return
+
+        if sample is not None:
+            assert weights is not None, "sample requires weights"
+            assert cfgs is not None,    "sample requires cfgs"
+            assert isinstance(sample, np.ndarray), "sample must be np.ndarray"
+            assert isinstance(weights, np.ndarray), "weights must be np.ndarray"
+            assert isinstance(cfgs, np.ndarray), "cfgs must be np.ndarray"
+            assert len(sample) == len(weights) == len(cfgs), \
+                f"length mismatch: sample={len(sample)} weights={len(weights)} cfgs={len(cfgs)}"
+            assert jks is None, "Don't pass jks when sample+weights are given; jks is derived."
+            jks = jackknife.sample(sample, weights=weights)
+            if mean is None:
+                mean = np.mean(jks, axis=0)
+        else:
+            if cfgs is not None and jks is not None:
+                assert len(jks) == len(cfgs), \
+                    f"jks/cfgs length mismatch: jks={len(jks)} cfgs={len(cfgs)}"
+
+        message(f"Add {tag} to database.", silent)
+        self.database[tag] = Leaf(
+            mean=mean, jks=jks, sample=sample, weights=weights,
+            cfgs=cfgs, bss=bss, misc=misc,
+        )
 
     def remove_leaf(self, tag, silent=None):
         silent = self.silent if silent is None else silent
@@ -109,23 +133,22 @@ class DB:
 
     def rename_leaf(self, old, new, silent=None):
         silent = self.silent if silent is None else silent
-        if old in self.database:
-            if new not in self.database:
-                old_lf = self.database[old]
-                self.add_leaf(new, old_lf.mean, old_lf.jks, old_lf.sample, old_lf.misc, bss=old_lf.bss, weights_tag=old_lf.weights_tag, silent=silent)
-                self.remove_leaf(old, silent)
-            else:
-                message(f"{new} already in database. Leaf not added.", silent)
-        else:
+        if old not in self.database:
             message(f"{old} not in database.", silent)
-
+            return
+        if new in self.database:
+            message(f"{new} already in database. Leaf not added.", silent)
+            return
+        self.database[new] = self.database[old]
+        del self.database[old]
+        message(f"renamed {old} -> {new}.", silent)
 
     def print(self, pattern=".*"):
         message(self.__str__(pattern))
 
     def __str__(self, pattern):
         s = '\n\n\tDatabase consists of\n\n'
-        for tag, lf in self.database.items():
+        for tag, _ in self.database.items():
             if re.search(pattern, tag):
                 s += f'\t{tag:20s}\n'
         return s
@@ -138,255 +161,220 @@ class DB:
         for k, i in self.database[tag].misc.items():
             s += f'\t{k:20s}: {i}\n'
         return s
-    
-    ################################## FUNCTIONS #######################################
 
-    ################################ HELPER ###################################
+    ################################ QUERIES ###################################
 
     def get_tags(self, pattern=".*"):
         return [tag for tag in self.database.keys() if re.search(pattern, tag)]
- 
-    def as_array(self, dictionary):
-        sorted_d = dict(sorted(dictionary.items(), key=lambda kv: self.sort_key(kv[0])))
-        if isinstance(next(iter(sorted_d.values())), np.ma.MaskedArray):
-            return np.ma.array(list(sorted_d.values()))
-        return np.array(list(sorted_d.values()))
 
-    ################################ JKS ######################################
-    
-    def combine(self, *tags, f=lambda x: x, dst_tag=None):
-        """Combine ``f`` across mean, jackknife, and (when available) bootstrap
-        samples of ``tags``.
+    def get_cfgs(self, tag):
+        return list(self.database[tag].cfgs)
 
-        Bootstrap combination is performed only when every input leaf carries
-        a stored ``bss`` (e.g. bootstrap-fit results). For raw-data leaves
-        without stored ``bss``, call :func:`combine_bss` explicitly.
+    ################################ TRANSFORM #################################
 
-        Returns ``(mean, jks, bss)`` where ``bss`` is ``None`` when not
-        combined. If ``dst_tag`` is given, the result is additionally added
-        as a leaf at ``dst_tag``.
+    def transform(self, tag, f, dst_tag=None):
+        """Apply ``f`` to ``mean``, each jackknife sample, and each bootstrap
+        sample (when present) of the leaf at ``tag``.
+
+        Returns ``(mean, jks, bss)`` where ``bss`` is ``None`` when the
+        input leaf has no ``bss``. If ``dst_tag`` is given, the result is
+        added as a leaf, inheriting ``cfgs`` from the source.
         """
-        mean = self.combine_mean(*tags, f=f)
-        jks = self.combine_jks(*tags, f=f)
-        bss = (
-            self.combine_bss(*tags, f=f)
-            if all(self.database[tag].bss is not None for tag in tags)
-            else None
-        )
+        lf = self.database[tag]
+        mean = f(lf.mean)
+        jks = np.array([f(jk) for jk in lf.jks]) if lf.jks is not None else None
+        bss = np.array([f(b) for b in lf.bss]) if lf.bss is not None else None
         if dst_tag is not None:
-            self.add_leaf(dst_tag, mean, jks, None, None, bss=bss)
+            self.add_leaf(dst_tag, mean=mean, jks=jks, cfgs=lf.cfgs, bss=bss)
         return mean, jks, bss
 
-    def combine_mean(self, *tags, f=lambda x: x):
-        lfs = [self.database[tag] for tag in tags]
-        mean = f(*[lf.mean for lf in lfs])
-        return mean
-
-    def combine_jks(self, *tags, f=lambda x: x):
-        lfs = [self.database[tag] for tag in tags]
-        cfgs = np.unique(np.concatenate([list(lf.jks.keys()) for lf in lfs]))
-        xs = {cfg:[lf.jks[cfg] if cfg in lf.jks else lf.mean for lf in lfs] for cfg in cfgs}
+    def transform_jks(self, tag, f):
+        """Return ``f``-mapped ``jks`` array of the leaf at ``tag``."""
+        lf = self.database[tag]
         if self.num_proc is None:
-            jks = {cfg:f(*x) for cfg,x in xs.items()}
-        else:
-            def wrapped_f(cfg, *x):
-                return cfg, f(*x)
-            message(f"Spawn {self.num_proc} processes to compute jackknife sample.", silent=True)
-            with multiprocessing.Pool(self.num_proc) as pool:
-                jks = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
-        return jks
-    
-    def combine_bss(self, *tags, f=lambda x: x):
-        """Apply ``f`` to bootstrap samples of one or more leaves.
-
-        For each ``tag``, uses ``lf.bss`` if set (e.g. fit-result leaves)
-        or computes ``db.bss(tag)`` from the sample (raw-data leaves).
-        ``f`` receives the bootstrap value of each input leaf at the
-        same bootstrap index, parallel to :func:`combine_jks`.
-        """
-        bsses = []
-        for tag in tags:
-            lf = self.database[tag]
-            if lf.bss is not None:
-                bsses.append(lf.bss)
-            elif lf.sample is not None:
-                bsses.append(self.bss(tag))
-            else:
-                raise ValueError(f"leaf {tag!r} has neither sample nor bss")
-        n_bs = bsses[0].shape[0]
-        if self.num_proc is None:
-            return np.array([f(*[bs[i] for bs in bsses]) for i in range(n_bs)])
+            return np.array([f(jk) for jk in lf.jks])
+        message(f"Spawn {self.num_proc} processes to transform jackknife sample.", silent=True)
         with multiprocessing.Pool(self.num_proc) as pool:
-            return np.array(pool.starmap(f, [tuple(bs[i] for bs in bsses) for i in range(n_bs)]))
+            return np.array(pool.map(f, lf.jks))
 
-    ############################### SAMPLE ####################################
-    
+    def transform_bss(self, tag, f):
+        """Return ``f``-mapped ``bss`` array of the leaf at ``tag``.
+
+        If the leaf has no stored ``bss`` (raw-data leaf with sample+weights),
+        bootstrap samples are computed on the fly via :meth:`bss`.
+        """
+        lf = self.database[tag]
+        bss = lf.bss if lf.bss is not None else self.bss(tag)
+        if self.num_proc is None:
+            return np.array([f(b) for b in bss])
+        message(f"Spawn {self.num_proc} processes to transform bootstrap sample.", silent=True)
+        with multiprocessing.Pool(self.num_proc) as pool:
+            return np.array(pool.map(f, bss))
+
+    ################################ COMBINE ###################################
+
+    def combine(self, *tags, f, dst_tag=None):
+        """Combine leaves at ``tags`` cfg-wise by applying ``f`` across them.
+
+        Cfg sets may differ: a union is taken in encounter order (first
+        leaf's cfgs in their leaf order, then any new cfgs from subsequent
+        leaves). For each cfg in the union, leaves missing that cfg
+        contribute their ``mean`` (= "no fluctuation at this cfg").
+
+        ``bss`` are aligned by bootstrap index (cfgs are irrelevant) and
+        combined only if every input leaf has ``bss`` set.
+        """
+        lfs = [self.database[tag] for tag in tags]
+        for lf in lfs:
+            assert lf.cfgs is not None, "combine inputs must have cfgs"
+            assert lf.jks is not None,  "combine inputs must have jks"
+
+        # Union cfgs in encounter order — preserves tags[0]'s ordering.
+        seen = set()
+        union_cfgs = []
+        for lf in lfs:
+            for c in lf.cfgs:
+                if c not in seen:
+                    seen.add(c)
+                    union_cfgs.append(c)
+        union_cfgs = np.array(union_cfgs)
+
+        idx_maps = [{c: i for i, c in enumerate(lf.cfgs)} for lf in lfs]
+
+        mean = f(*[lf.mean for lf in lfs])
+        jks = np.array([
+            f(*[lf.jks[idx_maps[i][c]] if c in idx_maps[i] else lf.mean
+                for i, lf in enumerate(lfs)])
+            for c in union_cfgs
+        ])
+        bss = None
+        if all(lf.bss is not None for lf in lfs):
+            n_bs = lfs[0].bss.shape[0]
+            bss = np.array([f(*[lf.bss[i] for lf in lfs]) for i in range(n_bs)])
+
+        if dst_tag is not None:
+            self.add_leaf(dst_tag, mean=mean, jks=jks, cfgs=union_cfgs, bss=bss)
+        return mean, jks, bss
+
+    ################################ BINNING / CONCAT ##########################
+
     def add_binned_leaf(self, tag, binsize):
+        """Bin leaf ``tag`` into a new leaf at ``<tag>/binsize<binsize>``.
+
+        Reshapes ``sample`` and ``weights`` into ``(n_bins, binsize, ...)``
+        and averages along axis 1. Cfgs become synthetic ``f"{src}-bin{i}"``
+        labels.
+        """
         if binsize == 1:
             message(f"{tag} is already in database. Nothing to do.")
             return tag
         if "binsize" in tag:
-            message(f"{tag} is already binned. Can only bin unbinned leafs.")
-            raise AssertionError
-        jks = self.jks(tag, binsize)
-        mean = np.mean(jks, axis=0)
+            raise AssertionError(f"{tag} is already binned. Can only bin unbinned leafs.")
         src_lf = self.database[tag]
-        binned_tag = f"{tag}/binsize{binsize}"
+        assert src_lf.sample is not None and src_lf.weights is not None, \
+            f"{tag} must be a data leaf (sample+weights) to bin"
+        # statistics.bin truncates a trailing incomplete bin (matches legacy behaviour).
+        n_bins = len(src_lf.sample) // binsize
+        binned_sample = statistics.bin(src_lf.sample, binsize, weights=src_lf.weights)
+        binned_weights = statistics.bin(src_lf.weights, binsize=binsize)
+        # Synthetic cfg labels for bins.
         branch_tag = tag.split("/")[0]
-        self.add_leaf(tag=binned_tag, mean=mean, jks={f"{branch_tag}-b{binsize}-{i}":jk for i,jk in enumerate(jks)}, sample=None, misc=src_lf.misc, weights_tag=src_lf.weights_tag)
+        binned_cfgs = np.array([f"{branch_tag}-bin{i}" for i in range(n_bins)])
+        binned_tag = f"{tag}/binsize{binsize}"
+        self.add_leaf(
+            binned_tag,
+            sample=binned_sample, weights=binned_weights, cfgs=binned_cfgs,
+            misc=src_lf.misc,
+        )
         return binned_tag
 
-    def combine_sample(self, *tags, f=lambda x: x, dst_tag=None, parallel=False, silent=None):
-        silent = self.silent if silent is None else silent
-        lfs = [self.database[tag] for tag in tags]
-        cfgs = np.unique(np.concatenate([list(lf.sample.keys()) for lf in lfs]))
-        xs = {cfg:[lf.sample[cfg] if cfg in lf.sample else lf.mean for lf in lfs] for cfg in cfgs}
-        if not parallel:
-            sample = {cfg:f(*x) for cfg,x in xs.items()}
-        else:
-            def wrapped_f(cfg, *x):
-                return cfg, f(*x)
-            message(f"Spawn {self.num_proc} processes to compute sample.", silent=True)
-            with multiprocessing.Pool(self.num_proc) as pool:
-                sample = dict(pool.starmap(wrapped_f, [(cfg, *x) for cfg,x in xs.items()]))
-        if dst_tag is None:
-            return sample
-        self.add_leaf(dst_tag, None, None, sample, None, weights_tag=lfs[0].weights_tag, silent=silent)
-
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
+        """Concatenate the sample arrays of multiple data leaves.
+
+        Cfgs are concatenated in order unless ``dst_cfgs`` is given
+        (must match total length).
+        """
         lfs = [self.database[tag] for tag in tags]
+        for lf in lfs:
+            assert lf.sample is not None and lf.weights is not None and lf.cfgs is not None, \
+                "concatenate_samples inputs must be data leaves"
+        sample = np.concatenate([lf.sample for lf in lfs], axis=0)
+        weights = np.concatenate([lf.weights for lf in lfs], axis=0)
         if dst_cfgs is None:
-            sample = dict(sorted(reduce(ior, [lf.sample for lf in lfs], {}).items(), key=lambda kv: self.sort_key(kv[0])))
+            cfgs = np.concatenate([lf.cfgs for lf in lfs], axis=0)
         else:
-            sample = {cfg:val for cfg,val in zip(dst_cfgs, np.concatenate([self.as_array(lf.sample) for lf in lfs], axis=0))}
+            cfgs = np.asarray(dst_cfgs)
+            assert len(cfgs) == len(sample), \
+                f"dst_cfgs length {len(cfgs)} != total sample length {len(sample)}"
         if dst_tag is None:
-            return sample
-        self.add_leaf(dst_tag, None, None, sample, None, weights_tag=lfs[0].weights_tag)
+            return cfgs, sample, weights
+        self.add_leaf(dst_tag, sample=sample, weights=weights, cfgs=cfgs)
 
-    def remove_cfgs(self, *cfgs, tag=None, dst_tag=None):
-        self.rename_leaf(tag, f"{tag}/tmp")
-        lf = self.database[f"{tag}/tmp"]
-        sample = dict(lf.sample)
-        misc = dict(lf.misc) if lf.misc is not None else None
-        for cfg in cfgs:
-            sample.pop(str(cfg), None)
-        if dst_tag is None:
-            return sample, misc
-        self.add_leaf(dst_tag, None, None, sample, misc, weights_tag=lf.weights_tag)
+    def remove_cfgs(self, tag, *cfgs, dst_tag=None):
+        """Drop cfgs from a data leaf by name; return or store a new leaf.
 
-    def get_cfgs(self, tag):
+        If ``dst_tag`` is given, the result is added as a new leaf;
+        otherwise returns the filtered ``(cfgs, sample, weights)`` tuple.
+        """
         lf = self.database[tag]
-        obj = lf.jks if lf.jks is not None else lf.sample
-        return [str(k) for k, _ in sorted(obj.items(), key=lambda kv: self.sort_key(kv[0]))]
+        assert lf.sample is not None, f"remove_cfgs requires a data leaf at {tag}"
+        cfgs_to_drop = set(str(c) for c in cfgs)
+        mask = np.array([c not in cfgs_to_drop for c in lf.cfgs])
+        new_cfgs = lf.cfgs[mask]
+        new_sample = lf.sample[mask]
+        new_weights = lf.weights[mask]
+        if dst_tag is None:
+            return new_cfgs, new_sample, new_weights
+        self.add_leaf(
+            dst_tag, sample=new_sample, weights=new_weights, cfgs=new_cfgs,
+            misc=lf.misc,
+        )
 
-    ################################ RWF ######################################
-        
-    def add_nrwf(self, rwf_tag, silent=None):
-        silent = self.silent if silent is None else silent
-        rwf = self.database[rwf_tag].sample
-        n = np.mean(self.as_array(rwf))
-        self.add_leaf(tag=rwf_tag.replace("rwf","nrwf"), mean=None, jks=None, sample={cfg:rwf/n for cfg,rwf in rwf.items()}, misc=None, silent=silent)
-
-    def get_nrwf(self, tag):
-        weights_tag = self.database[tag].weights_tag
-        if weights_tag is None:
-            raise KeyError(f"leaf {tag!r} has no weights_tag set")
-        return self.database[weights_tag].sample
-    
-    ################################## STATISTICS ######################################
+    ################################ STATISTICS ################################
 
     def jks(self, tag, binsize):
+        """Compute jackknife resamples of ``tag``'s sample with ``binsize``."""
         lf = self.database[tag]
-        nrwf_arr = self.as_array(self.get_nrwf(tag))
-        bsample = statistics.bin(self.as_array(lf.sample), binsize, weights=nrwf_arr)
-        bnrwf = statistics.bin(nrwf_arr, binsize=binsize)
-        jks = jackknife.sample(bsample, weights=bnrwf)
-        return jks
+        bsample = statistics.bin(lf.sample, binsize, weights=lf.weights)
+        bweights = statistics.bin(lf.weights, binsize=binsize)
+        return jackknife.sample(bsample, weights=bweights)
 
     def jackknife_variance(self, tag, binsize=1):
         assert ("binsize" not in tag) or (binsize == 1)
-        jks = self.as_array(self.database[tag].jks) if binsize == 1 else self.jks(tag, binsize)
+        lf = self.database[tag]
+        jks = lf.jks if binsize == 1 else self.jks(tag, binsize)
         return jackknife.variance(jks)
 
     def jackknife_covariance(self, tag, binsize=1):
         assert ("binsize" not in tag) or (binsize == 1)
-        jks = self.as_array(self.database[tag].jks) if binsize == 1 else self.jks(tag, binsize)
+        lf = self.database[tag]
+        jks = lf.jks if binsize == 1 else self.jks(tag, binsize)
         return jackknife.covariance(jks)
-    
+
     def sample_binning_study(self, tag, binsizes):
         message(f"Binning study with unbinned sample size: {len(self.database[tag].sample)}")
         var = {}
         for b in binsizes:
             var[b] = self.jackknife_variance(tag, b)
         return var
-    
+
     def add_bootstrap(self, branch_tag, bootstraps, configlist):
         message(f"Add bootstraps for {branch_tag} to database.")
-        self.add_leaf(f"{branch_tag}/bootstraps", mean=bootstraps, jks=None, sample=None, misc={"configlist": configlist})
+        self.add_leaf(
+            f"{branch_tag}/bootstraps",
+            mean=bootstraps, misc={"configlist": configlist},
+        )
 
     def bss(self, tag):
+        """Compute bootstrap samples of ``tag``'s sample using the matching
+        ``/bootstraps`` leaf."""
         assert "binsize" not in tag, "Can only compute bss for unbinned leafs"
         lf = self.database[tag]
         bootstraps = self.database[f"{tag.split('/')[0]}/bootstraps"].mean
-        return bootstrap.sample(self.as_array(lf.sample), bootstraps, weights=self.as_array(self.get_nrwf(tag)))
-    
+        return bootstrap.sample(lf.sample, bootstraps, weights=lf.weights)
+
     def bootstrap_variance(self, tag):
         return bootstrap.variance(self.database[tag].bss)
 
     def bootstrap_covariance(self, tag):
         return bootstrap.covariance(self.database[tag].bss)
-
-
-def default_sort_key(stream_order=None, reverse_order=None):
-    """Default :class:`DB` ``sort_key`` factory; see :func:`_sorting_key`."""
-    return lambda tag: _sorting_key(tag, custom_major_order=stream_order, reverse_minor_order=reverse_order)
-
-
-def _sorting_key(tag, custom_major_order, reverse_minor_order):
-    """Sort key ``(major_index, minor)`` for tag ``<major>[-bN]-<minor>``.
-
-    Without ``custom_major_order``, ``major_index`` is the trailing
-    decimal in ``major`` — ``H101r001`` → 1, ``set2`` → 2, fallback ``0``
-    so streams sort numerically ascending. With it,
-    ``major_index = custom_major_order.index(major)``; if ``major``
-    isn't in the list, it falls back to the longest prefix of ``major``
-    that is — this maps multi-stream branch-tag jks keys (e.g.
-    ``D453r000+r001`` from :meth:`DB.add_binned_leaf` on a concatenated
-    leaf) to the first stream of the branch.
-    ``reverse_minor_order`` is a ``{major: bool}`` dict; majors with a
-    truthy value negate ``minor`` (cfg sort runs backwards), missing
-    majors are implicitly ``False``. The ``bN`` token (from
-    :meth:`DB.add_binned_leaf`) is stripped.
-    """
-    binsize_re = re.compile(r"b\d+")
-    trailing_int_re = re.compile(r"(\d+)$")
-    parts = tag.split("-")
-    if len(parts) < 2:
-        raise ValueError(f"Invalid tag format: {tag!r} (expected '<major>-...-<int>')")
-    try:
-        minor = int(parts[-1])
-    except ValueError as e:
-        raise ValueError(f"Invalid tag format: {tag!r} (trailing token not int)") from e
-    rest = parts[:-1]
-    if binsize_re.fullmatch(rest[-1]):
-        rest = rest[:-1]
-    if not rest:
-        raise ValueError(f"Invalid tag format: {tag!r} (empty major)")
-    major = "-".join(rest)
-    major_key = major
-
-    if custom_major_order is not None:
-        if major in custom_major_order:
-            major_index = custom_major_order.index(major)
-        else:
-            matches = [(i, s) for i, s in enumerate(custom_major_order) if major.startswith(s)]
-            if not matches:
-                raise ValueError(f"major {major!r} not in custom_major_order={custom_major_order}")
-            major_index, major_key = max(matches, key=lambda x: len(x[1]))
-    else:
-        m = trailing_int_re.search(major)
-        major_index = int(m.group(1)) if m else 0
-
-    if reverse_minor_order and reverse_minor_order.get(major_key, False):
-        minor = -minor
-    return (major_index, minor)

@@ -1,30 +1,23 @@
-from frozendict import frozendict
+import numpy as np
 
 
 class Leaf:
-    def __init__(self, mean, jks, sample, bss=None, misc=None, weights_tag=None):
-        self._mean = mean
-        self._jks = frozendict(jks) if jks is not None else jks
-        self._sample = frozendict(sample) if sample is not None else sample
-        self._bss = bss
-        self._misc = frozendict(misc) if misc is not None else misc
-        self._weights_tag = weights_tag
+    """Atomic data unit in a :class:`DB`.
 
-    @property
-    def mean(self):
-        return self._mean
-    @property
-    def jks(self):
-        return self._jks
-    @property
-    def sample(self):
-        return self._sample
-    @property
-    def bss(self):
-        return self._bss
-    @property
-    def misc(self):
-        return self._misc
-    @property
-    def weights_tag(self):
-        return self._weights_tag
+    A leaf either carries per-cfg data (``sample`` + ``weights`` + ``cfgs``,
+    plus the derived ``jks``) or a cfg-less result (``mean`` and optional
+    ``bss``, with ``cfgs=None``).
+
+    Arrays are pre-sorted at insertion time and never re-sorted on read.
+    Do not mutate them in place.
+    """
+
+    def __init__(self, *, mean=None, jks=None, sample=None, weights=None,
+                 cfgs=None, bss=None, misc=None):
+        self.mean = mean
+        self.jks = jks          # np.ndarray, shape (n_cfgs, *value_shape)
+        self.sample = sample    # np.ndarray, shape (n_cfgs, *value_shape)
+        self.weights = weights  # np.ndarray, shape (n_cfgs,)
+        self.cfgs = cfgs        # np.ndarray[str], shape (n_cfgs,)
+        self.bss = bss          # np.ndarray, shape (n_bs, *value_shape)
+        self.misc = misc        # dict or None
