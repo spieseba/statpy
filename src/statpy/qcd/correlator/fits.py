@@ -333,7 +333,7 @@ def _select_plateau_range(t, var_t, best_parameter, model_func, bc, folded):
     return t[excited < std_over_four]
 
 
-def get_p0_guess(db, tag, binsize, fit_model, fit_range):
+def get_p0_guess(db, binned_tag, fit_model, fit_range):
     """Heuristic two-state ``[A0, m0, A1, m1]`` initial guess for double-{cosh,sinh,exp} fits.
 
     ``A0, m0`` come from the effective-mass / -amplitude averaged over a central
@@ -344,8 +344,7 @@ def get_p0_guess(db, tag, binsize, fit_model, fit_range):
     """
     if fit_model not in ("double-cosh", "double-sinh", "double-exp"):
         raise ValueError(f"Unknown fit_model: {fit_model!r}")
-    message(f"Get p0 guess(es) for {fit_model} fit model with {tag} and binsize = {binsize}")
-    binned_tag = db.add_binned_entry(tag, binsize)
+    message(f"Get p0 guess(es) for {fit_model} fit model with {binned_tag}")
     Ct_mean = db.database[binned_tag].mean
     Nt = len(Ct_mean)
     effective_mass = {"double-cosh": meff_cosh, "double-sinh": meff_cosh, "double-exp": meff_exp_forward}[fit_model]
@@ -408,7 +407,7 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
     message(f"Excited fit range: [[{t[0]},{t[-1]}]]", silent)
     message(_log_divider("uncorrelated fit"), silent)
     chi2_func = _make_chi2(fit_model, np.linalg.inv(np.diag(var[t])), Nt)
-    p0_guess = get_p0_guess(db, tag, binsize, fit_model, t) if p0_input is None else p0_input
+    p0_guess = get_p0_guess(db, binned_tag, fit_model, t) if p0_input is None else p0_input
     had_nan = np.isnan(p0_guess).any()
     p0_tmp = _resolve_initial_p0(p0_guess, prev_excited_mean)
     if had_nan:
@@ -533,11 +532,14 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
     ``bootstraps`` is the index matrix forwarded to :meth:`DB.bss` and
     :func:`fit_bss` for the b=1 bootstrap branch; required when
     ``config.bootstrap_available``.
+
+    Returns the list of fit-result tags (one per binsize 1..``binsize``).
     """
     message(f"Correlator: {tag}")
     message(f"P0 = {p0}")
     message(f"Fit range {fit_range}")
     message(f"{fit_model} model = {fit_model_dict[fit_model]}")
+    fit_tags = []
     for b in range(1, binsize+1):
         message(f"Binsize = {b}", silent)
         binned_tag = db.add_binned_entry(tag, b)
@@ -577,13 +579,16 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
             print_fit_results(best_parameter_bmean, best_parameter_bcov, misc_bss)
             misc_bss["fit_model"] = fit_model
             db.add_entry(f"{binned_tag}/{fit_model}_bootstrap_fit", mean=best_parameter_bmean, bss=best_parameter_bss, misc=misc_bss)
+        fit_tag = f"{binned_tag}/{fit_model}_fit"
         db.add_entry(
-            f"{binned_tag}/{fit_model}_fit",
+            fit_tag,
             mean=best_parameter, jks=best_parameter_jks,
             cfgs=db.database[binned_tag].cfgs, misc=misc,
         )
+        fit_tags.append(fit_tag)
         message(_log_divider(), silent)
         message(_log_divider(), silent)
+    return fit_tags
 
 
 # ---------------------------------------------------------------------------

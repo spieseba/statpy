@@ -13,6 +13,7 @@ from statpy.statistics import core as statistics
 from statpy.statistics import jackknife, bootstrap
 
 _MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC32 of payload
+_commit_logged = False
 
 
 class DB:
@@ -20,8 +21,11 @@ class DB:
 
     def __init__(self, *args):
         """Create an empty DB; ``*args`` of pickle paths or other ``DB``s are merged in."""
+        global _commit_logged
         self.database = {}
-        message(f"Initialized database with statpy commit hash {statpy.__commit__}.")
+        if not _commit_logged:
+            message(f"Initialized database with statpy commit hash {statpy.__commit__}.")
+            _commit_logged = True
         for src in args:
             if isinstance(src, str):
                 self.load(src)
@@ -237,15 +241,18 @@ class DB:
     ################################ BINNING / CONCAT ##########################
 
     def add_binned_entry(self, tag, binsize, dst_tag=None):
-        """Bin ``tag`` (binsize-mean over ``sample`` and ``weights``) into a new entry.
-
-        Default ``dst_tag`` is ``<tag>/binsize<binsize>``; cfgs become
-        synthetic ``f"{src}-bin{i}"`` labels and ``entry.binsize=binsize``.
-        Trailing incomplete bin is truncated.
+        """Idempotent: ensure the binned variant of ``tag`` at ``binsize`` exists,
+        and return its tag. ``binsize=1`` returns ``tag`` unchanged. Otherwise the
+        default destination is ``<tag>/binsize<binsize>``; cfgs become synthetic
+        ``f"{src}-bin{i}"`` labels and ``entry.binsize=binsize``. Trailing
+        incomplete bin is truncated.
         """
         if binsize == 1:
-            message(f"{tag} is already in database. Nothing to do.")
             return tag
+        if dst_tag is None:
+            dst_tag = f"{tag}/binsize{binsize}"
+        if dst_tag in self.database:
+            return dst_tag
         src_entry = self.database[tag]
         if src_entry.binsize != 1:
             raise ValueError(f"add_binned_entry({tag!r}): entry is already binned (binsize={src_entry.binsize})")
@@ -258,8 +265,6 @@ class DB:
         # Synthetic cfg labels for bins.
         prefix = tag.split("/")[0]
         binned_cfgs = np.array([f"{prefix}-bin{i}" for i in range(n_bins)])
-        if dst_tag is None:
-            dst_tag = f"{tag}/binsize{binsize}"
         self.add_entry(
             dst_tag,
             sample=binned_sample, weights=binned_weights, cfgs=binned_cfgs,
