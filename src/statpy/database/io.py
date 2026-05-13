@@ -64,9 +64,8 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         rwf_idx = _argsort_to(rwf_cfgs, common_cfgs)
         h5_idx = _argsort_to(h5_cfgs, common_cfgs)
 
-        # Raw rwf stored un-normalised; jackknife/bootstrap are scale-invariant in
-        # weights, which makes per-stream and post-concat results agree bit-for-bit
-        # with the legacy global-normalisation pipeline.
+        # Raw rwf stored un-normalised; callers normalise after combining
+        # streams (per-stream or globally) so FP-rounding matches their intent.
         weights = rwf_values[rwf_idx]
         cfg_labels = np.array([f"{stream_tag}-{int(c)}" for c in common_cfgs])
 
