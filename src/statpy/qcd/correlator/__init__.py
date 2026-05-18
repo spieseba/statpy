@@ -26,6 +26,7 @@ from statpy.qcd.correlator.models import (
 )
 from statpy.qcd.correlator.fits import (
     FitConfig,
+    binned_tag,
     fit_mean,
     fit_jks,
     fit_bss,

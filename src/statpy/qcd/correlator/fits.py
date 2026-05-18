@@ -37,6 +37,17 @@ from statpy.qcd.correlator._masking import (
 )
 
 
+def binned_tag(tag, binsize):
+    """Conventional tag of the binsize-``binsize`` variant of ``tag``.
+
+    ``binsize == 1`` returns ``tag`` unchanged (no binning needed). This is
+    the single home of the ``<tag>/binsize<N>`` naming convention: producers
+    (the fit routines below) and consumers must both route tag construction
+    through it so they agree.
+    """
+    return tag if binsize == 1 else f"{tag}/binsize{binsize}"
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -269,13 +280,16 @@ def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antipe
             _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0)
             for Ct in entry.sample
         ])
-        db.add_entry(f"{Ct_tag}/maskedES", sample=maskedES_sample, weights=entry.weights, cfgs=entry.cfgs)
-        binned_Ct_tag = db.add_binned_entry(f"{Ct_tag}/maskedES", binsize)
+        masked_tag = f"{Ct_tag}/maskedES"
+        db.add_entry(masked_tag, sample=maskedES_sample, weights=entry.weights, cfgs=entry.cfgs)
+        binned_Ct_tag = binned_tag(masked_tag, binsize)
+        if binned_Ct_tag != masked_tag and binned_Ct_tag not in db.database:
+            db.add_entry(binned_Ct_tag, **db.bin_entry(masked_tag, binsize))
         mt_tag = f"{binned_Ct_tag}/am_t"
         mt_tags.append(mt_tag)
         db.transform(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
         if cleanup:
-            db.remove_entry(f"{Ct_tag}/maskedES")
+            db.remove_entry(masked_tag)
             db.remove_entry(binned_Ct_tag)
     dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
     db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag)
@@ -333,7 +347,7 @@ def _select_plateau_range(t, var_t, best_parameter, model_func, bc, folded):
     return t[excited < std_over_four]
 
 
-def get_p0_guess(db, binned_tag, fit_model, fit_range):
+def get_p0_guess(db, binned_corr_tag, fit_model, fit_range):
     """Heuristic two-state ``[A0, m0, A1, m1]`` initial guess for double-{cosh,sinh,exp} fits.
 
     ``A0, m0`` come from the effective-mass / -amplitude averaged over a central
@@ -344,8 +358,8 @@ def get_p0_guess(db, binned_tag, fit_model, fit_range):
     """
     if fit_model not in ("double-cosh", "double-sinh", "double-exp"):
         raise ValueError(f"Unknown fit_model: {fit_model!r}")
-    message(f"Get p0 guess(es) for {fit_model} fit model with {binned_tag}")
-    Ct_mean = db.database[binned_tag].mean
+    message(f"Get p0 guess(es) for {fit_model} fit model with {binned_corr_tag}")
+    Ct_mean = db.database[binned_corr_tag].mean
     Nt = len(Ct_mean)
     effective_mass = {"double-cosh": meff_cosh, "double-sinh": meff_cosh, "double-exp": meff_exp_forward}[fit_model]
     effective_amplitude = {"double-cosh": Aeff_cosh, "double-sinh": Aeff_sinh, "double-exp": Aeff_exp}[fit_model]
@@ -372,7 +386,7 @@ def get_p0_guess(db, binned_tag, fit_model, fit_range):
     return np.array([A0_eff,m0_eff,A1_eff,m1_eff])
 
 
-def _try_correlated_fit(db, binned_tag, t, cov_t, p0, fit_model, Nt, config, label):
+def _try_correlated_fit(db, binned_corr_tag, t, cov_t, p0, fit_model, Nt, config, label):
     """Run a correlated mean fit on already-sliced ``cov_t``.
 
     Returns ``(best_parameter, misc)`` on success or ``(None, None)`` if the
@@ -388,7 +402,7 @@ def _try_correlated_fit(db, binned_tag, t, cov_t, p0, fit_model, Nt, config, lab
     try:
         W = np.linalg.inv(cov_t)
         chi2 = _make_chi2(fit_model, W, Nt)
-        best, misc = fit_mean(db, t, binned_tag, p0, chi2, config)
+        best, misc = fit_mean(db, t, binned_corr_tag, p0, chi2, config)
         misc["fit_model"] = fit_model
         return best, misc
     except ConvergenceError as ce:
@@ -396,7 +410,7 @@ def _try_correlated_fit(db, binned_tag, t, cov_t, p0, fit_model, Nt, config, lab
         return None, None
 
 
-def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, fit_model, Nt, var, cov_binned, model_func, bc, folded, binsize, config, silent):
+def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_mean, fit_model, Nt, var, cov_binned, model_func, bc, folded, binsize, config, silent):
     """One iteration of the excited-state-contribution fit loop.
 
     Returns ``None`` on convergence error, otherwise
@@ -407,14 +421,14 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
     message(f"Excited fit range: [[{t[0]},{t[-1]}]]", silent)
     message(_log_divider("uncorrelated fit"), silent)
     chi2_func = _make_chi2(fit_model, np.linalg.inv(np.diag(var[t])), Nt)
-    p0_guess = get_p0_guess(db, binned_tag, fit_model, t) if p0_input is None else p0_input
+    p0_guess = get_p0_guess(db, binned_corr_tag, fit_model, t) if p0_input is None else p0_input
     had_nan = np.isnan(p0_guess).any()
     p0_tmp = _resolve_initial_p0(p0_guess, prev_excited_mean)
     if had_nan:
         message(f"p0 guess contains NaN, use fit result from previous fit range if available, else use available params to estimate NaNs or default to 1: {p0_tmp}")
     try:
         message(f"p0 for fit: {p0_tmp}")
-        best_parameter, best_parameter_jks, misc = fit_jks(db, t, binned_tag, p0_tmp, chi2_func, config)
+        best_parameter, best_parameter_jks, misc = fit_jks(db, t, binned_corr_tag, p0_tmp, chi2_func, config)
         misc["fit_model"] = fit_model
     except ConvergenceError as ce:
         message(f"{ce} -> jump to next fit range")
@@ -428,14 +442,14 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
 
     message(_log_divider("correlated mean fit"), silent)
     message("Try correlated fit with binned covariance matrix")
-    binned_best, binned_misc = _try_correlated_fit(db, binned_tag, t, cov_binned[t][:, t], p0_tmp, fit_model, Nt, config, "binned")
+    binned_best, binned_misc = _try_correlated_fit(db, binned_corr_tag, t, cov_binned[t][:, t], p0_tmp, fit_model, Nt, config, "binned")
     if binned_best is not None:
         binned_best = _sort_two_state_params(binned_best)
         print_fit_results(binned_best, None, binned_misc, silent)
 
     message("Try correlated fit with unbinned covariance matrix.")
     cov_unbinned = db.jackknife_covariance(tag)
-    unbinned_best, unbinned_misc = _try_correlated_fit(db, binned_tag, t, cov_unbinned[t][:, t], p0_tmp, fit_model, Nt, config, "unbinned")
+    unbinned_best, unbinned_misc = _try_correlated_fit(db, binned_corr_tag, t, cov_unbinned[t][:, t], p0_tmp, fit_model, Nt, config, "unbinned")
     if unbinned_best is not None:
         unbinned_best = _sort_two_state_params(unbinned_best)
         print_fit_results(unbinned_best, None, unbinned_misc, silent)
@@ -444,15 +458,15 @@ def _fit_one_excited_range(db, tag, binned_tag, t, p0_input, prev_excited_mean, 
     t_plateau = _select_plateau_range(t, var[t], best_parameter, model_func, bc, folded)
 
     excited_spec = _EntrySpec(
-        tag=f"{binned_tag}/excited_contributions_fit",
+        tag=f"{binned_corr_tag}/excited_contributions_fit",
         mean=best_parameter, jks=best_parameter_jks,
-        cfgs=db.database[binned_tag].cfgs, misc=misc,
+        cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
     )
-    binned_corr_spec = _EntrySpec(tag=f"{binned_tag}/binned_correlated_excited_contributions_mean_fit")
+    binned_corr_spec = _EntrySpec(tag=f"{binned_corr_tag}/binned_correlated_excited_contributions_mean_fit")
     if binned_best is not None:
         binned_corr_spec.mean = binned_best
         binned_corr_spec.misc = binned_misc
-    unbinned_corr_spec = _EntrySpec(tag=f"{binned_tag}/unbinned_correlated_excited_contributions_mean_fit")
+    unbinned_corr_spec = _EntrySpec(tag=f"{binned_corr_tag}/unbinned_correlated_excited_contributions_mean_fit")
     if unbinned_best is not None:
         unbinned_corr_spec.mean = unbinned_best
         unbinned_corr_spec.misc = unbinned_misc
@@ -477,10 +491,12 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     message(f"Binsize = {binsize}", silent)
     message(f"{fit_model} model = {fit_model_dict[fit_model]}")
     message(_log_divider(), silent)
-    binned_tag = db.add_binned_entry(tag, binsize)
-    cov = db.jackknife_covariance(binned_tag)
+    binned_corr_tag = binned_tag(tag, binsize)
+    if binned_corr_tag != tag and binned_corr_tag not in db.database:
+        db.add_entry(binned_corr_tag, **db.bin_entry(tag, binsize))
+    cov = db.jackknife_covariance(binned_corr_tag)
     var = np.diag(cov)
-    Nt = len(db.database[binned_tag].mean) if Nt is None else Nt
+    Nt = len(db.database[binned_corr_tag].mean) if Nt is None else Nt
     model_func = {"double-cosh": double_cosh_model(Nt),
                   "double-sinh": double_sinh_model(Nt),
                   "double-exp": double_exp_model()}[fit_model]
@@ -493,7 +509,7 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     last_best_parameter = None
     for t in excited_fit_ranges:
         result = _fit_one_excited_range(
-            db, tag, binned_tag, t, p0, excited_spec.mean,
+            db, tag, binned_corr_tag, t, p0, excited_spec.mean,
             fit_model, Nt, var, cov, model_func, bc, folded, binsize, config, silent,
         )
         if result is None:
@@ -542,48 +558,50 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
     fit_tags = []
     for b in range(1, binsize+1):
         message(f"Binsize = {b}", silent)
-        binned_tag = db.add_binned_entry(tag, b)
+        binned_corr_tag = binned_tag(tag, b)
+        if binned_corr_tag != tag and binned_corr_tag not in db.database:
+            db.add_entry(binned_corr_tag, **db.bin_entry(tag, b))
         message(_log_divider("jackknife fit"), silent)
-        var = db.jackknife_variance(binned_tag)
-        Nt = len(db.database[binned_tag].mean) if Nt is None else Nt
+        var = db.jackknife_variance(binned_corr_tag)
+        Nt = len(db.database[binned_corr_tag].mean) if Nt is None else Nt
         W = np.linalg.inv(np.diag(var[fit_range]))
         chi2_func = _make_chi2(fit_model, W, Nt)
-        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range, binned_tag, p0, chi2_func, config)
+        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range, binned_corr_tag, p0, chi2_func, config)
         misc["fit_model"] = fit_model
         best_parameter_cov = jackknife.covariance(best_parameter_jks)
         print_fit_results(best_parameter, best_parameter_cov, misc, silent)
         if b in [1,binsize]:
             message(_log_divider("correlated mean fit"), silent)
             message("Try fit with covariance matrix")
-            cov_t = db.jackknife_covariance(binned_tag)[fit_range][:,fit_range]
-            best, misc_corr = _try_correlated_fit(db, binned_tag, fit_range, cov_t, p0, fit_model, Nt, config, "binned")
+            cov_t = db.jackknife_covariance(binned_corr_tag)[fit_range][:,fit_range]
+            best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_t, p0, fit_model, Nt, config, "binned")
             if best is not None:
                 print_fit_results(best, None, misc_corr, silent)
-                db.add_entry(f"{binned_tag}/{fit_model}_binned_correlated_mean_fit", mean=best, misc=misc_corr)
+                db.add_entry(f"{binned_corr_tag}/{fit_model}_binned_correlated_mean_fit", mean=best, misc=misc_corr)
             if b != 1:
                 message("Try fit with unbinned covariance matrix")
                 cov_t_unbinned = db.jackknife_covariance(tag)[fit_range][:,fit_range]
-                best, misc_corr = _try_correlated_fit(db, binned_tag, fit_range, cov_t_unbinned, p0, fit_model, Nt, config, "unbinned")
+                best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_t_unbinned, p0, fit_model, Nt, config, "unbinned")
                 if best is not None:
                     print_fit_results(best, None, misc_corr, silent)
-                    db.add_entry(f"{binned_tag}/{fit_model}_unbinned_correlated_mean_fit", mean=best, misc=misc_corr)
+                    db.add_entry(f"{binned_corr_tag}/{fit_model}_unbinned_correlated_mean_fit", mean=best, misc=misc_corr)
             message(_log_divider(), silent)
         if b == 1 and config.bootstrap_available:
             message(_log_divider("bootstrap fit"), silent)
             assert bootstraps is not None, "ground_state_fit needs bootstraps= when config.bootstrap_available"
-            bss = db.bss(binned_tag, bootstraps)
+            bss = db.bss(binned_corr_tag, bootstraps)
             W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)[fit_range]))
             chi2_func_bss = _make_chi2(fit_model, W_bss, Nt)
-            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_tag, best_parameter, chi2_func_bss, config, bootstraps=bootstraps)
+            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_corr_tag, best_parameter, chi2_func_bss, config, bootstraps=bootstraps)
             best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
             print_fit_results(best_parameter_bmean, best_parameter_bcov, misc_bss)
             misc_bss["fit_model"] = fit_model
-            db.add_entry(f"{binned_tag}/{fit_model}_bootstrap_fit", mean=best_parameter_bmean, bss=best_parameter_bss, misc=misc_bss)
-        fit_tag = f"{binned_tag}/{fit_model}_fit"
+            db.add_entry(f"{binned_corr_tag}/{fit_model}_bootstrap_fit", mean=best_parameter_bmean, bss=best_parameter_bss, misc=misc_bss)
+        fit_tag = f"{binned_corr_tag}/{fit_model}_fit"
         db.add_entry(
             fit_tag,
             mean=best_parameter, jks=best_parameter_jks,
-            cfgs=db.database[binned_tag].cfgs, misc=misc,
+            cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
         )
         fit_tags.append(fit_tag)
         message(_log_divider(), silent)
@@ -648,14 +666,16 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
     db.add_entry(combined_tag, sample=combined_sample, weights=lf_ps.weights, cfgs=lf_ps.cfgs)
     for b in range(1, binsize+1):
         message(f"Binsize = {b}", silent)
-        binned_tag = db.add_binned_entry(combined_tag, b)
+        binned_corr_tag = binned_tag(combined_tag, b)
+        if binned_corr_tag != combined_tag and binned_corr_tag not in db.database:
+            db.add_entry(binned_corr_tag, **db.bin_entry(combined_tag, b))
         message(_log_divider("jackknife fit"), silent)
-        var = db.jackknife_variance(binned_tag)
+        var = db.jackknife_variance(binned_corr_tag)
         W = np.linalg.inv(np.diag(var))
         chi2_func = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W, Nt),
                      "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[fit_model_combined]
         # combined entry is pre-sliced (PS ++ A4I); t is the structured PS/A4I index used inside chi2_func
-        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range_combined, binned_tag, p0, chi2_func, config, slice_data=False)
+        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range_combined, binned_corr_tag, p0, chi2_func, config, slice_data=False)
         misc["fit_model_PSPS"] = fit_model_PS
         misc["fit_model_PSA4I"] = fit_model_A4I
         misc["fit_model"] = fit_model_combined
@@ -666,30 +686,30 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
         if b in [1,binsize]:
             message(_log_divider("correlated mean fit"), silent)
             try:
-                W_correlated = np.linalg.inv(db.jackknife_covariance(binned_tag))
+                W_correlated = np.linalg.inv(db.jackknife_covariance(binned_corr_tag))
                 chi2_func_correlated = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated, Nt),
                                         "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_correlated)}[fit_model_combined]
                 # combined entry is pre-sliced; t is the structured PS/A4I index used inside chi2_func_correlated
-                best_parameter_correlated, misc_correlated = fit_mean(db, fit_range_combined, binned_tag, best_parameter, chi2_func_correlated, config, slice_data=False)
+                best_parameter_correlated, misc_correlated = fit_mean(db, fit_range_combined, binned_corr_tag, best_parameter, chi2_func_correlated, config, slice_data=False)
                 misc_correlated["fit_model_PSPS"] = fit_model_PS
                 misc_correlated["fit_model_PSA4I"] = fit_model_A4I
                 misc_correlated["fit_model"] = fit_model_combined
                 misc_correlated["t_PSPS"] = fit_range_PS
                 misc_correlated["t_PSA4I"] = fit_range_A4I
                 print_fit_results(best_parameter_correlated, None, misc_correlated, silent)
-                db.add_entry(f"{binned_tag}/{fit_model_combined}_correlated_mean_fit", mean=best_parameter_correlated, misc=misc_correlated)
+                db.add_entry(f"{binned_corr_tag}/{fit_model_combined}_correlated_mean_fit", mean=best_parameter_correlated, misc=misc_correlated)
             except ConvergenceError as ce:
                 message(f"{ce} for correlated mean fit")
                 message(_log_divider(), silent)
         if b == 1 and config.bootstrap_available:
             message(_log_divider("bootstrap fit"), silent)
             assert bootstraps is not None, "correlator_combined_fit needs bootstraps= when config.bootstrap_available"
-            bss = db.bss(binned_tag, bootstraps)
+            bss = db.bss(binned_corr_tag, bootstraps)
             W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)))
             chi2_func_bss = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss, Nt),
                              "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[fit_model_combined]
             # combined entry is pre-sliced; t is the structured PS/A4I index used inside chi2_func_bss
-            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_tag, best_parameter, chi2_func_bss, config, slice_data=False, bootstraps=bootstraps)
+            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_corr_tag, best_parameter, chi2_func_bss, config, slice_data=False, bootstraps=bootstraps)
             misc_bss["fit_model_PSPS"] = fit_model_PS
             misc_bss["fit_model_PSA4I"] = fit_model_A4I
             misc_bss["fit_model"] = fit_model_combined
@@ -697,21 +717,21 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
             misc_bss["t_PSA4I"] = fit_range_A4I
             best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
             print_fit_results(best_parameter_bmean, best_parameter_bcov, misc_bss)
-            db.add_entry(f"{binned_tag}/{fit_model_combined}_bootstrap_fit", mean=best_parameter_bmean, bss=best_parameter_bss, misc=misc_bss)
+            db.add_entry(f"{binned_corr_tag}/{fit_model_combined}_bootstrap_fit", mean=best_parameter_bmean, bss=best_parameter_bss, misc=misc_bss)
         db.add_entry(
-            f"{binned_tag}/{fit_model_combined}_fit",
+            f"{binned_corr_tag}/{fit_model_combined}_fit",
             mean=best_parameter, jks=best_parameter_jks,
-            cfgs=db.database[binned_tag].cfgs, misc=misc,
+            cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
         )
         message(_log_divider("bare decay constant"))
-        db.transform(f"{binned_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_tag}/{fit_model_combined}_fit/afbare")
+        db.transform(f"{binned_corr_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_corr_tag}/{fit_model_combined}_fit/afbare")
         if b == 1 and config.bootstrap_available:
-            bootstrap_tag = f"{binned_tag}/{fit_model_combined}_bootstrap_fit"
+            bootstrap_tag = f"{binned_corr_tag}/{fit_model_combined}_bootstrap_fit"
             fbare_bss_mean = bare_decay_constant(db.database[bootstrap_tag].mean)
             fbare_bss = db.transform_bss(bootstrap_tag, f=bare_decay_constant)
             db.add_entry(f"{bootstrap_tag}/afbare", mean=fbare_bss_mean, bss=fbare_bss)
             fbare_bs_str = f"         {fbare_bss_mean:.8f} +- {bootstrap.variance(fbare_bss)**.5:.8f} (bootstrap)"
-        message(f"a*fbare = {db.database[f'{binned_tag}/{fit_model_combined}_fit/afbare'].mean:.8f} +- {db.jackknife_variance(f'{binned_tag}/{fit_model_combined}_fit/afbare')**.5:.8f} (jackknife)")
+        message(f"a*fbare = {db.database[f'{binned_corr_tag}/{fit_model_combined}_fit/afbare'].mean:.8f} +- {db.jackknife_variance(f'{binned_corr_tag}/{fit_model_combined}_fit/afbare')**.5:.8f} (jackknife)")
         if b == 1 and config.bootstrap_available:
             message(fbare_bs_str)
         message(_log_divider(), silent)

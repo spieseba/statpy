@@ -75,7 +75,7 @@ class DB:
           - Derived entry: ``sample=None`` but ``jks`` and ``cfgs`` given
             (matching length).
           - Result entry: only ``mean`` and optionally ``bss``.
-        ``binsize`` is 1 for raw, >1 for binned (set by :meth:`add_binned_entry`).
+        ``binsize`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
         """
         if tag in self.database:
             message(f"{tag} already in database. Entry not added.")
@@ -240,37 +240,33 @@ class DB:
 
     ################################ BINNING / CONCAT ##########################
 
-    def add_binned_entry(self, tag, binsize, dst_tag=None):
-        """Idempotent: ensure the binned variant of ``tag`` at ``binsize`` exists,
-        and return its tag. ``binsize=1`` returns ``tag`` unchanged. Otherwise the
-        default destination is ``<tag>/binsize<binsize>``; cfgs become synthetic
-        ``f"{src}-bin{i}"`` labels and ``entry.binsize=binsize``. Trailing
+    def bin_entry(self, tag, binsize):
+        """Bin the data entry at ``tag`` into bins of ``binsize`` configs.
+
+        Returns a dict of the binned ``sample``, ``weights``, ``cfgs``,
+        ``binsize`` and ``misc``, ready to splat into :meth:`add_entry` --
+        the caller picks the destination tag. Nothing is stored here.
+
+        Cfgs become synthetic ``f"{src}-bin{i}"`` labels; the trailing
         incomplete bin is truncated.
         """
-        if binsize == 1:
-            return tag
-        if dst_tag is None:
-            dst_tag = f"{tag}/binsize{binsize}"
-        if dst_tag in self.database:
-            return dst_tag
+        if binsize <= 1:
+            raise ValueError(f"bin_entry({tag!r}): binsize must be > 1, got {binsize}")
         src_entry = self.database[tag]
         if src_entry.binsize != 1:
-            raise ValueError(f"add_binned_entry({tag!r}): entry is already binned (binsize={src_entry.binsize})")
+            raise ValueError(f"bin_entry({tag!r}): entry is already binned (binsize={src_entry.binsize})")
         if src_entry.sample is None or src_entry.weights is None:
-            raise ValueError(f"add_binned_entry({tag!r}): entry must carry sample and weights")
+            raise ValueError(f"bin_entry({tag!r}): entry must carry sample and weights")
         # statistics.bin truncates a trailing incomplete bin.
         n_bins = len(src_entry.sample) // binsize
-        binned_sample = statistics.bin(src_entry.sample, binsize, weights=src_entry.weights)
-        binned_weights = statistics.bin(src_entry.weights, binsize=binsize)
-        # Synthetic cfg labels for bins.
         prefix = tag.split("/")[0]
-        binned_cfgs = np.array([f"{prefix}-bin{i}" for i in range(n_bins)])
-        self.add_entry(
-            dst_tag,
-            sample=binned_sample, weights=binned_weights, cfgs=binned_cfgs,
-            misc=src_entry.misc, binsize=binsize,
-        )
-        return dst_tag
+        return {
+            "sample": statistics.bin(src_entry.sample, binsize, weights=src_entry.weights),
+            "weights": statistics.bin(src_entry.weights, binsize=binsize),
+            "cfgs": np.array([f"{prefix}-bin{i}" for i in range(n_bins)]),
+            "misc": src_entry.misc,
+            "binsize": binsize,
+        }
 
     def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
         """Concatenate ``sample``/``weights``/``cfgs`` of multiple data entries.
