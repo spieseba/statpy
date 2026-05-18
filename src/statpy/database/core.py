@@ -238,7 +238,7 @@ class DB:
             self.add_entry(dst_tag, mean=mean, jks=jks, cfgs=union_cfgs, bss=bss)
         return mean, jks, bss
 
-    ################################ BINNING / CONCAT ##########################
+    ################################ BINNING ###################################
 
     def bin_entry(self, tag, binsize):
         """Bin the data entry at ``tag`` into bins of ``binsize`` configs.
@@ -267,29 +267,6 @@ class DB:
             "misc": src_entry.misc,
             "binsize": binsize,
         }
-
-    def concatenate_samples(self, *tags, dst_tag=None, dst_cfgs=None):
-        """Concatenate ``sample``/``weights``/``cfgs`` of multiple data entries.
-
-        Returns ``(cfgs, sample, weights)`` or adds the result at
-        ``dst_tag``. Cfgs are concatenated in input order unless
-        ``dst_cfgs`` overrides (must match total length).
-        """
-        entries = [self.database[tag] for tag in tags]
-        for tag, entry in zip(tags, entries):
-            if entry.sample is None or entry.weights is None or entry.cfgs is None:
-                raise ValueError(f"concatenate_samples({tag!r}): input must be a data entry (sample, weights, cfgs)")
-        sample = np.concatenate([entry.sample for entry in entries], axis=0)
-        weights = np.concatenate([entry.weights for entry in entries], axis=0)
-        if dst_cfgs is None:
-            cfgs = np.concatenate([entry.cfgs for entry in entries], axis=0)
-        else:
-            cfgs = np.asarray(dst_cfgs)
-            if len(cfgs) != len(sample):
-                raise ValueError(f"concatenate_samples: dst_cfgs length {len(cfgs)} != total sample length {len(sample)}")
-        if dst_tag is None:
-            return cfgs, sample, weights
-        self.add_entry(dst_tag, sample=sample, weights=weights, cfgs=cfgs)
 
     ################################ STATISTICS ################################
 
