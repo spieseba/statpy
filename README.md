@@ -1,5 +1,7 @@
 # statpy
-A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD. 
+A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD.  
+
+This is the actively developed version of statpy. The original toolkit, written during my PhD, is preserved as the [v1.0 release](https://github.com/spieseba/statpy/releases/tag/v1.0) and on the [`v1-legacy`](https://github.com/spieseba/statpy/tree/v1-legacy) branch, and is no longer maintained.
 
 ### Prerequisites
 - Python >= 3.12
@@ -18,7 +20,7 @@ uv pip install /absolute/path/to/statpy
 ```
 
 ### Development install (editable)
-Use this if you actively develop statpy-rqcd and want changes
+Use this if you actively develop statpy and want changes
 to be picked up immediately by consuming projects.
 
 From your project directory:
