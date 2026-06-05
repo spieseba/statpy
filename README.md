@@ -1,5 +1,5 @@
 # statpy
-RQCD version of statpy
+A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD. 
 
 ### Prerequisites
 - Python >= 3.12
@@ -8,13 +8,13 @@ RQCD version of statpy
 ---
 
 ### Regular install (non-editable)
-Use this if you just want to **use** `statpy-rqcd` without modifying it.
+Use this if you just want to **use** `statpy` without modifying it.
 
 From your project directory:
 
 ```bash
 uv venv
-uv pip install /absolute/path/to/statpy-rqcd
+uv pip install /absolute/path/to/statpy
 ```
 
 ### Development install (editable)
@@ -26,8 +26,8 @@ From your project directory:
 ```bash
 uv venv 
 uv pip install meson meson-python ninja
-uv add --editable /absolute/path/to/statpy-rqcd                       # Record the dependency (so version constraints are resepected)
-uv pip install -e /absolute/path/to/statpy-rqcd --no-build-isolation  # Reinstall using project environment for build tools
+uv add --editable /absolute/path/to/statpy                       # Record the dependency (so version constraints are resepected)
+uv pip install -e /absolute/path/to/statpy --no-build-isolation  # Reinstall using project environment for build tools
 ```
 The build tools are installed into the project environment and reused for editable builds.
 
