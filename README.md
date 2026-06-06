@@ -28,10 +28,14 @@ From your project directory:
 ```bash
 uv venv 
 uv pip install meson meson-python ninja
-uv add --editable /absolute/path/to/statpy                       # Record the dependency (so version constraints are resepected)
+uv add --editable /absolute/path/to/statpy                       # Record the dependency (so version constraints are respected)
 uv pip install -e /absolute/path/to/statpy --no-build-isolation  # Reinstall using project environment for build tools
 ```
 The build tools are installed into the project environment and reused for editable builds.
+
+The final `--no-build-isolation` reinstall is required: meson-python editable
+installs rebuild via `ninja` on every import, so the build must use the venv's
+own `ninja` (a stable path) rather than the throwaway isolated-build one.
 
 ---
 
