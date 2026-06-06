@@ -12,6 +12,20 @@ def sample(x, weights=None, f=lambda x: x):
         N_w = np.sum(w)
         return np.array([ f( mean + w[j] * (mean - x[j]) / (N_w - w[j]) ) for j in range(N)])
 
+def variance(jks, mean=None):
+    if mean is None: mean = np.mean(jks, axis=0)
+    N = len(jks)
+    with np.errstate(invalid='ignore'):
+        return np.sum(np.array([(jks[j] - mean)**2 for j in range(N)]), axis=0) * (N-1) / N
+
+def covariance(jks, mean=None):
+    if mean is None: mean = np.mean(jks, axis=0)
+    N = len(jks)
+    def outer_sqr(a):
+        return np.outer(a,a)
+    return np.sum(np.array([outer_sqr(jks[j] - mean) for j in range(N)]), axis=0) * (N-1) / N  
+
+
 def binned_sample(jks, binsize, weights=None, mean=None):
     """Construct the binned jackknife sample from an unbinned one (delayed
     binning, arxiv:2410.17053).
@@ -72,17 +86,3 @@ def binned_sample(jks, binsize, weights=None, mean=None):
     omega = weights[:keep].reshape(n_bins, binsize).sum(axis=1).reshape(bcast)   # omega_i, per bin
     bin_terms = ((jks[:keep] - mean) * Ww[:keep]).reshape(n_bins, binsize, *jks.shape[1:]).sum(axis=1)
     return mean + bin_terms / (W - omega)
-
-
-def variance(jks, mean=None):
-    if mean is None: mean = np.mean(jks, axis=0)
-    N = len(jks)
-    with np.errstate(invalid='ignore'):
-        return np.sum(np.array([(jks[j] - mean)**2 for j in range(N)]), axis=0) * (N-1) / N
-
-def covariance(jks, mean=None):
-    if mean is None: mean = np.mean(jks, axis=0)
-    N = len(jks)
-    def outer_sqr(a):
-        return np.outer(a,a)
-    return np.sum(np.array([outer_sqr(jks[j] - mean) for j in range(N)]), axis=0) * (N-1) / N  
