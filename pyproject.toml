@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.17,<0.12.0"]
+build-backend = "uv_build"
 
 [project]
 name="statpy"
@@ -12,6 +12,3 @@ authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
 ]
 dependencies=["numpy<2.4", "scipy", "iminuit", "numba", "h5py"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/statpy"]

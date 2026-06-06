@@ -20,7 +20,7 @@ uv add --editable /absolute/path/to/statpy  # editable
 Use the editable command if you actively develop statpy and want changes
 to be picked up immediately by consuming projects.
 
-statpy is pure Python with a `hatchling` build backend, so the editable install
+statpy is pure Python with a `uv_build` backend, so the editable install
 is a plain path link — source edits are picked up live with no rebuild step.
 
 ---
