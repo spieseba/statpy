@@ -1,18 +1,17 @@
 [build-system]
-build-backend = "mesonpy"
-requires = [
-	"meson-python>=0.15",
-	"meson>=1.2",
-	"ninja"
-]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name="statpy"
-dynamic = ["version"] 
-description = "Database system with statistics library for Lattice QCD simulations"
+version = "2.0.0"
+description = "Database system with statistics library for analysing lattice QCD simulation data."
 readme="README.md"
 requires-python=">=3.12"
 authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
 ]
 dependencies=["numpy<2.4", "scipy", "iminuit", "numba", "h5py"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/statpy"]

@@ -9,33 +9,19 @@ This is the actively developed version of statpy. The original toolkit, written 
 
 ---
 
-### Regular install (non-editable)
-Use this if you just want to **use** `statpy` without modifying it.
-
-From your project directory:
+### Installation
+From your project directory, run **one** of:
 
 ```bash
-uv venv
-uv pip install /absolute/path/to/statpy
+uv add /absolute/path/to/statpy             # non-editable
+uv add --editable /absolute/path/to/statpy  # editable
 ```
 
-### Development install (editable)
-Use this if you actively develop statpy and want changes
+Use the editable command if you actively develop statpy and want changes
 to be picked up immediately by consuming projects.
 
-From your project directory:
-
-```bash
-uv venv 
-uv pip install meson meson-python ninja
-uv add --editable /absolute/path/to/statpy                       # Record the dependency (so version constraints are respected)
-uv pip install -e /absolute/path/to/statpy --no-build-isolation  # Reinstall using project environment for build tools
-```
-The build tools are installed into the project environment and reused for editable builds.
-
-The final `--no-build-isolation` reinstall is required: meson-python editable
-installs rebuild via `ninja` on every import, so the build must use the venv's
-own `ninja` (a stable path) rather than the throwaway isolated-build one.
+statpy is pure Python with a `hatchling` build backend, so the editable install
+is a plain path link — source edits are picked up live with no rebuild step.
 
 ---
 
