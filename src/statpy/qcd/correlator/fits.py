@@ -477,11 +477,16 @@ def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_m
 # Excited-state / ground-state fits
 # ---------------------------------------------------------------------------
 
-def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_model, config: FitConfig, silent=False, Nt=None, MIN_PLATEAU_LEN=7, folded=False):
-    """Two-state fits across candidate ranges; pick the one whose plateau (where excited
-    contributions drop below sigma/4) is shortest but at least ``MIN_PLATEAU_LEN`` long.
+class PlateauTooShortError(ValueError):
+    """No candidate fit range reached ``min_plateau_len`` slices."""
 
-    Returns ``(plateau_fit_range, last_best_parameter)`` or ``(None, None)``.
+
+def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_model, config: FitConfig, silent=False, Nt=None, min_plateau_len=5, folded=False):
+    """Two-state fits across candidate ranges; pick the one whose plateau (where excited
+    contributions drop below sigma/4) is shortest but at least ``min_plateau_len`` long.
+
+    Returns ``(plateau_fit_range, last_best_parameter)``. Raises
+    ``PlateauTooShortError`` if no candidate range reaches ``min_plateau_len``.
     """
     message(f"Correlator: {tag}")
     if p0 is None:
@@ -518,8 +523,8 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
         t_plateau, excited_cand, binned_cand, unbinned_cand, best_parameter = result
         last_best_parameter = best_parameter
         suggested_fit_ranges.append(t_plateau)
-        if len(t_plateau) < MIN_PLATEAU_LEN:
-            message(f"Determined fit range {t_plateau} has fewer than {MIN_PLATEAU_LEN} elements", silent)
+        if len(t_plateau) < min_plateau_len:
+            message(f"Determined fit range {t_plateau} has fewer than {min_plateau_len} elements", silent)
             message("---> Stored fit range is not updated", silent)
             message(_log_divider(), silent)
             message(_log_divider(), silent)
@@ -532,13 +537,18 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
             excited_spec, binned_corr_spec, unbinned_corr_spec = excited_cand, binned_cand, unbinned_cand
         message(_log_divider(), silent)
         message(_log_divider(), silent)
+    if excited_spec.misc is None:
+        best = max((len(s) for s in suggested_fit_ranges if s is not None), default=0)
+        raise PlateauTooShortError(
+            f"excited_contributions_fit({tag!r}): no candidate range reached "
+            f"min_plateau_len={min_plateau_len} (longest plateau found: {best}); "
+            f"lower min_plateau_len or loosen the S/N cut"
+        )
     db.add_entry(**binned_corr_spec.__dict__)
     db.add_entry(**unbinned_corr_spec.__dict__)
-    if excited_spec.misc is not None:
-        excited_spec.misc["tested_suggested_fit_ranges"] = (excited_fit_ranges, suggested_fit_ranges)
-        db.add_entry(**excited_spec.__dict__)
-        return excited_spec.misc["plateau_fit_range"], last_best_parameter
-    return None, None
+    excited_spec.misc["tested_suggested_fit_ranges"] = (excited_fit_ranges, suggested_fit_ranges)
+    db.add_entry(**excited_spec.__dict__)
+    return excited_spec.misc["plateau_fit_range"], last_best_parameter
 
 
 def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, Nt=None, silent=False, bootstraps=None):
