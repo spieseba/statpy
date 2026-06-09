@@ -8,11 +8,11 @@ def bin(data, binsize, weights=None):
     N = len(data)
     w = np.ones(N) if weights is None else weights
     Nb = N // binsize # cut off data of last incomplete bin
-    binned_data = []
-    for i in range(Nb):
-        mean = np.average(data[i*binsize:(i+1)*binsize], axis=0, weights=w[i*binsize:(i+1)*binsize])
-        binned_data.append(mean)
-    return np.array(binned_data)
+    keep = Nb * binsize
+    tail = (1,) * (np.ndim(data) - 1)
+    d = np.asarray(data)[:keep].reshape((Nb, binsize) + np.shape(data)[1:])
+    wb = np.asarray(w)[:keep].reshape(Nb, binsize)
+    return (d * wb.reshape((Nb, binsize) + tail)).sum(axis=1) / wb.sum(axis=1).reshape((-1,) + tail)
 
 
 def normalize_covariance(cov):

@@ -3,11 +3,10 @@ import numpy as np
 def covariance(sample, tmax):
     N = len(sample)
     mean = np.mean(sample, axis=0)
+    d = sample - mean
     Cy = np.zeros(tmax)
     for t in range(tmax):
-        for i in range(N-t):
-            Cy[t] += (sample[i] - mean) * (sample[i+t] - mean)
-        Cy[t] /= N-t
+        Cy[t] = np.dot(d[:N-t], d[t:]) / (N-t)
     return Cy
 
 def correlation_function(sample, tmax):
