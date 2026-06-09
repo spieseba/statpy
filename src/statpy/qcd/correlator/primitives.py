@@ -38,17 +38,19 @@ def meff_exp_symmetric(Ct, ax=0):
 # cosh
 def Aeff_cosh(Ct, m):
     Nt = len(Ct)
-    return Ct / np.array([(np.exp(-m*t)) + np.exp(-m*(Nt-t)) for t in range(Nt)])
+    t = np.arange(Nt)
+    return Ct / (np.exp(-m*t) + np.exp(-m*(Nt-t)))
 
 # sinh
 def Aeff_sinh(Ct, m):
     Nt = len(Ct)
-    return Ct / np.array([(np.exp(-m*t)) - np.exp(-m*(Nt-t)) for t in range(Nt)])
+    t = np.arange(Nt)
+    return Ct / (np.exp(-m*t) - np.exp(-m*(Nt-t)))
 
 # exp
 def Aeff_exp(Ct, m):
     Nt = len(Ct)
-    return Ct / np.array([(np.exp(-m*t)) for t in range(Nt)])
+    return Ct / np.exp(-m*np.arange(Nt))
 
 
 def fold_correlator(arr, antiperiodic=False):

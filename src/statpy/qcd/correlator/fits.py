@@ -433,7 +433,7 @@ def _fit_one_excited_range(db, binned_corr_tag, t, p0_input, prev_excited_mean, 
     """
     message(f"Excited fit range: [[{t[0]},{t[-1]}]]", silent)
     message(_log_divider("uncorrelated fit"), silent)
-    chi2_func = _make_chi2(fit_model, np.linalg.inv(np.diag(var[t])), Nt)
+    chi2_func = _make_chi2(fit_model, np.diag(1.0 / var[t]), Nt)
     p0_guess = get_p0_guess(db, binned_corr_tag, fit_model, t) if p0_input is None else p0_input
     had_nan = np.isnan(p0_guess).any()
     p0_tmp = _resolve_initial_p0(p0_guess, prev_excited_mean)
@@ -561,7 +561,7 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     winner = None
     for cand in candidates:
         message(_log_divider(f"jackknife fits for fit range [[{cand.t[0]},{cand.t[-1]}]]"), silent)
-        chi2_func = _make_chi2(fit_model, np.linalg.inv(np.diag(var[cand.t])), Nt)
+        chi2_func = _make_chi2(fit_model, np.diag(1.0 / var[cand.t]), Nt)
         try:
             jks = _fit_resamples(db.transform_jks, "jackknife", cand.t, binned_corr_tag, cand.seed, chi2_func, config, slice_data=True)
         except ConvergenceError as ce:
@@ -609,7 +609,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
         message(_log_divider("jackknife fit"), silent)
         var = db.jackknife_variance(binned_corr_tag)
         Nt = len(db.database[binned_corr_tag].mean) if Nt is None else Nt
-        W = np.linalg.inv(np.diag(var[fit_range]))
+        W = np.diag(1.0 / var[fit_range])
         chi2_func = _make_chi2(fit_model, W, Nt)
         best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range, binned_corr_tag, p0, chi2_func, config)
         misc["fit_model"] = fit_model
@@ -635,7 +635,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
             message(_log_divider("bootstrap fit"), silent)
             assert bootstraps is not None, "ground_state_fit needs bootstraps= when config.bootstrap_available"
             bss = db.bss(binned_corr_tag, bootstraps)
-            W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)[fit_range]))
+            W_bss = np.diag(1.0 / bootstrap.variance(bss)[fit_range])
             chi2_func_bss = _make_chi2(fit_model, W_bss, Nt)
             best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_corr_tag, best_parameter, chi2_func_bss, config, bootstraps=bootstraps)
             best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
@@ -716,7 +716,7 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
             db.add_entry(binned_corr_tag, **db.bin_entry(combined_tag, b))
         message(_log_divider("jackknife fit"), silent)
         var = db.jackknife_variance(binned_corr_tag)
-        W = np.linalg.inv(np.diag(var))
+        W = np.diag(1.0 / var)
         chi2_func = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W, Nt),
                      "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W)}[fit_model_combined]
         # combined entry is pre-sliced (PS ++ A4I); t is the structured PS/A4I index used inside chi2_func
@@ -750,7 +750,7 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
             message(_log_divider("bootstrap fit"), silent)
             assert bootstraps is not None, "correlator_combined_fit needs bootstraps= when config.bootstrap_available"
             bss = db.bss(binned_corr_tag, bootstraps)
-            W_bss = np.linalg.inv(np.diag(bootstrap.variance(bss)))
+            W_bss = np.diag(1.0 / bootstrap.variance(bss))
             chi2_func_bss = {"combined-cosh-sinh": lambda t,p,y: combined_cosh_sinh_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss, Nt),
                              "combined-exp-exp": lambda t,p,y: combined_exp_exp_model_chi2(t[:len(fit_range_PS)], t[len(fit_range_PS):], p, y, W_bss)}[fit_model_combined]
             # combined entry is pre-sliced; t is the structured PS/A4I index used inside chi2_func_bss

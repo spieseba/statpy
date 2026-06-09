@@ -28,7 +28,7 @@ class cosh_model:
     def parameter_gradient(self, t, p):
         return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))])
 
-@njit
+@njit(cache=True)
 def cosh_chi2(t, p, y, W, Nt):
     model = p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) )
     return (model - y) @ W @ (model - y)
@@ -48,7 +48,7 @@ class double_cosh_model():
         return np.array([np.exp(-p[1]*t) + np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) + np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt)),
                          np.exp(-p[3]*t) + np.exp(-p[3]*(self.Nt-t)), p[2] * (np.exp(-p[3]*t) * (-t) + np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))])
 
-@njit
+@njit(cache=True)
 def double_cosh_chi2(t, p, y, W, Nt):
     model = p[0] * ( np.exp(-p[1]*t) + np.exp(-p[1]*(Nt-t)) ) + p[2] * ( np.exp(-p[3]*t) + np.exp(-p[3]*(Nt-t)) )
     return (model - y) @ W @ (model - y)
@@ -67,7 +67,7 @@ class sinh_model:
     def parameter_gradient(self, t, p):
         return np.array([np.exp(-p[1]*t) - np.exp(-p[1]*(self.Nt-t)), p[0] * (np.exp(-p[1]*t) * (-t) - np.exp(-p[1]*(self.Nt-t)) * (t-self.Nt))])
 
-@njit
+@njit(cache=True)
 def sinh_chi2(t, p, y, W, Nt):
     model = p[0] * ( np.exp(-p[1]*t) - np.exp(-p[1]*(Nt-t)) )
     return (model - y) @ W @ (model - y)
@@ -89,7 +89,7 @@ class double_sinh_model():
                     np.exp(-p[3]*t) - np.exp(-p[3]*(self.Nt-t)),
                     p[2] * (np.exp(-p[3]*t) * (-t) - np.exp(-p[3]*(self.Nt-t)) * (t-self.Nt))])
 
-@njit
+@njit(cache=True)
 def double_sinh_chi2(t, p, y, W, Nt):
     model = p[0] * ( np.exp(-p[1]*t) - np.exp(-p[1]*(Nt-t)) ) + p[2] * ( np.exp(-p[3]*t) - np.exp(-p[3]*(Nt-t)) )
     return (model - y) @ W @ (model - y)
@@ -108,7 +108,7 @@ class exp_model:
     def parameter_gradient(self, t, p):
         return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t)])
 
-@njit
+@njit(cache=True)
 def exp_chi2(t, p, y, W):
     model = p[0] * np.exp(-p[1]*t)
     return (model - y) @ W @ (model - y)
@@ -127,7 +127,7 @@ class double_exp_model:
     def parameter_gradient(self, t, p):
         return np.array([np.exp(-p[1]*t), p[0] * np.exp(-p[1]*t) * (-t), np.exp(-p[3]*t), p[2] * np.exp(-p[3]*t) * (-t)])
 
-@njit
+@njit(cache=True)
 def double_exp_chi2(t, p, y, W):
     model = p[0] * np.exp(-p[1]*t) + p[2] * np.exp(-p[3]*t)
     return (model - y) @ W @ (model - y)
@@ -145,7 +145,7 @@ class const_model:
         def parameter_gradient(self, t, p):
             return np.array([np.ones_like(t)])
 
-@njit
+@njit(cache=True)
 def const_chi2(t, p, y, W):
     return (p[0] - y) @ W @ (p[0] - y)
 
@@ -183,7 +183,7 @@ class combined_cosh_sinh_model:
         f1 = p[1] * ( np.exp(-p[2]*self.t1) - np.exp(-p[2]*(self.Nt-self.t1)) )
         return np.hstack((f0,f1))
 
-@njit
+@njit(cache=True)
 def combined_cosh_sinh_chi2(t0, t1, p, y, W, Nt):
     f0 = p[0] * ( np.exp(-p[2]*t0) + np.exp(-p[2]*(Nt-t0)) )
     f1 = p[1] * ( np.exp(-p[2]*t1) - np.exp(-p[2]*(Nt-t1)) )
@@ -205,7 +205,7 @@ class combined_exp_exp_model:
         f1 = p[1] * np.exp(-p[2]*self.t1)
         return np.hstack((f0,f1))
 
-@njit
+@njit(cache=True)
 def combined_exp_exp_model_chi2(t0, t1, p, y, W):
     f0 = p[0] * np.exp(-p[2]*t0)
     f1 = p[1] * np.exp(-p[2]*t1)
