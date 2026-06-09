@@ -422,7 +422,7 @@ def _try_correlated_fit(db, binned_corr_tag, t, cov_t, p0, fit_model, Nt, config
         return None, None
 
 
-def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_mean, fit_model, Nt, var, cov_binned, model_func, bc, folded, binsize, config, silent):
+def _fit_one_excited_range(db, binned_corr_tag, t, p0_input, prev_excited_mean, fit_model, Nt, var, cov_binned, cov_unbinned, model_func, bc, folded, binsize, config, silent):
     """One iteration of the excited-state-contribution fit loop (mean fits only;
     the jackknife resample fits run once, for the range the caller selects).
 
@@ -459,7 +459,6 @@ def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_m
         print_fit_results(binned_best, None, binned_misc, silent)
 
     message("Try correlated fit with unbinned covariance matrix.")
-    cov_unbinned = db.jackknife_covariance(tag)
     unbinned_best, unbinned_misc = _try_correlated_fit(db, binned_corr_tag, t, cov_unbinned[t][:, t], p0_tmp, fit_model, Nt, config, "unbinned")
     if unbinned_best is not None:
         unbinned_best = _sort_two_state_params(unbinned_best)
@@ -516,6 +515,7 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     if binned_corr_tag != tag and binned_corr_tag not in db.database:
         db.add_entry(binned_corr_tag, **db.bin_entry(tag, binsize))
     cov = db.jackknife_covariance(binned_corr_tag)
+    cov_unbinned = cov if binned_corr_tag == tag else db.jackknife_covariance(tag)
     var = np.diag(cov)
     Nt = len(db.database[binned_corr_tag].mean) if Nt is None else Nt
     model_func = {"double-cosh": double_cosh_model(Nt),
@@ -529,8 +529,8 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     last_best_parameter = None
     for idx, t in enumerate(excited_fit_ranges):
         result = _fit_one_excited_range(
-            db, tag, binned_corr_tag, t, p0, prev_excited_mean,
-            fit_model, Nt, var, cov, model_func, bc, folded, binsize, config, silent,
+            db, binned_corr_tag, t, p0, prev_excited_mean,
+            fit_model, Nt, var, cov, cov_unbinned, model_func, bc, folded, binsize, config, silent,
         )
         if result is None:
             suggested_fit_ranges.append(None)
