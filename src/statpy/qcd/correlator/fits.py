@@ -314,6 +314,18 @@ class _EntrySpec:
     misc: dict | None = None
 
 
+@dataclass
+class _Candidate:
+    """An accepted excited-fit range, pending the deferred jackknife fits."""
+    idx: int            # position in excited_fit_ranges
+    t: object           # candidate fit range
+    t_plateau: object   # plateau determined from the mean fit
+    seed: object        # unsorted mean-fit parameters, seed the jackknife fits
+    excited: _EntrySpec
+    binned: _EntrySpec
+    unbinned: _EntrySpec
+
+
 def _sort_two_state_params(p):
     """Order the two states of a double-* fit so the lower mass comes first."""
     if p[3] < p[1]:
@@ -411,12 +423,13 @@ def _try_correlated_fit(db, binned_corr_tag, t, cov_t, p0, fit_model, Nt, config
 
 
 def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_mean, fit_model, Nt, var, cov_binned, model_func, bc, folded, binsize, config, silent):
-    """One iteration of the excited-state-contribution fit loop.
+    """One iteration of the excited-state-contribution fit loop (mean fits only;
+    the jackknife resample fits run once, for the range the caller selects).
 
     Returns ``None`` on convergence error, otherwise
-    ``(t_plateau, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter)``.
-    The caller decides whether the candidate specs supersede the running best
-    based on ``len(t_plateau)`` vs the current accepted fit range.
+    ``(t_plateau, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter, seed)``
+    with ``excited_spec.jks`` still ``None``; ``seed`` is the unsorted mean-fit
+    parameter the deferred jackknife fits must be seeded with.
     """
     message(f"Excited fit range: [[{t[0]},{t[-1]}]]", silent)
     message(_log_divider("uncorrelated fit"), silent)
@@ -428,17 +441,15 @@ def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_m
         message(f"p0 guess contains NaN, use fit result from previous fit range if available, else use available params to estimate NaNs or default to 1: {p0_tmp}")
     try:
         message(f"p0 for fit: {p0_tmp}")
-        best_parameter, best_parameter_jks, misc = fit_jks(db, t, binned_corr_tag, p0_tmp, chi2_func, config)
+        seed, misc = fit_mean(db, t, binned_corr_tag, p0_tmp, chi2_func, config)
         misc["fit_model"] = fit_model
     except ConvergenceError as ce:
         message(f"{ce} -> jump to next fit range")
         message(_log_divider(), silent)
         message(_log_divider(), silent)
         return None
-    best_parameter = _sort_two_state_params(best_parameter)
-    best_parameter_jks = np.array([_sort_two_state_params(jk) for jk in best_parameter_jks])
-    best_parameter_cov = jackknife.covariance(best_parameter_jks)
-    print_fit_results(best_parameter, best_parameter_cov, misc, silent)
+    best_parameter = _sort_two_state_params(seed)
+    print_fit_results(best_parameter, None, misc, silent)
 
     message(_log_divider("correlated mean fit"), silent)
     message("Try correlated fit with binned covariance matrix")
@@ -456,10 +467,11 @@ def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_m
     message(_log_divider(), silent)
 
     t_plateau = _select_plateau_range(t, var[t], best_parameter, model_func, bc, folded)
+    misc["plateau_fit_range"] = t_plateau
 
     excited_spec = _EntrySpec(
         tag=f"{binned_corr_tag}/excited_contributions_fit",
-        mean=best_parameter, jks=best_parameter_jks,
+        mean=best_parameter,
         cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
     )
     binned_corr_spec = _EntrySpec(tag=f"{binned_corr_tag}/binned_correlated_excited_contributions_mean_fit")
@@ -470,7 +482,7 @@ def _fit_one_excited_range(db, tag, binned_corr_tag, t, p0_input, prev_excited_m
     if unbinned_best is not None:
         unbinned_corr_spec.mean = unbinned_best
         unbinned_corr_spec.misc = unbinned_misc
-    return t_plateau, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter
+    return t_plateau, excited_spec, binned_corr_spec, unbinned_corr_spec, best_parameter, seed
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +496,10 @@ class PlateauTooShortError(ValueError):
 def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_model, config: FitConfig, silent=False, Nt=None, min_plateau_len=5, folded=False):
     """Two-state fits across candidate ranges; pick the one whose plateau (where excited
     contributions drop below sigma/4) is shortest but at least ``min_plateau_len`` long.
+
+    Only the mean is fit per candidate range; the jackknife resample fits run
+    once, for the selected range (falling back to the next-best range if they
+    fail to converge).
 
     Returns ``(plateau_fit_range, last_best_parameter)``. Raises
     ``PlateauTooShortError`` if no candidate range reaches ``min_plateau_len``.
@@ -506,21 +522,20 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
                   "double-sinh": double_sinh_model(Nt),
                   "double-exp": double_exp_model()}[fit_model]
     bc = "open" if fit_model == "double-exp" else "periodic"
-    excited_spec = _EntrySpec()
-    binned_corr_spec = _EntrySpec()
-    unbinned_corr_spec = _EntrySpec()
+    candidates = []
     suggested_fit_ranges = []
     fit_range = excited_fit_ranges[0]
+    prev_excited_mean = None
     last_best_parameter = None
-    for t in excited_fit_ranges:
+    for idx, t in enumerate(excited_fit_ranges):
         result = _fit_one_excited_range(
-            db, tag, binned_corr_tag, t, p0, excited_spec.mean,
+            db, tag, binned_corr_tag, t, p0, prev_excited_mean,
             fit_model, Nt, var, cov, model_func, bc, folded, binsize, config, silent,
         )
         if result is None:
             suggested_fit_ranges.append(None)
             continue
-        t_plateau, excited_cand, binned_cand, unbinned_cand, best_parameter = result
+        t_plateau, excited_cand, binned_cand, unbinned_cand, best_parameter, seed = result
         last_best_parameter = best_parameter
         suggested_fit_ranges.append(t_plateau)
         if len(t_plateau) < min_plateau_len:
@@ -530,25 +545,45 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
             message(_log_divider(), silent)
             continue
         message(f"Determined fit range [[{t_plateau[0]},{t_plateau[-1]}]]", silent)
-        if len(t_plateau) <= len(fit_range):
-            message("---> Stored fit range is updated", silent)
-            excited_cand.misc["plateau_fit_range"] = t_plateau
-            fit_range = t_plateau
-            excited_spec, binned_corr_spec, unbinned_corr_spec = excited_cand, binned_cand, unbinned_cand
+        if len(t_plateau) <= len(excited_fit_ranges[0]):
+            candidates.append(_Candidate(idx, t, t_plateau, seed, excited_cand, binned_cand, unbinned_cand))
+            if len(t_plateau) <= len(fit_range):
+                message("---> Stored fit range is updated", silent)
+                fit_range = t_plateau
+                prev_excited_mean = excited_cand.mean
         message(_log_divider(), silent)
         message(_log_divider(), silent)
-    if excited_spec.misc is None:
+
+    # Deferred jackknife fits: shortest plateau first, later range wins ties --
+    # same winner as the sequential update rule above, including when a
+    # candidate's resample fits fail and the next-best range takes over.
+    candidates.sort(key=lambda c: (len(c.t_plateau), -c.idx))
+    winner = None
+    for cand in candidates:
+        message(_log_divider(f"jackknife fits for fit range [[{cand.t[0]},{cand.t[-1]}]]"), silent)
+        chi2_func = _make_chi2(fit_model, np.linalg.inv(np.diag(var[cand.t])), Nt)
+        try:
+            jks = _fit_resamples(db.transform_jks, "jackknife", cand.t, binned_corr_tag, cand.seed, chi2_func, config, slice_data=True)
+        except ConvergenceError as ce:
+            message(f"{ce} -> fall back to next-best fit range")
+            suggested_fit_ranges[cand.idx] = None
+            continue
+        cand.excited.jks = np.array([_sort_two_state_params(jk) for jk in jks])
+        print_fit_results(cand.excited.mean, jackknife.covariance(cand.excited.jks), cand.excited.misc, silent)
+        winner = cand
+        break
+    if winner is None:
         best = max((len(s) for s in suggested_fit_ranges if s is not None), default=0)
         raise PlateauTooShortError(
             f"excited_contributions_fit({tag!r}): no candidate range reached "
             f"min_plateau_len={min_plateau_len} (longest plateau found: {best}); "
             f"lower min_plateau_len or loosen the S/N cut"
         )
-    db.add_entry(**binned_corr_spec.__dict__)
-    db.add_entry(**unbinned_corr_spec.__dict__)
-    excited_spec.misc["tested_suggested_fit_ranges"] = (excited_fit_ranges, suggested_fit_ranges)
-    db.add_entry(**excited_spec.__dict__)
-    return excited_spec.misc["plateau_fit_range"], last_best_parameter
+    db.add_entry(**winner.binned.__dict__)
+    db.add_entry(**winner.unbinned.__dict__)
+    winner.excited.misc["tested_suggested_fit_ranges"] = (excited_fit_ranges, suggested_fit_ranges)
+    db.add_entry(**winner.excited.__dict__)
+    return winner.excited.misc["plateau_fit_range"], last_best_parameter
 
 
 def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, Nt=None, silent=False, bootstraps=None):
