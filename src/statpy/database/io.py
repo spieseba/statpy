@@ -1,4 +1,5 @@
 import os
+import base64
 import json
 import re
 import h5py
@@ -153,3 +154,55 @@ def _populate_data(db, f, correlator_patterns, h5_idx, cfg_labels, weights, stre
                     tag=f_tag,
                     sample=sample, weights=weights, cfgs=cfg_labels,
                 )
+
+
+def decode_v1_ndarray(blob):
+    """Decode a v1 ``{"__ndarray__": <base64>, "dtype":..., "shape":...}`` blob."""
+    buf = base64.b64decode(blob["__ndarray__"])
+    return np.frombuffer(buf, dtype=np.dtype(blob["dtype"])).reshape(blob["shape"])
+
+
+def load_v1_json(fn, silent=False):
+    """Migrate a retired v1 (custom-JSON) statpy database into a fresh v2 ``DB``.
+
+    The v1 format serialised each leaf as
+    ``{tag: {"__leaf__": {mean, jks, sample, misc, checksum}}}`` with ndarrays
+    base64-encoded (``{"__ndarray__": <b64>, "dtype": ..., "shape": ...}``) and
+    ``sample``/``jks`` stored as cfg-keyed dicts. v2 dropped this format (it
+    saves pickle + CRC32); this is a one-way importer for legacy data, not a
+    revival of the format.
+
+    Each leaf's per-cfg ``sample`` dict -- rectangular within a leaf -- is
+    stacked into an array ``(n_cfgs, *value_shape)`` in file order, with the cfg
+    labels as ``cfgs`` and uniform ``weights`` (v1 data carried none). ``mean``
+    and ``jks`` are re-derived by :meth:`DB.add_entry`; for uniform weights this
+    reproduces the v1 leave-one-out jackknife exactly. The v1 ``misc`` is carried
+    through unchanged; the per-leaf ``checksum`` is dropped (v2 checksums the
+    whole file via the CRC32 header).
+
+    Raises ``ValueError`` if a leaf's per-cfg samples are not rectangular (they
+    cannot be stacked into a v2 array entry).
+    """
+    if not os.path.isfile(fn):
+        raise FileNotFoundError(f"{fn} not found")
+    message(f"Migrate v1 JSON database from {fn}", silent)
+    with open(fn) as f:
+        raw = json.load(f)
+
+    db = DB()
+    for tag, wrapped in raw.items():
+        leaf = wrapped["__leaf__"]
+        sample_dict = leaf["sample"]
+        cfgs = np.array(list(sample_dict.keys()))
+        rows = [decode_v1_ndarray(sample_dict[c]) for c in cfgs]
+        shapes = {r.shape for r in rows}
+        if len(shapes) > 1:
+            raise ValueError(
+                f"load_v1_json({fn!r}): leaf {tag!r} has ragged per-cfg sample "
+                f"shapes {sorted(shapes)}; cannot stack into a v2 array entry"
+            )
+        sample = np.array(rows)
+        weights = np.ones(len(cfgs))
+        db.add_entry(tag, sample=sample, weights=weights, cfgs=cfgs, misc=leaf.get("misc"))
+    message(f" -- migrated {len(raw)} entries", silent)
+    return db
