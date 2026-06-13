@@ -26,7 +26,7 @@ def covariance(jks, mean=None):
     return np.sum(d[:, :, None] * d[:, None, :], axis=0) * (N-1) / N
 
 
-def binned_sample(jks, binsize, weights=None, mean=None):
+def delayed_binning(jks, binsize, weights=None, mean=None):
     """Construct the binned jackknife sample from an unbinned one (delayed
     binning, arxiv:2410.17053).
 
@@ -68,15 +68,16 @@ def binned_sample(jks, binsize, weights=None, mean=None):
     n_bins = N // binsize          # trailing incomplete bin is truncated
     keep = n_bins * binsize
 
-    # uniform weights case 
-    if weights is None:            # equal weights: scalar factor about the replicate mean
+    # uniform weights (None or all equal): the scalar factor is exact, as the
+    # constant cancels in both the mean reconstruction and the per-sample factor
+    if weights is None or np.all(weights == weights[0]):
         if mean is None: 
             mean = np.mean(jks, axis=0)
         bin_sums = jks[:keep].reshape(n_bins, binsize, *jks.shape[1:]).sum(axis=1)
         return mean + (bin_sums - binsize * mean) * (N-1)/(N-binsize)
 
     # weighted case (! This needs to be checked at some point !)
-    warnings.warn("binned_sample: I have not yet validated the weighted delayed binning; "
+    warnings.warn("delayed_binning: I have not yet validated the weighted delayed binning; "
                   "results should be cross-checked before use.", stacklevel=2)
     bcast = (-1,) + (1,) * (jks.ndim - 1)
     W = weights.sum()
