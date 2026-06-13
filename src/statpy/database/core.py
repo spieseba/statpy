@@ -157,6 +157,10 @@ class DB:
         """Tags matching the regex ``pattern`` (via :func:`re.search`)."""
         return [tag for tag in self.database.keys() if re.search(pattern, tag)]
 
+    def print_tags(self, pattern=".*"):
+        """Print the tags matching ``pattern``, one per line, sorted."""
+        print(*sorted(self.get_tags(pattern)), sep="\n")
+
     def get_cfgs(self, tag):
         """Cfg labels of the entry at ``tag`` as a list."""
         return list(self.database[tag].cfgs)
