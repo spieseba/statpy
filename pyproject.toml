@@ -12,3 +12,11 @@ authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
 ]
 dependencies=["numpy<2.4", "scipy", "iminuit", "numba", "h5py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
