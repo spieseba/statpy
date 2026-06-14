@@ -5,7 +5,7 @@ A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in th
 
 ## What it does
 
-- **Resampling UQ for autocorrelated MCMC data:** jackknife, bootstrap, and autocorrelation-aware error estimation (including a published delayed-binning method).
+- **Resampling UQ for autocorrelated MCMC data:** jackknife, bootstrap, and autocorrelation-aware error estimation (including a delayed-binning method, see [Phys. Rev. D 111, 114517](https://doi.org/10.1103/mj3d-yq87)).
 - **Correlated least-squares fitting** with the full covariance matrix (`iminuit`/Migrad backend).
 - **A tagged database store** with custom binary I/O, carrying samples, jackknife blocks and the statpy commit hash for analysis provenance.
 
