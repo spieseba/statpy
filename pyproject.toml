@@ -7,6 +7,8 @@ name="statpy"
 version = "2.0.0"
 description = "Database system with statistics library for analysing lattice QCD simulation data."
 readme="README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python=">=3.12"
 authors = [
     {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}

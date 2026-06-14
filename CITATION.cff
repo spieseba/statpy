@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: statpy
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+authors:
+  - family-names: Spiegel
+    given-names: Sebastian
+    email: sebastian.spiegel@physik.uni-regensburg.de
+version: 2.0.0
+license: MIT
+repository-code: "https://github.com/spieseba/statpy"
+abstract: "A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD."
+keywords:
+  - lattice QCD
+  - Markov chain Monte Carlo
+  - statistics
+  - data analysis
