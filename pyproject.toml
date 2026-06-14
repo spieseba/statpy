@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name="statpy"
 version = "2.0.0"
-description = "Database system with statistics library for analysing lattice QCD simulation data."
+description = "Python toolkit targeted at MCMC data analysis in the context of lattice QCD."
 readme="README.md"
 license = "MIT"
 license-files = ["LICENSE"]
