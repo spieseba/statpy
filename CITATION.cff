@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Spiegel
     given-names: Sebastian
-    email: sebastian.spiegel@physik.uni-regensburg.de
+    email: spieseba@mailbox.org 
 version: 2.0.0
 license: MIT
 repository-code: "https://github.com/spieseba/statpy"

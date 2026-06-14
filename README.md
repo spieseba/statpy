@@ -1,4 +1,6 @@
 # statpy
+[![tests](https://github.com/spieseba/statpy/actions/workflows/ci.yml/badge.svg)](https://github.com/spieseba/statpy/actions/workflows/ci.yml)
+
 A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD.
 
 ## What it does

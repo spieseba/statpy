@@ -11,7 +11,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python=">=3.12"
 authors = [
-    {name="Sebastian Spiegel", email="sebastian.spiegel@physik.uni-regensburg.de"}
+    {name="Sebastian Spiegel", email="spieseba@mailbox.org"}
 ]
 dependencies=["numpy<2.4", "scipy", "iminuit", "numba", "h5py"]
 
