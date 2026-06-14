@@ -167,15 +167,20 @@ class DB:
 
     ################################ TRANSFORM #################################
 
-    def transform(self, tag, f, dst_tag=None):
+    def transform(self, tag, f, store_as=None):
         """Apply ``f`` to ``mean``, every jackknife and (if present) every
-        bootstrap sample of the entry at ``tag``; optionally store as ``dst_tag``."""
+        bootstrap sample of the entry at ``tag``.
+
+        If ``store_as`` is given, the result is stored under that tag and
+        nothing is returned; otherwise the ``(mean, jks, bss)`` tuple is returned.
+        """
         entry = self.database[tag]
         mean = f(entry.mean)
         jks = self.transform_jks(tag, f) if entry.jks is not None else None
         bss = self.transform_bss(tag, f) if entry.bss is not None else None
-        if dst_tag is not None:
-            self.add_entry(dst_tag, mean=mean, jks=jks, cfgs=entry.cfgs, bss=bss)
+        if store_as is not None:
+            self.add_entry(store_as, mean=mean, jks=jks, cfgs=entry.cfgs, bss=bss)
+            return
         return mean, jks, bss
 
     def transform_jks(self, tag, f):
@@ -200,13 +205,16 @@ class DB:
 
     ################################ COMBINE ###################################
 
-    def combine(self, *tags, f, dst_tag=None):
+    def combine(self, *tags, f, store_as=None):
         """Combine multiple entries cfg-wise by applying ``f`` across them.
 
         Cfg sets may differ — the union is taken in encounter order and
         entries missing a cfg contribute their ``mean`` (= "no fluctuation
         at this cfg"). ``bss`` are aligned by bootstrap index and combined
         only if every input has ``bss`` set.
+
+        If ``store_as`` is given, the result is stored under that tag and
+        nothing is returned; otherwise the ``(mean, jks, bss)`` tuple is returned.
         """
         entries = [self.database[tag] for tag in tags]
         for tag, entry in zip(tags, entries):
@@ -238,8 +246,9 @@ class DB:
             n_bs = entries[0].bss.shape[0]
             bss = np.array([f(*[entry.bss[i] for entry in entries]) for i in range(n_bs)])
 
-        if dst_tag is not None:
-            self.add_entry(dst_tag, mean=mean, jks=jks, cfgs=union_cfgs, bss=bss)
+        if store_as is not None:
+            self.add_entry(store_as, mean=mean, jks=jks, cfgs=union_cfgs, bss=bss)
+            return
         return mean, jks, bss
 
     ################################ BINNING ###################################

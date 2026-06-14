@@ -200,15 +200,15 @@ def fit_bss(db, t, tag, p0, chi2_func, config: FitConfig, slice_data=True, boots
 # Correlator averaging / folding
 # ---------------------------------------------------------------------------
 
-def correlator_avg_pbc(db, Ct_tag, dst_tag):
-    """Average a PBC correlator over its source axis; write to ``dst_tag``."""
+def correlator_avg_pbc(db, Ct_tag, store_as):
+    """Average a PBC correlator over its source axis; write to ``store_as``."""
     assert isinstance(Ct_tag, str)
     entry = db.database[Ct_tag]
     new_sample = entry.sample.mean(axis=1)
-    db.add_entry(dst_tag, sample=new_sample, weights=entry.weights, cfgs=entry.cfgs, misc=entry.misc)
+    db.add_entry(store_as, sample=new_sample, weights=entry.weights, cfgs=entry.cfgs, misc=entry.misc)
 
 
-def correlator_avg_obc(db, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiperiodic=False):
+def correlator_avg_obc(db, Ct_tags, tbulk, store_as, tmax_from_tsrc=None, antiperiodic=False):
     """OBC tsrc average: per-src mask to bulk fw/bw tmax, then concatenate-and-mean across sources."""
     message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
     message(f"tmax_from_tsrc: {tmax_from_tsrc}")
@@ -237,7 +237,7 @@ def correlator_avg_obc(db, Ct_tags, tbulk, dst_tag, tmax_from_tsrc=None, antiper
         for i in range(len(ref_lf.cfgs))
     ])
     db.add_entry(
-        dst_tag, sample=combined_sample, weights=ref_lf.weights, cfgs=ref_lf.cfgs,
+        store_as, sample=combined_sample, weights=ref_lf.weights, cfgs=ref_lf.cfgs,
         misc={"tsrcs": tsrcs_in_bulk, "tbulk": tbulk, "antiperiodic": antiperiodic},
     )
     for Ct_tag in Ct_tags_in_bulk:
@@ -255,7 +255,7 @@ def fold_correlator_leaf(db, Ct_tag, antiperiodic=False):
 def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antiperiodic=False, cleanup=False, excluded_tsrcs=[]):
     """Per-tsrc effective mass with excited-state region masked, averaged across sources, then folded.
 
-    Returns the dst tag (``tsrc<None>/am_t``); ``{dst}/folded`` is also written.
+    Returns the source-averaged tag (``tsrc<None>/am_t``); ``<tag>/folded`` is also written.
     """
     message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
     message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
@@ -287,17 +287,17 @@ def boundary_avg(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antipe
             db.add_entry(binned_Ct_tag, **db.bin_entry(masked_tag, binsize))
         mt_tag = f"{binned_Ct_tag}/am_t"
         mt_tags.append(mt_tag)
-        db.transform(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), dst_tag=mt_tag)
+        db.transform(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), store_as=mt_tag)
         if cleanup:
             db.remove_entry(masked_tag)
             db.remove_entry(binned_Ct_tag)
-    dst_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
-    db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), dst_tag=dst_tag)
-    db.transform(dst_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), dst_tag=f"{dst_tag}/folded")
+    avg_mt_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
+    db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), store_as=avg_mt_tag)
+    db.transform(avg_mt_tag, f=lambda mt: _fold_boundary(mt, antiperiodic), store_as=f"{avg_mt_tag}/folded")
     if cleanup:
         for mt_tag in mt_tags:
             db.remove_entry(mt_tag)
-    return dst_tag
+    return avg_mt_tag
 
 
 # ---------------------------------------------------------------------------
@@ -769,7 +769,7 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, fit_range_PS, fit_range_A4I, bi
             cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
         )
         message(_log_divider("bare decay constant"))
-        db.transform(f"{binned_corr_tag}/{fit_model_combined}_fit", f=bare_decay_constant, dst_tag=f"{binned_corr_tag}/{fit_model_combined}_fit/afbare")
+        db.transform(f"{binned_corr_tag}/{fit_model_combined}_fit", f=bare_decay_constant, store_as=f"{binned_corr_tag}/{fit_model_combined}_fit/afbare")
         if b == 1 and config.bootstrap_available:
             bootstrap_tag = f"{binned_corr_tag}/{fit_model_combined}_bootstrap_fit"
             fbare_bss_mean = bare_decay_constant(db.database[bootstrap_tag].mean)
