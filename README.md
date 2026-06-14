@@ -1,13 +1,51 @@
 # statpy
-A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD.  
+A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD.
 
-This is the actively developed version of statpy. The original toolkit, written during my PhD, is preserved as the [v1.0 release](https://github.com/spieseba/statpy/releases/tag/v1.0) and on the [`v1-legacy`](https://github.com/spieseba/statpy/tree/v1-legacy) branch, and is no longer maintained.
+## What it does
+
+- **Resampling UQ for autocorrelated MCMC data:** jackknife, bootstrap, and autocorrelation-aware error estimation (including a published delayed-binning method).
+- **Correlated least-squares fitting** with the full covariance matrix (`iminuit`/Migrad backend).
+- **A tagged database store** with custom binary I/O, carrying samples, jackknife blocks and the statpy commit hash for analysis provenance.
+
+```python
+import numpy as np
+import statpy as sp
+
+rng = np.random.default_rng(0)
+n_cfg, n_t = 200, 8
+cfgs = np.array([f"cfg-{i}" for i in range(n_cfg)])
+w = np.ones(n_cfg)
+
+# Two measured correlators, one sample per configuration.
+t = np.arange(n_t)
+C1 = np.exp(-0.5 * t) * (1 + 0.05 * rng.normal(size=(n_cfg, n_t)))
+C2 = np.exp(-0.7 * t) * (1 + 0.05 * rng.normal(size=(n_cfg, n_t)))
+
+db = sp.database.core.DB()
+db.add_entry("C1", sample=C1, weights=w, cfgs=cfgs)
+db.add_entry("C2", sample=C2, weights=w, cfgs=cfgs)
+
+# Transform one entry: effective mass  m(t) = log(C1(t) / C1(t+1)).
+db.transform("C1", lambda c: np.log(c[:-1] / c[1:]), store_as="m_eff")
+
+# Combine two entries cfg-wise: the ratio C1 / C2.
+db.combine("C1", "C2", f=lambda a, b: a / b, store_as="ratio")
+
+# Jackknife errors propagate automatically through both operations.
+err = lambda tag: np.sqrt(db.jackknife_variance(tag))
+print("m_eff:", db.database["m_eff"].mean[:3].round(3), "+/-", err("m_eff")[:3].round(3))
+print("ratio:", db.database["ratio"].mean[:3].round(3), "+/-", err("ratio")[:3].round(3))
+# m_eff: [0.505 0.5   0.494] +/- [0.005 0.005 0.005]
+# ratio: [1.001 1.225 1.491] +/- [0.005 0.006 0.008]
+```
+
+See [caa-control-variates](https://github.com/spieseba/caa-control-variates) for a full worked example (Monte Carlo variance reduction on real data).
+
+---
 
 ### Prerequisites
 - Python >= 3.12
 - `uv` installed (see https://docs.astral.sh/uv/getting-started/)
-
----
 
 ### Installation
 From your project directory, run **one** of:
@@ -23,9 +61,14 @@ to be picked up immediately by consuming projects.
 statpy is pure Python with a `uv_build` backend, so the editable install
 is a plain path link — source edits are picked up live with no rebuild step.
 
----
-
 ### Verify installation
 ```bash
 uv run python -c "import statpy; print(statpy.__file__)"
 ```
+
+---
+
+### Versions
+This is the actively developed version (v2). The original toolkit, written during my PhD, is preserved as the [v1.0 release](https://github.com/spieseba/statpy/releases/tag/v1.0) and on the [`v1-legacy`](https://github.com/spieseba/statpy/tree/v1-legacy) branch, and is no longer maintained.
+
+v2 is a ground-up rewrite and ships a migrator (`statpy.database.io.load_v1_json`) for the retired v1 database format; a round-trip test checks that the migrated v2 entries reproduce the v1 means and jackknife blocks to machine precision.
