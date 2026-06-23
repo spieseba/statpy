@@ -10,6 +10,7 @@ from statpy.qcd.correlator.primitives import (
     Aeff_exp,
     meson_fold_correlator,
     get_tmax_signal_to_noise,
+    binned_tag,
 )
 from statpy.qcd.correlator.models import (
     fit_model_dict,
@@ -24,16 +25,17 @@ from statpy.qcd.correlator.models import (
     combined_cosh_sinh_model, combined_cosh_sinh_chi2,
     combined_exp_exp_model, combined_exp_exp_model_chi2,
 )
-from statpy.qcd.correlator.fits import (
-    FitConfig,
-    binned_tag,
-    fit_mean,
-    fit_jks,
-    fit_bss,
+from statpy.qcd.correlator.averaging import (
     pbc_correlator_average,
     obc_meson_correlator_average,
     meson_fold_correlator_entry,
     obc_meson_boundary_average,
+)
+from statpy.qcd.correlator.fits import (
+    FitConfig,
+    fit_mean,
+    fit_jks,
+    fit_bss,
     get_p0_guess,
     excited_contributions_fit,
     PlateauTooShortError,

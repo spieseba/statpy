@@ -76,3 +76,13 @@ def get_tmax_signal_to_noise(mean, var, min_stn_val=100, tmin=15, debug=False):
         message(f"--- Signal to noise ratios: {signal_to_noise}")
         message(f"--- len(stn) = {len(signal_to_noise)}")
     return tmax
+
+
+def binned_tag(tag, binsize):
+    """Conventional tag of the binsize-``binsize`` variant of ``tag``.
+
+    ``binsize == 1`` returns ``tag`` unchanged (no binning needed). This is
+    the single home of the ``<tag>/binsize<N>`` naming convention: producers
+    and consumers must both route tag construction through it so they agree.
+    """
+    return tag if binsize == 1 else f"{tag}/binsize{binsize}"
