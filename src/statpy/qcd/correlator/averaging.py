@@ -72,7 +72,7 @@ def meson_fold_correlator_entry(db, Ct_tag, store_as, antisymmetric=False):
     db.add_entry(store_as, sample=folded, weights=entry.weights, cfgs=entry.cfgs, misc=entry.misc)
 
 
-def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antisymmetric=False, cleanup=False, excluded_tsrcs=[]):
+def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antisymmetric=False, cleanup=False):
     """Per-tsrc boundary effective mass (excited region masked), source-averaged then folded. Mesons only.
 
     Returns the source-averaged tag (``tsrc<None>/am_t``); ``<tag>/folded`` is also written.
@@ -81,17 +81,6 @@ def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsr
     message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
     message(f"tmax_from_tsrc = {tmax_from_tsrc}")
     tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
-    message(f"Exclude the following srcs: {excluded_tsrcs}")
-    for tsrc in excluded_tsrcs:
-        if tsrc not in tsrcs:
-            message(f"tsrc = {tsrc} not in tags anyway -> continue")
-            continue
-        tsrc_str = re.search(r'tsrc(\d+)', Ct_tags[0]).group()
-        tag_to_be_removed = Ct_tags[0].replace(tsrc_str, f"tsrc{tsrc}")
-        tsrcs.remove(tsrc)
-        Ct_tags.remove(tag_to_be_removed)
-        message(f"---> filtered tags: {Ct_tags}")
-        message(f"---> filtered tsrcs: {tsrcs}")
     assert len(Ct_tags) == len(tsrcs)
     mt_tags = []
     for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
