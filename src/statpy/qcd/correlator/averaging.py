@@ -8,6 +8,8 @@ import re
 import numpy as np
 
 from statpy.log import message
+from statpy.statistics import core as statistics
+from statpy.statistics import jackknife
 from statpy.qcd.correlator.primitives import (
     meson_fold_correlator, meff_exp_symmetric, binned_tag,
 )
@@ -72,38 +74,58 @@ def meson_fold_correlator_entry(db, Ct_tag, store_as, antisymmetric=False):
     db.add_entry(store_as, sample=folded, weights=entry.weights, cfgs=entry.cfgs, misc=entry.misc)
 
 
-def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antisymmetric=False, cleanup=False):
-    """Per-tsrc boundary effective mass (excited region masked), source-averaged then folded. Mesons only.
+def _boundary_eff_mass(Ct, tsrc):
+    """Boundary effective mass of a (masked) correlator, sign-corrected per tsrc.
 
-    Returns the source-averaged tag (``tsrc<None>/am_t``); ``<tag>/folded`` is also written.
+    Masked / non-finite time slices collapse to 0 -- the marker the source
+    average reads as "no contribution here".
+    """
+    return np.nan_to_num(
+        _flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0
+    )
+
+
+def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antisymmetric=False):
+    """Source-averaged, folded boundary effective mass (excited region masked). Mesons only.
+
+    Returns the source-averaged tag (``tsrc<None>/am_t``); ``<tag>/folded`` and
+    ``misc["nsrc_hist"]`` (source positions contributing per time slice) are also written.
     """
     message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
     message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
     message(f"tmax_from_tsrc = {tmax_from_tsrc}")
     tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in Ct_tags]
     assert len(Ct_tags) == len(tsrcs)
-    mt_tags = []
+
+    am_t_means, am_t_jks, cfgs = [], [], None
     for Ct_tag, tsrc in zip(Ct_tags, tsrcs):
         entry = db.database[Ct_tag]
-        maskedES_sample = np.array([
+        masked_excited_state_sample = np.array([
             _get_masked_Cts_boundary(Ct, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0)
             for Ct in entry.sample
         ])
-        masked_tag = f"{Ct_tag}/maskedES"
-        db.add_entry(masked_tag, sample=maskedES_sample, weights=entry.weights, cfgs=entry.cfgs)
-        binned_Ct_tag = binned_tag(masked_tag, binsize)
-        if binned_Ct_tag != masked_tag and binned_Ct_tag not in db.database:
-            db.add_entry(binned_Ct_tag, **db.bin_entry(masked_tag, binsize))
-        mt_tag = f"{binned_Ct_tag}/am_t"
-        mt_tags.append(mt_tag)
-        db.transform(binned_Ct_tag, f=lambda Ct: np.nan_to_num(_flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0), store_as=mt_tag)
-        if cleanup:
-            db.remove_entry(masked_tag)
-            db.remove_entry(binned_Ct_tag)
-    avg_mt_tag = re.sub(r'(tsrc)\d+', r'\1None', mt_tags[0])
-    db.combine(*mt_tags, f=lambda *eff_mass: np.ma.filled(np.ma.masked_equal(eff_mass, 0).mean(axis=0), 0), store_as=avg_mt_tag)
+        b_sample = statistics.bin(masked_excited_state_sample, binsize, weights=entry.weights)
+        b_weights = statistics.bin(entry.weights, binsize)
+        jks = jackknife.sample(b_sample, weights=b_weights)
+        am_t_means.append(_boundary_eff_mass(np.mean(jks, axis=0), tsrc))
+        am_t_jks.append(np.array([_boundary_eff_mass(jk, tsrc) for jk in jks]))
+        if cfgs is None:
+            # every tsrc shares the same (binned) cfg set, so the cross-tsrc
+            # average is a plain stack -- no cfg alignment needed. Binned labels
+            # mirror DB.bin_entry; the tag still routes through binned_tag().
+            cfgs = entry.cfgs if binsize == 1 else np.array(
+                [f"{Ct_tag.split('/')[0]}-bin{i}" for i in range(len(b_sample))]
+            )
+
+    def source_average(stack):
+        # masked mean over tsrcs (0 marks a masked time slice)
+        return np.ma.filled(np.ma.masked_equal(stack, 0).mean(axis=0), 0)
+    avg_mean = source_average(np.array(am_t_means))
+    avg_jks = source_average(np.array(am_t_jks))
+    nsrc_hist = np.sum(np.array(am_t_means) != 0, axis=0)
+
+    masked_tag = f"{Ct_tags[0]}/maskedES"
+    avg_mt_tag = re.sub(r'(tsrc)\d+', r'\1None', f"{binned_tag(masked_tag, binsize)}/am_t")
+    db.add_entry(avg_mt_tag, mean=avg_mean, jks=avg_jks, cfgs=cfgs, misc={"nsrc_hist": nsrc_hist})
     db.transform(avg_mt_tag, f=lambda mt: _fold_meson_boundary(mt, antisymmetric), store_as=f"{avg_mt_tag}/folded")
-    if cleanup:
-        for mt_tag in mt_tags:
-            db.remove_entry(mt_tag)
     return avg_mt_tag
