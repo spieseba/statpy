@@ -8,7 +8,7 @@ from statpy.qcd.correlator.primitives import (
     Aeff_cosh,
     Aeff_sinh,
     Aeff_exp,
-    fold_correlator,
+    meson_fold_correlator,
     get_tmax_signal_to_noise,
 )
 from statpy.qcd.correlator.models import (
@@ -30,10 +30,10 @@ from statpy.qcd.correlator.fits import (
     fit_mean,
     fit_jks,
     fit_bss,
-    correlator_avg_pbc,
-    correlator_avg_obc,
-    fold_correlator_leaf,
-    boundary_avg,
+    pbc_correlator_average,
+    obc_meson_correlator_average,
+    meson_fold_correlator_entry,
+    obc_meson_boundary_average,
     get_p0_guess,
     excited_contributions_fit,
     PlateauTooShortError,

@@ -7,20 +7,24 @@ def bare_decay_constant(p):
     return np.sqrt(2.) * p[1] / np.sqrt(p[0] * p[2])
 
 
-# Get masked Cts for obc averaging
-def _get_masked_Ct(Cts, tmax_fw, tmax_bw, antiperiodic):
-    num_Cts = Cts.shape[0]
-    # create masked array and mask all elements
-    Cts_ma = np.ma.empty( (2*num_Cts, Cts.shape[1]) )
-    Cts_ma.mask = True
-    # fill masked array up to tmax_fw and tmax_bw
-    for idx in range(num_Cts):
-        Ct = Cts[idx]
-        Cts_ma[idx, :tmax_fw] = Ct[:tmax_fw]
-        Cts_ma[idx+num_Cts, :tmax_bw] = np.roll(np.flip(Ct), 1)[:tmax_bw]
-        if antiperiodic: 
-            Cts_ma[idx+num_Cts, 1:tmax_bw] *= -1
-    return Cts_ma
+# Masked sample for OBC averaging (vectorized over configs).
+# sample (N_cfg, num_Cts, T) -> masked (N_cfg, 2*num_Cts, T): forward Cts in the
+# first num_Cts rows, time-reversed backward Cts in the second. Mask is config-independent.
+# Mesons only: the backward half is folded as the same state (antisymmetric -> sinh, else cosh).
+def _get_masked_meson_sample(sample, tmax_fw, tmax_bw, antisymmetric):
+    N, num_Cts, T = sample.shape
+    # backward = time-reverse each Ct (flip then roll by 1)
+    bw = np.roll(np.flip(sample, axis=2), 1, axis=2)
+    if antisymmetric:
+        bw = bw.copy()
+        bw[:, :, 1:] *= -1
+    out = np.ma.empty((N, 2*num_Cts, T))
+    out.mask = True
+    out[:, :num_Cts, :tmax_fw] = sample[:, :, :tmax_fw]
+    out.mask[:, :num_Cts, :tmax_fw] = False
+    out[:, num_Cts:, :tmax_bw] = bw[:, :, :tmax_bw]
+    out.mask[:, num_Cts:, :tmax_bw] = False
+    return out
 
 
 # get tmax for each src in forward and backward direction
@@ -51,11 +55,11 @@ def _get_masked_Cts_boundary(Cts, tsrc, tmin_excited, tmax_from_tsrc=None):
     return Cts_ma
 
 
-def _fold_boundary(arr, antiperiodic):
+def _fold_meson_boundary(arr, antisymmetric):
     half = len(arr) // 2
     arr0 = arr[:half]
     arr1 = np.flip(arr[half:])
-    if antiperiodic: 
+    if antisymmetric: 
         arr1 *= -1.
     return np.mean([arr0, arr1], axis=0)
 

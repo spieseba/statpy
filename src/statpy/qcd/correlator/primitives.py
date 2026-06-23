@@ -53,11 +53,12 @@ def Aeff_exp(Ct, m):
     return Ct / np.exp(-m*np.arange(Nt))
 
 
-def fold_correlator(arr, antiperiodic=False):
+def meson_fold_correlator(arr, antisymmetric=False):
+    """Fold a correlator around T/2 (antisymmetric -> sinh, else cosh). Mesons only."""
     half = len(arr) // 2
     arr0 = arr[:half]
     arr1 = np.roll(np.flip(arr[half:]), 1)
-    if antiperiodic: 
+    if antisymmetric: 
         arr1 *= -1.
     arr1[0] = arr0[0]
     return np.mean([arr0, arr1], axis=0)
