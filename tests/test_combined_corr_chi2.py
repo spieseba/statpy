@@ -15,7 +15,7 @@ from statpy.qcd.correlator.fits import _make_combined_chi2
 
 
 def reference_combined_chi2(model, t_PS, t_A4I, p, y, W, Nt):
-    """Textbook formulation: build each block explicitly, concatenate, contract."""
+    """Build each block explicitly, concatenate, contract."""
     A_PS, A_A4I, m = p
     if model == "combined-cosh-sinh":
         block_PS = A_PS * (np.exp(-m * t_PS) + np.exp(-m * (Nt - t_PS)))       # cosh
