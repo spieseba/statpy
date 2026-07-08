@@ -164,50 +164,16 @@ def const_plus_exp_chi2(t, p, y, W):
 
 
 # ---------------------------------------------------------------------------
-# combined models
+# combined two-correlator fit (two blocks with a shared mass, e.g. PSPS+PSA4I)
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# periodic boundary conditions
-# ---------------------------------------------------------------------------
-
-# C0(t) = A0 * [exp(-mt) + exp(-m(Nt-t))]; A0 = p[0]; m = p[2]
-# C1(t) = A1 * [exp(-mt) - exp(-m(Nt-t))]; A1 = p[1]; m = p[2]
-class combined_cosh_sinh_model:
-    def __init__(self, Nt, t0, t1):
-        self.Nt = Nt
-        self.t0 = t0
-        self.t1 = t1
-    def __call__(self, t, p):
-        f0 = p[0] * ( np.exp(-p[2]*self.t0) + np.exp(-p[2]*(self.Nt-self.t0)) )
-        f1 = p[1] * ( np.exp(-p[2]*self.t1) - np.exp(-p[2]*(self.Nt-self.t1)) )
-        return np.hstack((f0,f1))
-
+# Every block model is the same kernel  A * [exp(-mt) + s * exp(-m(Nt-t))],
+# so the block structure is per-point data instead of per-model code:
+#   amp_idx[i] selects the amplitude parameter (0 -> p[0], 1 -> p[1]),
+#   sign[i] is the backward-propagator sign s: +1 cosh, -1 sinh,
+#           0 exp (open BC: the backward term drops out exactly).
+# Shared mass m = p[2]. ``t``/``y`` are the concatenated blocks.
 @njit(cache=True)
-def combined_cosh_sinh_chi2(t0, t1, p, y, W, Nt):
-    f0 = p[0] * ( np.exp(-p[2]*t0) + np.exp(-p[2]*(Nt-t0)) )
-    f1 = p[1] * ( np.exp(-p[2]*t1) - np.exp(-p[2]*(Nt-t1)) )
-    model = np.hstack((f0,f1))
-    return (model - y) @ W @ (model - y)
-
-# ---------------------------------------------------------------------------
-# open boundary conditions
-# ---------------------------------------------------------------------------
-
-# C0(t) = A0 * exp(-mt); A0 = p[0]; m = p[2]
-# C1(t) = A1 * exp(-mt); A1 = p[1]; m = p[2]
-class combined_exp_exp_model:
-    def __init__(self, t0, t1):
-        self.t0 = t0
-        self.t1 = t1
-    def __call__(self, t, p):
-        f0 = p[0] * np.exp(-p[2]*self.t0)
-        f1 = p[1] * np.exp(-p[2]*self.t1)
-        return np.hstack((f0,f1))
-
-@njit(cache=True)
-def combined_exp_exp_model_chi2(t0, t1, p, y, W):
-    f0 = p[0] * np.exp(-p[2]*t0)
-    f1 = p[1] * np.exp(-p[2]*t1)
-    model = np.hstack((f0,f1))
+def combined_corr_chi2(t, p, y, W, Nt, amp_idx, sign):
+    model = p[amp_idx] * (np.exp(-p[2] * t) + sign * np.exp(-p[2] * (Nt - t)))
     return (model - y) @ W @ (model - y)

@@ -22,8 +22,7 @@ from statpy.qcd.correlator.models import (
     double_exp_model, double_exp_chi2,
     const_model, const_chi2,
     const_plus_exp, const_plus_exp_chi2,
-    combined_cosh_sinh_model, combined_cosh_sinh_chi2,
-    combined_exp_exp_model, combined_exp_exp_model_chi2,
+    combined_corr_chi2,
 )
 from statpy.qcd.correlator.averaging import (
     pbc_correlator_average,
