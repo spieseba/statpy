@@ -5,17 +5,11 @@ def generate_bootstraps(B, N, seed=0):
     rng = np.random.RandomState(seed)
     return rng.randint(low=0, high=N, size=(B, N))
 
-# compute bootstrap sample from sample x with bootstraps and function f
-def sample(x, bootstraps, weights=None, f=None):
+# compute bootstrap sample from sample x with bootstraps
+def sample(x, bootstraps, weights=None):
     N = len(x)
     B = bootstraps.shape[0]
     w = np.ones(N) if weights is None else weights
-    if f is not None:
-        D = x.shape[1] if x.ndim > 1 else 1
-        bss = np.zeros(shape=(B,D)) if D > 1 else np.zeros(B)
-        for k,bs in enumerate(bootstraps):
-            bss[k] = f(np.average(x[bs], axis=0, weights=w[bs]))
-        return bss
     out = np.empty((B,) + x.shape[1:])
     tail = (1,) * (x.ndim - 1)
     chunk = max(1, 4_000_000 // max(1, x.size))   # ~32 MB gather buffer
@@ -37,6 +31,4 @@ def covariance(bss, mean=None):
 
 def rescale(bss, s):
     mean = np.mean(bss, axis=0)
-    if isinstance(mean, np.float64):
-        return mean + s * (bss - mean) 
-    return mean[None,:] + s * (bss - mean[None,:])
+    return mean + s * (bss - mean)

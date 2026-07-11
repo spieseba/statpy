@@ -2,15 +2,13 @@ import warnings
 
 import numpy as np
 
-def sample(x, weights=None, f=None):
+def sample(x, weights=None):
     N = len(x)
     w = np.ones(N) if weights is None else weights
     if len(w) != N:
         raise ValueError(f"jackknife.sample: weights length {len(w)} != sample length {N}")
     mean = np.average(x, axis=0, weights=w)
     N_w = np.sum(w)
-    if f is not None:
-        return np.array([ f( mean + w[j] * (mean - x[j]) / (N_w - w[j]) ) for j in range(N)])
     w_col = w.reshape((-1,) + (1,) * (x.ndim - 1))
     return mean + w_col * (mean - x) / (N_w - w_col)
 
