@@ -16,6 +16,10 @@ _MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC3
 _commit_logged = False
 
 
+class DuplicateTagError(ValueError):
+    """An operation would write a tag that already exists in the DB."""
+
+
 class DB:
     """Entry store with statistics + I/O for lattice QCD analyses."""
 
@@ -30,6 +34,12 @@ class DB:
             if isinstance(src, str):
                 self.load(src)
             elif isinstance(src, DB):
+                dup = [t for t in src.database if t in self.database]
+                if dup:
+                    raise DuplicateTagError(
+                        f"DB merge: {len(dup)} overlapping tag(s): {dup[:5]}"
+                        + ("..." if len(dup) > 5 else "")
+                    )
                 for t, entry in src.database.items():
                     self.database[t] = Entry(
                         mean=entry.mean, jks=entry.jks, sample=entry.sample,
@@ -51,6 +61,12 @@ class DB:
         if (zlib.crc32(payload) & 0xFFFFFFFF) != crc_expected:
             raise ValueError(f"{src}: CRC mismatch -- file corrupted")
         src_db = pickle.loads(payload)
+        dup = [t for t in src_db if t in self.database]
+        if dup:
+            raise DuplicateTagError(
+                f"load({src!r}): {len(dup)} overlapping tag(s): {dup[:5]}"
+                + ("..." if len(dup) > 5 else "")
+            )
         for t, entry in src_db.items():
             self.database[t] = entry
 
@@ -78,8 +94,7 @@ class DB:
         ``binsize`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
         """
         if tag in self.database:
-            message(f"{tag} already in database. Entry not added.")
-            return
+            raise DuplicateTagError(f"add_entry({tag!r}): tag already exists")
 
         if sample is not None:
             if weights is None:
@@ -126,8 +141,7 @@ class DB:
             message(f"rename_entry: {old!r} not in database.")
             return
         if new in self.database:
-            message(f"rename_entry: {new!r} already in database. Not renamed.")
-            return
+            raise DuplicateTagError(f"rename_entry({old!r} -> {new!r}): target tag already exists")
         self.database[new] = self.database[old]
         del self.database[old]
 
