@@ -24,7 +24,10 @@ class DB:
     """Entry store with statistics + I/O for lattice QCD analyses."""
 
     def __init__(self, *args):
-        """Create an empty DB; ``*args`` of pickle paths or other ``DB``s are merged in."""
+        """Create an empty DB; ``*args`` of pickle paths or other ``DB``s are merged in.
+
+        Tag sets must be disjoint; overlaps raise :class:`DuplicateTagError`.
+        """
         global _commit_logged
         self.database = {}
         if not _commit_logged:
@@ -48,7 +51,10 @@ class DB:
                     )
 
     def load(self, src):
-        """Load a snapshot saved by :func:`save` and add every entry."""
+        """Load a snapshot saved by :func:`save` and add every entry.
+
+        Tags overlapping with existing entries raise :class:`DuplicateTagError`.
+        """
         message(f"Load {src}")
         if not os.path.isfile(src):
             raise FileNotFoundError(f"{src} not found")
@@ -92,6 +98,9 @@ class DB:
             (matching length).
           - Result entry: only ``mean`` and optionally ``bss``.
         ``binsize`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
+
+        Entries are create-only: an existing ``tag`` raises
+        :class:`DuplicateTagError`. To replace, :meth:`remove_entry` first.
         """
         if tag in self.database:
             raise DuplicateTagError(f"add_entry({tag!r}): tag already exists")
@@ -136,7 +145,7 @@ class DB:
             message(f"remove_entry: {tag!r} not in database.")
 
     def rename_entry(self, old, new):
-        """Move the entry from ``old`` to ``new``."""
+        """Move the entry from ``old`` to ``new``; an existing ``new`` raises :class:`DuplicateTagError`."""
         if old not in self.database:
             message(f"rename_entry: {old!r} not in database.")
             return
