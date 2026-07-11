@@ -59,8 +59,8 @@ def _fold_meson_boundary(arr, antisymmetric):
     half = len(arr) // 2
     arr0 = arr[:half]
     arr1 = np.flip(arr[half:])
-    if antisymmetric: 
-        arr1 *= -1.
+    if antisymmetric:
+        arr1 = -arr1   # np.flip returns a view; in-place *= would write through into arr
     return np.mean([arr0, arr1], axis=0)
 
 
