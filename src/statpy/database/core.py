@@ -101,7 +101,7 @@ class DB:
                 raise ValueError(f"add_entry({tag!r}): do not pass jks when sample+weights are given; jks is derived")
             jks = jackknife.sample(sample, weights=weights)
             if mean is None:
-                mean = np.mean(jks, axis=0)
+                mean = np.average(sample, axis=0, weights=weights)
         else:
             if cfgs is not None and jks is not None and len(jks) != len(cfgs):
                 raise ValueError(
