@@ -107,7 +107,7 @@ def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsr
         b_sample = statistics.bin(masked_excited_state_sample, binsize, weights=entry.weights)
         b_weights = statistics.bin(entry.weights, binsize)
         jks = jackknife.sample(b_sample, weights=b_weights)
-        am_t_means.append(_boundary_eff_mass(np.mean(jks, axis=0), tsrc))
+        am_t_means.append(_boundary_eff_mass(np.average(b_sample, axis=0, weights=b_weights), tsrc))
         am_t_jks.append(np.array([_boundary_eff_mass(jk, tsrc) for jk in jks]))
         if cfgs is None:
             # every tsrc shares the same (binned) cfg set, so the cross-tsrc
