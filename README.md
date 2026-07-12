@@ -36,8 +36,8 @@ db.combine("C1", "C2", f=lambda a, b: a / b, store_as="ratio")
 
 # Jackknife errors propagate automatically through both operations.
 err = lambda tag: np.sqrt(db.jackknife_variance(tag))
-print("m_eff:", db.database["m_eff"].mean[:3].round(3), "+/-", err("m_eff")[:3].round(3))
-print("ratio:", db.database["ratio"].mean[:3].round(3), "+/-", err("ratio")[:3].round(3))
+print("m_eff:", db.database["m_eff"].central_value[:3].round(3), "+/-", err("m_eff")[:3].round(3))
+print("ratio:", db.database["ratio"].central_value[:3].round(3), "+/-", err("ratio")[:3].round(3))
 # m_eff: [0.505 0.5   0.494] +/- [0.005 0.005 0.005]
 # ratio: [1.001 1.225 1.491] +/- [0.005 0.006 0.008]
 ```

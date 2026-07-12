@@ -126,6 +126,6 @@ def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsr
 
     masked_tag = f"{Ct_tags[0]}/maskedES"
     avg_mt_tag = re.sub(r'(tsrc)\d+', r'\1None', f"{binned_tag(masked_tag, binsize)}/am_t")
-    db.add_entry(avg_mt_tag, mean=avg_mean, jks=avg_jks, cfgs=cfgs, misc={"nsrc_hist": nsrc_hist})
+    db.add_entry(avg_mt_tag, central_value=avg_mean, jks=avg_jks, cfgs=cfgs, misc={"nsrc_hist": nsrc_hist})
     db.transform(avg_mt_tag, f=lambda mt: _fold_meson_boundary(mt, antisymmetric), store_as=f"{avg_mt_tag}/folded")
     return avg_mt_tag

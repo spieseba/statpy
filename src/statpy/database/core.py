@@ -12,7 +12,14 @@ from statpy.database.entries import Entry
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife, bootstrap
 
-_MAGIC = b"SPDB"  # statpy DB file marker; followed by 4-byte little-endian CRC32 of payload
+# DB file header: magic(4) + u32 CRC32 of payload, little-endian. The magic
+# carries the format version — bump it on any format change, so older or
+# foreign files fail the magic check. The payload is a pickle of
+# {tag: <entry state dict>} — plain dicts, not Entry instances, so the pickle
+# bakes in neither the Entry class path nor its attribute names.
+# Retired formats: v1 custom JSON (io.load_v1_json), v2 b"SPDB" pickled Entry
+# instances.
+_MAGIC = b"SPD3"
 _commit_logged = False
 
 
@@ -44,11 +51,7 @@ class DB:
                         + ("..." if len(dup) > 5 else "")
                     )
                 for t, entry in src.database.items():
-                    self.database[t] = Entry(
-                        mean=entry.mean, jks=entry.jks, sample=entry.sample,
-                        weights=entry.weights, cfgs=entry.cfgs, bss=entry.bss, misc=entry.misc,
-                        binsize=entry.binsize,
-                    )
+                    self.database[t] = Entry(**vars(entry))
 
     def load(self, src):
         """Load a snapshot saved by :func:`save` and add every entry.
@@ -61,7 +64,10 @@ class DB:
         with open(src, "rb") as f:
             header = f.read(8)
             if len(header) < 8 or header[:4] != _MAGIC:
-                raise ValueError(f"{src}: not a statpy DB file (bad magic)")
+                raise ValueError(
+                    f"{src}: not a statpy DB file, or an outdated format "
+                    f"(expected magic {_MAGIC.decode()}); regenerate if outdated"
+                )
             (crc_expected,) = struct.unpack("<I", header[4:8])
             payload = f.read()
         if (zlib.crc32(payload) & 0xFFFFFFFF) != crc_expected:
@@ -73,12 +79,15 @@ class DB:
                 f"load({src!r}): {len(dup)} overlapping tag(s): {dup[:5]}"
                 + ("..." if len(dup) > 5 else "")
             )
-        for t, entry in src_db.items():
-            self.database[t] = entry
+        for t, state in src_db.items():
+            self.database[t] = Entry(**state)
 
     def save(self, dst):
         """Write the entire database (all fields, including samples) to ``dst``."""
-        payload = pickle.dumps(self.database, protocol=pickle.HIGHEST_PROTOCOL)
+        payload = pickle.dumps(
+            {t: vars(entry) for t, entry in self.database.items()},
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
         crc = zlib.crc32(payload) & 0xFFFFFFFF
         with open(dst, "wb") as f:
             f.write(_MAGIC)
@@ -87,16 +96,16 @@ class DB:
 
     ################################ ENTRY MANAGEMENT ##########################
 
-    def add_entry(self, tag, *, mean=None, jks=None, sample=None, weights=None,
+    def add_entry(self, tag, *, central_value=None, jks=None, sample=None, weights=None,
                  cfgs=None, bss=None, misc=None, binsize=1):
         """Add a new entry at ``tag``.
 
         Three valid shapes:
           - Data entry: ``sample`` + ``weights`` + ``cfgs`` (matching length);
-            ``jks`` and ``mean`` are auto-derived.
+            ``jks`` and ``central_value`` (the weighted mean) are auto-derived.
           - Derived entry: ``sample=None`` but ``jks`` and ``cfgs`` given
             (matching length).
-          - Result entry: only ``mean`` and optionally ``bss``.
+          - Result entry: only ``central_value`` and optionally ``bss``.
         ``binsize`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
 
         Entries are create-only: an existing ``tag`` raises
@@ -124,8 +133,8 @@ class DB:
             if jks is not None:
                 raise ValueError(f"add_entry({tag!r}): do not pass jks when sample+weights are given; jks is derived")
             jks = jackknife.sample(sample, weights=weights)
-            if mean is None:
-                mean = np.average(sample, axis=0, weights=weights)
+            if central_value is None:
+                central_value = np.average(sample, axis=0, weights=weights)
         else:
             if cfgs is not None and jks is not None and len(jks) != len(cfgs):
                 raise ValueError(
@@ -133,7 +142,7 @@ class DB:
                 )
 
         self.database[tag] = Entry(
-            mean=mean, jks=jks, sample=sample, weights=weights,
+            central_value=central_value, jks=jks, sample=sample, weights=weights,
             cfgs=cfgs, bss=bss, misc=misc, binsize=binsize,
         )
 
@@ -159,7 +168,7 @@ class DB:
 
     def __str__(self):
         """Multi-line overview: entry counts per category."""
-        counts = {"raw data": 0, "binned data": 0, "derived (jks)": 0, "result (mean/bss)": 0}
+        counts = {"raw data": 0, "binned data": 0, "derived (jks)": 0, "result (central_value/bss)": 0}
         for entry in self.database.values():
             if entry.sample is not None and entry.binsize == 1:
                 counts["raw data"] += 1
@@ -168,7 +177,7 @@ class DB:
             elif entry.jks is not None:
                 counts["derived (jks)"] += 1
             else:
-                counts["result (mean/bss)"] += 1
+                counts["result (central_value/bss)"] += 1
         lines = [f"DB with {len(self.database)} entries:"]
         for cat, n in counts.items():
             lines.append(f"  {cat:20s} {n}")
@@ -191,20 +200,21 @@ class DB:
     ################################ TRANSFORM #################################
 
     def transform(self, tag, f, store_as=None):
-        """Apply ``f`` to ``mean``, every jackknife and (if present) every
-        bootstrap sample of the entry at ``tag``.
+        """Apply ``f`` to ``central_value``, every jackknife and (if present)
+        every bootstrap sample of the entry at ``tag``.
 
         If ``store_as`` is given, the result is stored under that tag and
-        nothing is returned; otherwise the ``(mean, jks, bss)`` tuple is returned.
+        nothing is returned; otherwise the ``(central_value, jks, bss)`` tuple
+        is returned.
         """
         entry = self.database[tag]
-        mean = f(entry.mean)
+        central_value = f(entry.central_value)
         jks = self.transform_jks(tag, f) if entry.jks is not None else None
         bss = self.transform_bss(tag, f) if entry.bss is not None else None
         if store_as is not None:
-            self.add_entry(store_as, mean=mean, jks=jks, cfgs=entry.cfgs, bss=bss)
+            self.add_entry(store_as, central_value=central_value, jks=jks, cfgs=entry.cfgs, bss=bss)
             return
-        return mean, jks, bss
+        return central_value, jks, bss
 
     def transform_jks(self, tag, f):
         """Return ``f``-mapped ``jks`` array of the entry at ``tag``."""
@@ -232,12 +242,13 @@ class DB:
         """Combine multiple entries cfg-wise by applying ``f`` across them.
 
         Cfg sets may differ — the union is taken in encounter order and
-        entries missing a cfg contribute their ``mean`` (= "no fluctuation
-        at this cfg"). ``bss`` are aligned by bootstrap index and combined
-        only if every input has ``bss`` set.
+        entries missing a cfg contribute their ``central_value`` (= "no
+        fluctuation at this cfg"). ``bss`` are aligned by bootstrap index and
+        combined only if every input has ``bss`` set.
 
         If ``store_as`` is given, the result is stored under that tag and
-        nothing is returned; otherwise the ``(mean, jks, bss)`` tuple is returned.
+        nothing is returned; otherwise the ``(central_value, jks, bss)`` tuple
+        is returned.
         """
         entries = [self.database[tag] for tag in tags]
         for tag, entry in zip(tags, entries):
@@ -258,9 +269,9 @@ class DB:
 
         idx_maps = [{c: i for i, c in enumerate(entry.cfgs)} for entry in entries]
 
-        mean = f(*[entry.mean for entry in entries])
+        central_value = f(*[entry.central_value for entry in entries])
         jks = np.array([
-            f(*[entry.jks[idx_maps[i][c]] if c in idx_maps[i] else entry.mean
+            f(*[entry.jks[idx_maps[i][c]] if c in idx_maps[i] else entry.central_value
                 for i, entry in enumerate(entries)])
             for c in union_cfgs
         ])
@@ -270,9 +281,9 @@ class DB:
             bss = np.array([f(*[entry.bss[i] for entry in entries]) for i in range(n_bs)])
 
         if store_as is not None:
-            self.add_entry(store_as, mean=mean, jks=jks, cfgs=union_cfgs, bss=bss)
+            self.add_entry(store_as, central_value=central_value, jks=jks, cfgs=union_cfgs, bss=bss)
             return
-        return mean, jks, bss
+        return central_value, jks, bss
 
     ################################ BINNING ###################################
 
