@@ -510,11 +510,11 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
             bss = db.bss(binned_corr_tag, bootstraps)
             W_bss = np.diag(1.0 / bootstrap.variance(bss)[fit_range])
             chi2_func_bss = _make_chi2(fit_model, W_bss, Nt)
-            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_corr_tag, best_parameter, chi2_func_bss, config, bootstraps=bootstraps)
+            best_parameter_bcentral, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_corr_tag, best_parameter, chi2_func_bss, config, bootstraps=bootstraps)
             best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
-            print_fit_results(best_parameter_bmean, best_parameter_bcov, misc_bss)
+            print_fit_results(best_parameter_bcentral, best_parameter_bcov, misc_bss)
             misc_bss["fit_model"] = fit_model
-            db.add_entry(f"{binned_corr_tag}/{fit_model}_bootstrap_fit", central_value=best_parameter_bmean, bss=best_parameter_bss, misc=misc_bss)
+            db.add_entry(f"{binned_corr_tag}/{fit_model}_bootstrap_fit", central_value=best_parameter_bcentral, bss=best_parameter_bss, misc=misc_bss)
 
         # persist the jackknife fit as this binsize's primary result
         fit_tag = f"{binned_corr_tag}/{fit_model}_fit"
@@ -626,11 +626,11 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, combined_tag, fit_range_PS, fit
         if b == 1 and config.bootstrap_available:
             message(_log_divider("bootstrap fit"), silent)
             W_bss = np.diag(1.0 / bootstrap.variance(db.bss(binned_corr_tag, bootstraps)))
-            best_parameter_bmean, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_corr_tag, best_parameter, make_chi2(W_bss), config, slice_data=False, bootstraps=bootstraps)
+            best_parameter_bcentral, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_corr_tag, best_parameter, make_chi2(W_bss), config, slice_data=False, bootstraps=bootstraps)
             misc_bss.update(combined_misc)
-            print_fit_results(best_parameter_bmean, bootstrap.covariance(best_parameter_bss), misc_bss)
+            print_fit_results(best_parameter_bcentral, bootstrap.covariance(best_parameter_bss), misc_bss)
             bootstrap_fit_tag = f"{binned_corr_tag}/{fit_model_combined}_bootstrap_fit"
-            db.add_entry(bootstrap_fit_tag, central_value=best_parameter_bmean, bss=best_parameter_bss, misc=misc_bss)
+            db.add_entry(bootstrap_fit_tag, central_value=best_parameter_bcentral, bss=best_parameter_bss, misc=misc_bss)
 
         # persist the jackknife fit as this binsize's primary result
         fit_tag = f"{binned_corr_tag}/{fit_model_combined}_fit"
