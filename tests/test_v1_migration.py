@@ -80,7 +80,7 @@ def _run(tmpdir):
         e = db.database[tag]
         assert list(e.cfgs) == cfgs, f"{tag}: cfg labels/order preserved"
         assert np.array_equal(e.sample, stacked), f"{tag}: sample decoded/stacked exactly"
-        np.testing.assert_allclose(e.mean, mean, rtol=1e-12, atol=0,
+        np.testing.assert_allclose(e.central_value, mean, rtol=1e-12, atol=0,
                                    err_msg=f"{tag}: derived mean matches v1")
         v1_jks = np.array([jks[c] for c in cfgs])
         np.testing.assert_allclose(e.jks, v1_jks, rtol=1e-12, atol=0,

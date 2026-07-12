@@ -5,8 +5,8 @@ A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in th
 
 ## What it does
 
-- **Automatic error propagation through arbitrary, nonlinear operations:** `db.transform(tag, f)` and `db.combine(t1, t2, f=...)` apply any function to the mean and to every jackknife/bootstrap resample, so error bars on quantities like effective masses `log(C(t)/C(t+1))` or ratios fall out with no hand-derived Jacobians and no Gaussian linearization.
-- **Correlations preserved by construction:** combining entries aligns jackknife resamples by config label (union of config sets, configs missing from an input contributing their mean) and bootstrap resamples by index, so covariances between derived quantities are carried through every step.
+- **Automatic error propagation through arbitrary, nonlinear operations:** `db.transform(tag, f)` and `db.combine(t1, t2, f=...)` apply any function to the central value and to every jackknife/bootstrap resample, so error bars on quantities like effective masses `log(C(t)/C(t+1))` or ratios fall out with no hand-derived Jacobians and no Gaussian linearization.
+- **Correlations preserved by construction:** combining entries aligns jackknife resamples by config label (union of config sets, configs missing from an input contributing their central value) and bootstrap resamples by index, so covariances between derived quantities are carried through every step.
 - **Autocorrelation-aware UQ for MCMC time series:** jackknife, bootstrap, and a published delayed-binning estimator ([Phys. Rev. D 111](https://doi.org/10.1103/mj3d-yq87)) for errors on correlated samples, plus correlated least-squares fitting with the full covariance matrix.
 - **Reproducible, self-describing storage:** a tagged binary database carries samples, jackknife blocks, and the statpy commit hash in a CRC-checked file, so an analysis and its provenance travel together.
 

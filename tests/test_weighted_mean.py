@@ -15,7 +15,7 @@ def test_add_entry_uses_full_weighted_sample_mean():
 
     # (1*[0,2] + 3*[10,6] + 2*[4,8]) / 6
     expected = np.array([19 / 3, 6.0])
-    np.testing.assert_allclose(db.database["weighted"].mean, expected)
+    np.testing.assert_allclose(db.database["weighted"].central_value, expected)
 
     # For unequal weights, averaging the delete-one estimates is not the
     # full-sample estimator. This guards against reintroducing that shortcut.

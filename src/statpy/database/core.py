@@ -16,7 +16,9 @@ from statpy.statistics import jackknife, bootstrap
 # carries the format version — bump it on any format change, so older or
 # foreign files fail the magic check. The payload is a pickle of
 # {tag: <entry state dict>} — plain dicts, not Entry instances, so the pickle
-# bakes in neither the Entry class path nor its attribute names.
+# carries no class import path. The dict keys still mirror Entry attribute
+# names, so a future rename needs a key migration at load — but against plain
+# dicts under a version gate, not against unpickled instances.
 # Retired formats: v1 custom JSON (io.load_v1_json), v2 b"SPDB" pickled Entry
 # instances.
 _MAGIC = b"SPD3"
@@ -102,7 +104,8 @@ class DB:
 
         Three valid shapes:
           - Data entry: ``sample`` + ``weights`` + ``cfgs`` (matching length);
-            ``jks`` and ``central_value`` (the weighted mean) are auto-derived.
+            ``jks`` is auto-derived and ``central_value`` defaults to the
+            weighted sample mean unless supplied explicitly.
           - Derived entry: ``sample=None`` but ``jks`` and ``cfgs`` given
             (matching length).
           - Result entry: only ``central_value`` and optionally ``bss``.

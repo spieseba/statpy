@@ -30,7 +30,7 @@ def test_transform_returns_tuple_without_store_as():
     out = db.transform("a", f=lambda x: 2 * x)
     assert isinstance(out, tuple) and len(out) == 3            # (mean, jks, bss)
     mean, jks, bss = out
-    np.testing.assert_allclose(mean, 2 * db.database["a"].mean, rtol=1e-12)
+    np.testing.assert_allclose(mean, 2 * db.database["a"].central_value, rtol=1e-12)
     assert bss is None                                         # data entry has no bss
     assert len(db.database) == n_before                        # nothing stored
 
@@ -41,7 +41,7 @@ def test_transform_stores_and_returns_none_with_store_as():
     ret = db.transform("a", f=lambda x: 2 * x, store_as="a2")
     assert ret is None                                         # store mode returns nothing
     assert "a2" in db.database
-    np.testing.assert_allclose(db.database["a2"].mean, mean, rtol=1e-12)
+    np.testing.assert_allclose(db.database["a2"].central_value, mean, rtol=1e-12)
     np.testing.assert_allclose(db.database["a2"].jks, jks, rtol=1e-12)
 
 
@@ -59,7 +59,7 @@ def test_combine_stores_and_returns_none_with_store_as():
     ret = db.combine("a", "b", f=lambda x, y: x / y, store_as="r")
     assert ret is None
     assert "r" in db.database
-    np.testing.assert_allclose(db.database["r"].mean, mean, rtol=1e-12)
+    np.testing.assert_allclose(db.database["r"].central_value, mean, rtol=1e-12)
     np.testing.assert_allclose(db.database["r"].jks, jks, rtol=1e-12)
 
 

@@ -20,14 +20,14 @@ def _data_entry_kwargs(seed=0):
 def test_duplicate_add_raises_and_preserves_original():
     db = DB()
     db.add_entry("a", **_data_entry_kwargs(0))
-    original_mean = db.database["a"].mean.copy()
+    original_mean = db.database["a"].central_value.copy()
     try:
         db.add_entry("a", **_data_entry_kwargs(1))
     except DuplicateTagError:
         pass
     else:
         raise AssertionError("expected DuplicateTagError on duplicate add_entry")
-    np.testing.assert_array_equal(db.database["a"].mean, original_mean)
+    np.testing.assert_array_equal(db.database["a"].central_value, original_mean)
 
 
 def test_rename_onto_existing_raises():
