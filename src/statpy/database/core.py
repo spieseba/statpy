@@ -29,6 +29,17 @@ class DuplicateTagError(ValueError):
     """An operation would write a tag that already exists in the DB."""
 
 
+def _check_unique_cfgs(context, cfgs):
+    """Raise ValueError if ``cfgs`` contains duplicate labels."""
+    uniq, counts = np.unique(cfgs, return_counts=True)
+    dup = uniq[counts > 1].tolist()
+    if dup:
+        raise ValueError(
+            f"{context}: duplicate cfg label(s): {dup[:5]}"
+            + ("..." if len(dup) > 5 else "")
+        )
+
+
 class DB:
     """Entry store with statistics + I/O for lattice QCD analyses."""
 
@@ -52,6 +63,9 @@ class DB:
                         f"DB merge: {len(dup)} overlapping tag(s): {dup[:5]}"
                         + ("..." if len(dup) > 5 else "")
                     )
+                for t, entry in src.database.items():
+                    if entry.cfgs is not None:
+                        _check_unique_cfgs(f"DB merge: entry {t!r}", entry.cfgs)
                 for t, entry in src.database.items():
                     self.database[t] = Entry(**vars(entry))
 
@@ -81,6 +95,11 @@ class DB:
                 f"load({src!r}): {len(dup)} overlapping tag(s): {dup[:5]}"
                 + ("..." if len(dup) > 5 else "")
             )
+        # Validate every entry before inserting any, so a bad file leaves
+        # the DB untouched.
+        for t, state in src_db.items():
+            if state.get("cfgs") is not None:
+                _check_unique_cfgs(f"load({src!r}): entry {t!r}", state["cfgs"])
         for t, state in src_db.items():
             self.database[t] = Entry(**state)
 
@@ -109,6 +128,8 @@ class DB:
           - Derived entry: ``sample=None`` but ``jks`` and ``cfgs`` given
             (matching length).
           - Result entry: only ``central_value`` and optionally ``bss``.
+        ``cfgs`` labels must be unique -- each identifies exactly one
+        resample (:meth:`combine` aligns entries by cfg label).
         ``binsize`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
 
         Entries are create-only: an existing ``tag`` raises
@@ -143,6 +164,9 @@ class DB:
                 raise ValueError(
                     f"add_entry({tag!r}): jks/cfgs length mismatch jks={len(jks)} cfgs={len(cfgs)}"
                 )
+
+        if cfgs is not None:
+            _check_unique_cfgs(f"add_entry({tag!r})", cfgs)
 
         self.database[tag] = Entry(
             central_value=central_value, jks=jks, sample=sample, weights=weights,
