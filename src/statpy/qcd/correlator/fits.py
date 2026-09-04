@@ -30,7 +30,6 @@ from statpy.qcd.correlator.models import (
     double_exp_model, double_exp_chi2,
     combined_corr_chi2,
 )
-from statpy.qcd.correlator._masking import bare_decay_constant
 
 
 # ---------------------------------------------------------------------------
@@ -90,23 +89,25 @@ def _make_chi2(fit_model, W, Nt):
     raise ValueError(f"Unknown fit_model: {fit_model!r}")
 
 
-# Combined two-correlator models: per-block sub-model names (for logging) and
-# backward-propagator signs for the shared kernel in
-# :func:`combined_corr_chi2` (+1 cosh, -1 sinh, 0 exp).
-_COMBINED_MODELS = {
-    "combined-cosh-sinh": (("cosh", "sinh"), (1.0, -1.0)),
-    "combined-exp-exp": (("exp", "exp"), (0.0, 0.0)),
-}
+# Backward-propagator sign per block for :func:`combined_corr_chi2`.
+_BLOCK_SIGN = {"cosh": 1.0, "sinh": -1.0, "exp": 0.0}
 
 
-def _make_combined_chi2(fit_model_combined, W, n_PS, n_A4I, Nt):
-    """Return a chi^2 lambda(t, p, y) for a combined PSPS/PSA4I model; ``t`` and
-    ``y`` are the concatenated PS and A4I arrays (``slice_data=False``)."""
-    if fit_model_combined not in _COMBINED_MODELS:
-        raise ValueError(f"Unknown combined fit_model: {fit_model_combined!r}")
-    signs = _COMBINED_MODELS[fit_model_combined][1]
-    amp_idx = np.repeat(np.arange(2), (n_PS, n_A4I))
-    sign = np.repeat(np.array(signs), (n_PS, n_A4I))
+def _combined_model_name(fit_models):
+    """Return the combined model name for two validated block models."""
+    if len(fit_models) != 2:
+        raise ValueError(f"fit_models must contain two models, got {len(fit_models)}")
+    unknown = [model for model in fit_models if model not in _BLOCK_SIGN]
+    if unknown:
+        raise ValueError(f"Unknown combined block model(s): {unknown}")
+    return "combined-" + "-".join(fit_models)
+
+
+def _make_combined_chi2(fit_models, W, block_lengths, Nt):
+    """Return a chi^2 lambda for two concatenated correlator blocks."""
+    _combined_model_name(fit_models)
+    sign = np.repeat([_BLOCK_SIGN[model] for model in fit_models], block_lengths)
+    amp_idx = np.repeat(np.arange(2), block_lengths)
     return lambda t, p, y: combined_corr_chi2(t, p, y, W, Nt, amp_idx, sign)
 
 
@@ -530,72 +531,57 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
 
 
 # ---------------------------------------------------------------------------
-# Decay-constant machinery: PSA4 improvement + combined PSPS/PSA4I fit.
-# Not yet wired into a pipeline — pending the decay-constant project.
+# Two-correlator combined fit (shared mass)
 # ---------------------------------------------------------------------------
 
-def determine_PSA4I(db, tag_PSPS_sml, tag_PSA4_sml, beta):
-    """Improved PSA4 correlator per https://arxiv.org/pdf/1502.04999.pdf"""
-    def compute_cA(beta):
-        p0 = 9.2056
-        p1 = -13.9847
-        return - 0.006033 * 6./beta * (1 + np.exp(p0 + p1*beta/6.))
-    def derivative(f):
-        return 0.5 * (np.roll(f, -1) - np.roll(f, 1))
-    def compute_PSA4I(PS_A4, PS_PS, beta):
-        PS_A4I = PS_A4 - compute_cA(beta) * derivative(PS_PS)
-        PS_A4I[0] = 0.
-        PS_A4I[-1] = 0
-        return PS_A4I
-    tag_PSA4I = tag_PSA4_sml.replace("PSA4", "PSA4I")
-    lf_a = db.database[tag_PSA4_sml]
-    lf_b = db.database[tag_PSPS_sml]
-    new_sample = np.array([compute_PSA4I(a, b, beta) for a, b in zip(lf_a.sample, lf_b.sample)])
-    db.add_entry(tag_PSA4I, sample=new_sample, weights=lf_a.weights, cfgs=lf_a.cfgs)
+def correlator_combined_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit_models,
+                            config: FitConfig, Nt=None, silent=False, bootstraps=None):
+    """Joint fit of two concatenated correlator blocks with a shared mass.
 
-
-def correlator_combined_fit(db, tag_PS, tag_A4I, combined_tag, fit_range_PS, fit_range_A4I, binsize, p0, fit_model_combined, config: FitConfig, Nt=None, silent=False, bootstraps=None):
-    """Joint PSPS/PSA4I fit on the concatenated, pre-sliced data entry stored at
-    the caller-chosen ``combined_tag``. Per binsize, mirroring
-    :func:`ground_state_fit`: jackknife fit (the primary result), correlated
-    mean fit at the endpoint binsizes, bootstrap fit at b = 1 — the latter two
-    seeded from the jackknife result — plus the bare decay constant ``afbare``
-    derived from each fit. Returns the list of primary fit tags."""
-    if fit_model_combined not in _COMBINED_MODELS:
-        raise ValueError(f"Unknown combined fit_model: {fit_model_combined!r}")
+    Block 0 is the smeared-smeared correlator with amplitude ``p[0]``; block 1
+    is the local-smeared correlator with amplitude ``p[1]``; their shared mass
+    is ``p[2]``. ``p0 = [A0, A1, m]``. Returns the primary fit tags.
+    """
+    if len(tags) != 2 or len(fit_ranges) != 2:
+        raise ValueError("tags and fit_ranges must each contain two entries")
+    if len(p0) != 3:
+        raise ValueError(f"p0 must contain [A0, A1, m], got {len(p0)} entries")
+    fit_model_combined = _combined_model_name(fit_models)
     if config.bootstrap_available and bootstraps is None:
         raise ValueError("correlator_combined_fit needs bootstraps= when config.bootstrap_available")
-    message(_log_divider("combined correlator fit PSPS/PSA4I"))
-    fit_model_PS, fit_model_A4I = _COMBINED_MODELS[fit_model_combined][0]
-    message(f"PSPS correlator: {tag_PS}")
-    message(f"PSPS - fit range {fit_range_PS}")
-    message(f"PSPS {fit_model_PS} model = {fit_model_dict[fit_model_PS]}")
-    message(f"PSA4I correlator: {tag_A4I}")
-    message(f"PSA4I - fit range {fit_range_A4I}")
-    message(f"PSA4I {fit_model_A4I} model = {fit_model_dict[fit_model_A4I]}")
-    message(f"Combined - {fit_model_combined} model = {fit_model_dict[fit_model_combined]}")
+    entries = [db.database[tag] for tag in tags]
+    if not np.array_equal(entries[0].cfgs, entries[1].cfgs):
+        raise ValueError(f"correlator_combined_fit: cfgs of {tags[0]!r} and {tags[1]!r} differ; cannot pair configs")
+    if not np.array_equal(entries[0].weights, entries[1].weights):
+        raise ValueError(f"correlator_combined_fit: weights of {tags[0]!r} and {tags[1]!r} differ; cannot pair configs")
+    if len(entries[0].central_value) != len(entries[1].central_value):
+        raise ValueError(f"correlator_combined_fit: data lengths of {tags[0]!r} and {tags[1]!r} differ")
+
+    message(_log_divider("combined correlator fit"), silent)
+    for i, (tag, fit_range, fit_model) in enumerate(zip(tags, fit_ranges, fit_models)):
+        message(f"block {i}: {tag}, fit range {fit_range}, {fit_model} model = {fit_model_dict[fit_model]}", silent)
+    message("shared mass m = p[2]", silent)
     message(f"P0 = {p0}")
 
-    Nt = len(db.database[tag_PS].central_value) if Nt is None else Nt
-    fit_range_combined = np.hstack((fit_range_PS, fit_range_A4I))
+    Nt = len(entries[0].central_value) if Nt is None else Nt
+    fit_range_combined = np.hstack(fit_ranges)
     def make_chi2(W):
-        return _make_combined_chi2(fit_model_combined, W, len(fit_range_PS), len(fit_range_A4I), Nt)
+        return _make_combined_chi2(fit_models, W, tuple(map(len, fit_ranges)), Nt)
     combined_misc = {
-        "fit_model_PSPS": fit_model_PS,
-        "fit_model_PSA4I": fit_model_A4I,
         "fit_model": fit_model_combined,
-        "t_PSPS": fit_range_PS,
-        "t_PSA4I": fit_range_A4I,
+        "fit_models": fit_models,
+        "t_blocks": fit_ranges,
+        "tags": tags,
     }
 
-    # combined data entry: per config, PS and A4I pre-sliced to their fit
-    # ranges and concatenated — all fits below use slice_data=False
-    lf_PS = db.database[tag_PS]
-    lf_A4I = db.database[tag_A4I]
-    if not np.array_equal(lf_PS.cfgs, lf_A4I.cfgs):
-        raise ValueError(f"correlator_combined_fit: cfgs of {tag_PS!r} and {tag_A4I!r} differ; cannot pair configs")
-    combined_sample = np.array([np.hstack((ps[fit_range_PS], a4[fit_range_A4I])) for ps, a4 in zip(lf_PS.sample, lf_A4I.sample)])
-    db.add_entry(combined_tag, sample=combined_sample, weights=lf_PS.weights, cfgs=lf_PS.cfgs)
+    # combined data entry: per config, blocks pre-sliced to their fit ranges
+    # and concatenated — all fits below use slice_data=False
+    samples = [entry.sample for entry in entries]
+    combined_sample = np.array([
+        np.hstack([sample[fit_range] for sample, fit_range in zip(config_samples, fit_ranges)])
+        for config_samples in zip(*samples)
+    ])
+    db.add_entry(combined_tag, sample=combined_sample, weights=entries[0].weights, cfgs=entries[0].cfgs)
 
     fit_tags = []
     for b in range(1, binsize + 1):
@@ -641,14 +627,6 @@ def correlator_combined_fit(db, tag_PS, tag_A4I, combined_tag, fit_range_PS, fit
         )
         fit_tags.append(fit_tag)
 
-        # 4. bare decay constant from the jackknife fit (and bootstrap fit at b == 1)
-        message(_log_divider("bare decay constant"))
-        db.transform(fit_tag, f=bare_decay_constant, store_as=f"{fit_tag}/afbare")
-        message(f"a*fbare = {db.database[f'{fit_tag}/afbare'].central_value:.8f} +- {db.jackknife_variance(f'{fit_tag}/afbare')**.5:.8f} (jackknife)")
-        if b == 1 and config.bootstrap_available:
-            db.transform(bootstrap_fit_tag, f=bare_decay_constant, store_as=f"{bootstrap_fit_tag}/afbare")
-            afbare_bs = db.database[f"{bootstrap_fit_tag}/afbare"]
-            message(f"         {afbare_bs.central_value:.8f} +- {bootstrap.variance(afbare_bs.bss)**.5:.8f} (bootstrap)")
         message(_log_divider(), silent)
         message(_log_divider(), silent)
     return fit_tags

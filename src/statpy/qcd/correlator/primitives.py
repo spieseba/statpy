@@ -15,7 +15,7 @@ def meff_cosh(Ct, ax=0):
 def meff_cosh_midpoint(Ct, a=1):
     Nt = len(Ct)
     with np.errstate(invalid='ignore'):
-        return np.abs((np.arccosh(np.roll(Ct,a)/Ct[Nt//2]) - np.arccosh(np.roll(Ct,-a)/Ct[Nt//2]))) / (2. * a)
+        return np.abs(np.arccosh(np.roll(Ct,a)/Ct[Nt//2]) - np.arccosh(np.roll(Ct,-a)/Ct[Nt//2])) / (2. * a)
 
 def meff_sinh(Ct):
     Nt = len(Ct)

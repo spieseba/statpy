@@ -39,7 +39,5 @@ from statpy.qcd.correlator.fits import (
     excited_contributions_fit,
     PlateauTooShortError,
     ground_state_fit,
-    determine_PSA4I,
     correlator_combined_fit,
 )
-from statpy.qcd.correlator._masking import bare_decay_constant

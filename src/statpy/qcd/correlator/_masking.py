@@ -1,12 +1,6 @@
 """Private helpers: masking for OBC averaging + boundary folding."""
 import numpy as np
 
-
-def bare_decay_constant(p):
-    # p[0] = A_PSPS, p[1] = A_PSA4I, p[2] = m
-    return np.sqrt(2.) * p[1] / np.sqrt(p[0] * p[2])
-
-
 # Masked sample for OBC averaging (vectorized over configs).
 # sample (N_cfg, num_Cts, T) -> masked (N_cfg, 2*num_Cts, T): forward Cts in the
 # first num_Cts rows, time-reversed backward Cts in the second. Mask is config-independent.
