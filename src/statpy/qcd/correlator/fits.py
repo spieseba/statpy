@@ -44,6 +44,13 @@ class FitConfig:
     bootstrap_available: bool = True
 
 
+@dataclass(frozen=True)
+class FitTags:
+    """Database references to a primary jackknife fit and its optional bootstrap fit."""
+    jackknife: str
+    bootstrap: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Internal utilities
 # ---------------------------------------------------------------------------
@@ -463,7 +470,9 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
     """Ground-state fit of ``tag`` at every binsize b = 1..``binsize``: jackknife
     fit (the primary result), correlated mean fits as cross-checks at the
     endpoint binsizes, and a bootstrap fit at b = 1 seeded from the jackknife
-    result. Returns the list of primary fit tags (one per binsize)."""
+    result. Returns a list of ``FitTags`` in binsize order (1..``binsize``).
+    Bootstrap tags are present only at binsize 1 when enabled; correlated
+    mean cross-checks are not included."""
     if config.bootstrap_available and bootstraps is None:
         raise ValueError("ground_state_fit needs bootstraps= when config.bootstrap_available")
     message(f"Correlator: {tag}")
@@ -475,6 +484,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
         return _make_chi2(fit_model, W, Nt)
     fit_tags = []
     for b in range(1, binsize + 1):
+        bootstrap_fit_tag = None
         message(f"Binsize = {b}", silent)
         binned_corr_tag = _ensure_binned(db, tag, b)
 
@@ -515,7 +525,8 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
             best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
             print_fit_results(best_parameter_bcentral, best_parameter_bcov, misc_bss)
             misc_bss["fit_model"] = fit_model
-            db.add_entry(f"{binned_corr_tag}/{fit_model}_bootstrap_fit", central_value=best_parameter_bcentral, bss=best_parameter_bss, misc=misc_bss)
+            bootstrap_fit_tag = f"{binned_corr_tag}/{fit_model}_bootstrap_fit"
+            db.add_entry(bootstrap_fit_tag, central_value=best_parameter_bcentral, bss=best_parameter_bss, misc=misc_bss)
 
         # persist the jackknife fit as this binsize's primary result
         fit_tag = f"{binned_corr_tag}/{fit_model}_fit"
@@ -524,7 +535,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
             central_value=best_parameter, jks=best_parameter_jks,
             cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
         )
-        fit_tags.append(fit_tag)
+        fit_tags.append(FitTags(jackknife=fit_tag, bootstrap=bootstrap_fit_tag))
         message(_log_divider(), silent)
         message(_log_divider(), silent)
     return fit_tags
@@ -538,9 +549,14 @@ def correlator_combined_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit
                             config: FitConfig, Nt=None, silent=False, bootstraps=None):
     """Joint fit of two concatenated correlator blocks with a shared mass.
 
-    Block 0 is the smeared-smeared correlator with amplitude ``p[0]``; block 1
-    is the local-smeared correlator with amplitude ``p[1]``; their shared mass
-    is ``p[2]``. ``p0 = [A0, A1, m]``. Returns the primary fit tags.
+    Blocks 0 and 1 have independent amplitudes ``p[0]`` and ``p[1]`` and a
+    shared ground-state mass ``p[2]``. ``p0 = [A0, A1, m]``. Each block uses
+    a ``cosh``, ``sinh``, or ``exp`` model; no particular smearing is required.
+    Both fit ranges must lie where excited-state contributions are
+    sufficiently suppressed for these single-state models to apply; this
+    function does not check that assumption. Returns a list of ``FitTags`` in
+    binsize order (1..``binsize``). Bootstrap tags are present only at binsize
+    1 when enabled; correlated mean cross-checks are not included.
     """
     if len(tags) != 2 or len(fit_ranges) != 2:
         raise ValueError("tags and fit_ranges must each contain two entries")
@@ -585,6 +601,7 @@ def correlator_combined_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit
 
     fit_tags = []
     for b in range(1, binsize + 1):
+        bootstrap_fit_tag = None
         message(f"Binsize = {b}", silent)
         binned_corr_tag = _ensure_binned(db, combined_tag, b)
 
@@ -625,7 +642,7 @@ def correlator_combined_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit
             central_value=best_parameter, jks=best_parameter_jks,
             cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
         )
-        fit_tags.append(fit_tag)
+        fit_tags.append(FitTags(jackknife=fit_tag, bootstrap=bootstrap_fit_tag))
 
         message(_log_divider(), silent)
         message(_log_divider(), silent)

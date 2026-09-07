@@ -32,6 +32,7 @@ from statpy.qcd.correlator.averaging import (
 )
 from statpy.qcd.correlator.fits import (
     FitConfig,
+    FitTags,
     fit_mean,
     fit_jks,
     fit_bss,

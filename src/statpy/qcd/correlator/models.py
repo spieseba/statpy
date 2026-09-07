@@ -162,7 +162,7 @@ def const_plus_exp_chi2(t, p, y, W):
 
 
 # ---------------------------------------------------------------------------
-# combined two-correlator fit (smeared-smeared + local-smeared)
+# combined two-correlator fit (independent amplitudes, shared ground-state mass)
 # ---------------------------------------------------------------------------
 
 # Every block model is the same kernel  A * [exp(-mt) + s * exp(-m(Nt-t))],
