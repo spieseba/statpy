@@ -3,14 +3,14 @@ import pickle
 import re
 import struct
 import zlib
+
 import numpy as np
 
 import statpy
-from statpy.log import message
 from statpy.database.entries import Entry
-
+from statpy.log import message
+from statpy.statistics import bootstrap, jackknife
 from statpy.statistics import core as statistics
-from statpy.statistics import jackknife, bootstrap
 
 # DB file header: magic(4) + u32 CRC32 of payload, little-endian. The magic
 # carries the format version — bump it on any format change, so older or
@@ -214,7 +214,7 @@ class DB:
 
     def get_tags(self, pattern=".*"):
         """Tags matching the regex ``pattern`` (via :func:`re.search`)."""
-        return [tag for tag in self.database.keys() if re.search(pattern, tag)]
+        return [tag for tag in self.database if re.search(pattern, tag)]
 
     def print_tags(self, pattern=".*"):
         """Print the tags matching ``pattern``, one per line, sorted."""

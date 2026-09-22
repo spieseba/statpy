@@ -2,11 +2,9 @@
 import numpy as np
 import pytest
 
-from statpy.qcd.correlator import FitTags, ground_state_fit
-
 from statpy.database.core import DB
+from statpy.qcd.correlator import FitTags, ground_state_fit
 from statpy.qcd.correlator.fits import FitConfig, correlator_combined_fit
-
 
 NT = 32
 N_CFG = 50

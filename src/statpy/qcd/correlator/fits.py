@@ -10,27 +10,33 @@ from math import isnan
 
 import numpy as np
 
+from statpy.fitting.core import ConvergenceError, Fitter, get_pvalue, print_fit_results
 from statpy.log import message
-from statpy.fitting.core import Fitter, ConvergenceError
-from statpy.fitting.core import print_fit_results, get_pvalue
-from statpy.statistics import jackknife, bootstrap
-
-from statpy.qcd.correlator.primitives import (
-    meff_cosh, meff_exp_forward,
-    Aeff_cosh, Aeff_sinh, Aeff_exp,
-    binned_tag,
-)
 from statpy.qcd.correlator.models import (
-    fit_model_dict,
-    cosh_model, cosh_chi2,
-    sinh_model, sinh_chi2,
-    exp_model, exp_chi2,
-    double_cosh_model, double_cosh_chi2,
-    double_sinh_model, double_sinh_chi2,
-    double_exp_model, double_exp_chi2,
     combined_corr_chi2,
+    cosh_chi2,
+    cosh_model,
+    double_cosh_chi2,
+    double_cosh_model,
+    double_exp_chi2,
+    double_exp_model,
+    double_sinh_chi2,
+    double_sinh_model,
+    exp_chi2,
+    exp_model,
+    fit_model_dict,
+    sinh_chi2,
+    sinh_model,
 )
-
+from statpy.qcd.correlator.primitives import (
+    Aeff_cosh,
+    Aeff_exp,
+    Aeff_sinh,
+    binned_tag,
+    meff_cosh,
+    meff_exp_forward,
+)
+from statpy.statistics import bootstrap, jackknife
 
 # ---------------------------------------------------------------------------
 # Configuration

@@ -19,7 +19,7 @@ def _commit_hash():
             cwd=Path(__file__).resolve().parent,
             stderr=subprocess.DEVNULL,
         ).decode().strip()
-    except Exception:
+    except (OSError, subprocess.CalledProcessError):
         return None
 
 

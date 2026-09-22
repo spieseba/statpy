@@ -1,5 +1,6 @@
 import numpy as np
 
+
 # generate B bootstraps for N samples
 def generate_bootstraps(B, N, seed=0):
     rng = np.random.RandomState(seed)

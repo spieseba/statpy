@@ -2,6 +2,7 @@
 from numbers import Real
 
 import numpy as np
+
 from statpy.log import message
 
 

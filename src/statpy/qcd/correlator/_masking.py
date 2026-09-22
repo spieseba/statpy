@@ -3,6 +3,7 @@ import numpy as np
 
 from statpy.qcd.correlator.primitives import _validate_time_parity
 
+
 # Masked sample for OBC averaging (vectorized over configs).
 # sample (N_cfg, num_Cts, T) -> masked (N_cfg, 2*num_Cts, T): forward Cts in the
 # first num_Cts rows, time-reversed backward Cts in the second. Mask is config-independent.

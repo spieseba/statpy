@@ -29,7 +29,7 @@ def test_transform_returns_tuple_without_store_as():
     n_before = len(db.database)
     out = db.transform("a", f=lambda x: 2 * x)
     assert isinstance(out, tuple) and len(out) == 3            # (mean, jks, bss)
-    mean, jks, bss = out
+    mean, _, bss = out
     np.testing.assert_allclose(mean, 2 * db.database["a"].central_value, rtol=1e-12)
     assert bss is None                                         # data entry has no bss
     assert len(db.database) == n_before                        # nothing stored

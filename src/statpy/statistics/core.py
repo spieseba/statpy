@@ -1,5 +1,6 @@
 import numpy as np
 
+
 # binning
 def bin(data, binsize, weights=None):
     assert binsize is not None

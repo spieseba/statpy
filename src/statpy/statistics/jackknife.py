@@ -2,6 +2,7 @@ import warnings
 
 import numpy as np
 
+
 def sample(x, weights=None):
     N = len(x)
     w = np.ones(N) if weights is None else weights

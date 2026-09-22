@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def covariance(sample, tmax):
     N = len(sample)
     mean = np.mean(sample, axis=0)

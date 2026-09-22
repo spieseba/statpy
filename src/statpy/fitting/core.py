@@ -1,8 +1,10 @@
 import numpy as np
 import scipy.optimize as opt
-import scipy.stats as stats
 from iminuit import Minuit
+from scipy import stats
+
 from statpy.log import message
+
 
 class ConvergenceError(Exception):
     pass

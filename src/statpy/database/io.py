@@ -1,11 +1,13 @@
-import os
 import base64
 import json
+import os
 import re
+
 import h5py
 import numpy as np
-from statpy.log import message
+
 from statpy.database.core import DB
+from statpy.log import message
 
 _CFG_ID_RE = re.compile(r"n(\d+)$")
 

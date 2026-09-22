@@ -2,7 +2,6 @@
 import numpy as np
 from numba import njit
 
-
 fit_model_dict = {
     "cosh": "A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1]",
     "sinh": "A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]",
