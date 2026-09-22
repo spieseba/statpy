@@ -1,6 +1,7 @@
-name: tests
+name: CI
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -12,3 +13,11 @@ jobs:
         with:
           enable-cache: true
       - run: uv run pytest
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv run ruff check .
