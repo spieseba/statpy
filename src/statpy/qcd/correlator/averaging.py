@@ -11,7 +11,7 @@ from statpy.log import message
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife
 from statpy.qcd.correlator.primitives import (
-    meson_fold_correlator, meff_exp_symmetric, binned_tag,
+    meson_fold_correlator, meff_exp_symmetric, binned_tag, _validate_time_parity,
 )
 from statpy.qcd.correlator._masking import (
     _get_masked_meson_sample, _get_tmax_fw_bw, _get_masked_Cts_boundary,
@@ -27,11 +27,12 @@ def pbc_correlator_average(db, Ct_tag, store_as):
     db.add_entry(store_as, sample=new_sample, weights=entry.weights, cfgs=entry.cfgs, misc=entry.misc)
 
 
-def obc_meson_correlator_average(db, Ct_tags, tbulk, store_as, tmax_from_tsrc=None, antisymmetric=False):
+def obc_meson_correlator_average(db, Ct_tags, tbulk, store_as, tmax_from_tsrc=None, time_parity=1):
     """OBC source average over tsrcs in tbulk: per-src fw/bw mask, then fold-and-mean.
 
-    Mesons only: backward half folded as the same state (antisymmetric -> sinh, else cosh).
+    Mesons only: time_parity is +1 (even) or -1 (odd); booleans are rejected.
     """
+    time_parity = _validate_time_parity(time_parity)
     message(f"Perform obc tsrc average over all srcs in tbulk = [[{tbulk[0]},{tbulk[-1]}]] with correlator tags: {Ct_tags}")
     message(f"tmax_from_tsrc: {tmax_from_tsrc}")
     # Get src positions in bulk
@@ -51,7 +52,7 @@ def obc_meson_correlator_average(db, Ct_tags, tbulk, store_as, tmax_from_tsrc=No
     masked_samples = []
     for src_idx, Ct_tag in enumerate(Ct_tags_in_bulk):
         entry = db.database[Ct_tag]
-        masked_sample = _get_masked_meson_sample(entry.sample, tmax_fw[src_idx], tmax_bw[src_idx], antisymmetric)
+        masked_sample = _get_masked_meson_sample(entry.sample, tmax_fw[src_idx], tmax_bw[src_idx], time_parity)
         masked_samples.append(masked_sample)
     ref_lf = db.database[Ct_tags_in_bulk[0]]
     # mask pattern is config-independent, so mean+compress over the whole stack at once
@@ -59,18 +60,20 @@ def obc_meson_correlator_average(db, Ct_tags, tbulk, store_as, tmax_from_tsrc=No
     combined_sample = np.ma.compress_cols(combined)
     db.add_entry(
         store_as, sample=combined_sample, weights=ref_lf.weights, cfgs=ref_lf.cfgs,
-        misc={"tsrcs": tsrcs_in_bulk, "tbulk": tbulk, "antisymmetric": antisymmetric},
+        misc={"tsrcs": tsrcs_in_bulk, "tbulk": tbulk, "time_parity": time_parity},
     )
 
 
-def meson_fold_correlator_entry(db, Ct_tag, store_as, antisymmetric=False):
+def meson_fold_correlator_entry(db, Ct_tag, store_as, time_parity=1):
     """Fold a DB correlator entry around T/2 into ``store_as``. Mesons only.
 
     Unrelated to the pipeline-level ``fold_correlators`` config toggle.
+    time_parity is +1 (even) or -1 (odd); booleans are rejected.
     """
+    time_parity = _validate_time_parity(time_parity)
     message(f"Fold correlator {Ct_tag}.")
     entry = db.database[Ct_tag]
-    folded = np.array([meson_fold_correlator(Ct, antisymmetric) for Ct in entry.sample])
+    folded = np.array([meson_fold_correlator(Ct, time_parity) for Ct in entry.sample])
     db.add_entry(store_as, sample=folded, weights=entry.weights, cfgs=entry.cfgs, misc=entry.misc)
 
 
@@ -85,12 +88,14 @@ def _boundary_eff_mass(Ct, tsrc):
     )
 
 
-def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, antisymmetric=False):
+def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsrc=None, time_parity=1):
     """Source-averaged, folded boundary effective mass (excited region masked). Mesons only.
 
     Returns the source-averaged tag (``tsrc<None>/am_t``); ``<tag>/folded`` and
     ``misc["nsrc_hist"]`` (source positions contributing per time slice) are also written.
+    time_parity is +1 (even) or -1 (odd); booleans are rejected.
     """
+    time_parity = _validate_time_parity(time_parity)
     message(f"Perform boundary average over all tsrcs with correlator tags: {Ct_tags}")
     message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
     message(f"tmax_from_tsrc = {tmax_from_tsrc}")
@@ -127,5 +132,5 @@ def obc_meson_boundary_average(db, Ct_tags, tmin_excited, binsize, tmax_from_tsr
     masked_tag = f"{Ct_tags[0]}/maskedES"
     avg_mt_tag = re.sub(r'(tsrc)\d+', r'\1None', f"{binned_tag(masked_tag, binsize)}/am_t")
     db.add_entry(avg_mt_tag, central_value=avg_mean, jks=avg_jks, cfgs=cfgs, misc={"nsrc_hist": nsrc_hist})
-    db.transform(avg_mt_tag, f=lambda mt: _fold_meson_boundary(mt, antisymmetric), store_as=f"{avg_mt_tag}/folded")
+    db.transform(avg_mt_tag, f=lambda mt: _fold_meson_boundary(mt, time_parity), store_as=f"{avg_mt_tag}/folded")
     return avg_mt_tag

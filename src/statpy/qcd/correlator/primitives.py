@@ -1,6 +1,19 @@
 """Pure correlator / effective-mass primitives. No database, no state."""
+from numbers import Real
+
 import numpy as np
 from statpy.log import message
+
+
+def _validate_time_parity(time_parity):
+    """Return the sign for even (+1) or odd (-1) time parity; reject booleans."""
+    if (
+        isinstance(time_parity, (bool, np.bool_))
+        or not isinstance(time_parity, Real)
+        or time_parity not in (-1, 1)
+    ):
+        raise ValueError("time_parity must be +1 (even) or -1 (odd), not a boolean")
+    return int(time_parity)
 
 
 # ---------------------------------------------------------------------------
@@ -53,13 +66,12 @@ def Aeff_exp(Ct, m):
     return Ct / np.exp(-m*np.arange(Nt))
 
 
-def meson_fold_correlator(arr, antisymmetric=False):
-    """Fold a correlator around T/2 (antisymmetric -> sinh, else cosh). Mesons only."""
+def meson_fold_correlator(arr, time_parity=1):
+    """Fold a meson correlator around T/2; time_parity is +1 (even) or -1 (odd)."""
+    time_parity = _validate_time_parity(time_parity)
     half = len(arr) // 2
     arr0 = arr[:half]
-    arr1 = np.roll(np.flip(arr[half:]), 1)
-    if antisymmetric: 
-        arr1 *= -1.
+    arr1 = np.roll(np.flip(arr[half:]), 1) * time_parity
     arr1[0] = arr0[0]
     return np.mean([arr0, arr1], axis=0)
 

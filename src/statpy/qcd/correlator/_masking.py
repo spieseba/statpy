@@ -1,17 +1,18 @@
 """Private helpers: masking for OBC averaging + boundary folding."""
 import numpy as np
 
+from statpy.qcd.correlator.primitives import _validate_time_parity
+
 # Masked sample for OBC averaging (vectorized over configs).
 # sample (N_cfg, num_Cts, T) -> masked (N_cfg, 2*num_Cts, T): forward Cts in the
 # first num_Cts rows, time-reversed backward Cts in the second. Mask is config-independent.
-# Mesons only: the backward half is folded as the same state (antisymmetric -> sinh, else cosh).
-def _get_masked_meson_sample(sample, tmax_fw, tmax_bw, antisymmetric):
+# Mesons only: the backward half is folded as the same state (time_parity=-1 -> sinh, else cosh).
+def _get_masked_meson_sample(sample, tmax_fw, tmax_bw, time_parity):
+    time_parity = _validate_time_parity(time_parity)
     N, num_Cts, T = sample.shape
     # backward = time-reverse each Ct (flip then roll by 1)
     bw = np.roll(np.flip(sample, axis=2), 1, axis=2)
-    if antisymmetric:
-        bw = bw.copy()
-        bw[:, :, 1:] *= -1
+    bw[:, :, 1:] *= time_parity
     out = np.ma.empty((N, 2*num_Cts, T))
     out.mask = True
     out[:, :num_Cts, :tmax_fw] = sample[:, :, :tmax_fw]
@@ -49,12 +50,11 @@ def _get_masked_Cts_boundary(Cts, tsrc, tmin_excited, tmax_from_tsrc=None):
     return Cts_ma
 
 
-def _fold_meson_boundary(arr, antisymmetric):
+def _fold_meson_boundary(arr, time_parity):
+    time_parity = _validate_time_parity(time_parity)
     half = len(arr) // 2
     arr0 = arr[:half]
-    arr1 = np.flip(arr[half:])
-    if antisymmetric:
-        arr1 = -arr1   # np.flip returns a view; in-place *= would write through into arr
+    arr1 = np.flip(arr[half:]) * time_parity
     return np.mean([arr0, arr1], axis=0)
 
 
