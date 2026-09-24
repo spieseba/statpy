@@ -4,9 +4,7 @@ All functions take a database handle as first argument and a FitConfig
 describing fit method + parameters. (Source averaging / folding lives in
 ``averaging.py``.)
 """
-import warnings
 from dataclasses import dataclass, field
-from math import isnan
 
 import numpy as np
 
@@ -29,9 +27,6 @@ from statpy.qcd.correlator.models import (
     sinh_model,
 )
 from statpy.qcd.correlator.primitives import (
-    Aeff_cosh,
-    Aeff_exp,
-    Aeff_sinh,
     binned_tag,
     meff_cosh,
     meff_exp_forward,
@@ -226,22 +221,6 @@ def _sort_two_state_params(p):
     return p
 
 
-def _resolve_initial_p0(p0_guess, prev_mean):
-    """Replace NaNs in ``p0_guess``: prefer ``prev_mean`` if available, else
-    derive ``p[2]`` and ``p[3]`` from ``p[0]``, then fall back to 1.0 for any
-    leftover NaNs. Returns the resolved p0; assumes the input already has the
-    expected length."""
-    if not np.isnan(p0_guess).any():
-        return p0_guess
-    if prev_mean is not None:
-        return prev_mean
-    p0_guess[2] = p0_guess[0] / 2
-    p0_guess[3] = 2.0 * p0_guess[0]
-    if np.isnan(p0_guess).any():
-        p0_guess = [1.0 if isnan(p) else p for p in p0_guess]
-    return p0_guess
-
-
 def _select_plateau_range(t, var_t, best_parameter, model_func, bc, folded):
     """Indices in ``t`` where the excited-state contribution drops below sigma/4
     (symmetrized for periodic + unfolded BC) — i.e., the ground-state plateau."""
@@ -252,38 +231,52 @@ def _select_plateau_range(t, var_t, best_parameter, model_func, bc, folded):
     return t[excited < std_over_four]
 
 
-def get_p0_guess(db, binned_corr_tag, fit_model, fit_range):
-    """Heuristic two-state ``[A0, m0, A1, m1]`` initial guess for
-    double-{cosh,sinh,exp} fits. Elements may come back NaN — the caller
-    (``_resolve_initial_p0``) fills them."""
-    if fit_model not in ("double-cosh", "double-sinh", "double-exp"):
+def get_p0_guesses(t, y, variance, fit_model, m0, mass_gaps, *, Nt=None):
+    """Return one [A0, m0, A1, m0 + gap] seed per supplied positive mass gap.
+
+    ``t``, ``y`` and diagonal ``variance`` contain only the fit-window data.
+    For each fixed mass pair, solve for signed amplitudes by minimizing
+    sum((model - y)**2 / variance). Gap order is preserved; no nonlinear fit,
+    previous-candidate seed or fallback is used. Periodic models require the
+    full temporal extent ``Nt``, not the length of the fit window.
+
+    Returns an array of shape (len(mass_gaps), 4). Invalid inputs or a mass
+    pair whose amplitudes cannot be resolved numerically raise ValueError.
+    """
+    t, y, variance, gaps = [np.asarray(x, dtype=float) for x in (t, y, variance, mass_gaps)]
+    if t.ndim != 1 or t.size < 2 or y.shape != t.shape or variance.shape != t.shape:
+        raise ValueError("t, y and variance must be matching 1D arrays with at least two points")
+    if not all(np.isfinite(x).all() for x in (t, y, variance)) or np.any(variance <= 0):
+        raise ValueError("Fit data must be finite and variances strictly positive")
+    if not np.isfinite(m0) or m0 <= 0:
+        raise ValueError("m0 must be finite and positive")
+    if gaps.ndim != 1 or gaps.size == 0 or not np.isfinite(gaps).all() or np.any(gaps <= 0):
+        raise ValueError("mass_gaps must be a nonempty 1D array of finite positive gaps")
+    if fit_model == "double-exp":
+        model = exp_model()
+    elif fit_model in ("double-cosh", "double-sinh"):
+        if Nt is None or not np.isfinite(Nt) or Nt <= 0:
+            raise ValueError("Periodic models require a finite positive Nt")
+        model = cosh_model(Nt) if fit_model == "double-cosh" else sinh_model(Nt)
+    else:
         raise ValueError(f"Unknown fit_model: {fit_model!r}")
-    message(f"Get p0 guess(es) for {fit_model} fit model with {binned_corr_tag}")
-    Ct_mean = db.database[binned_corr_tag].central_value
-    Nt = len(Ct_mean)
-    effective_mass = {"double-cosh": meff_cosh, "double-sinh": meff_cosh, "double-exp": meff_exp_forward}[fit_model]
-    effective_amplitude = {"double-cosh": Aeff_cosh, "double-sinh": Aeff_sinh, "double-exp": Aeff_exp}[fit_model]
-    single_model_func = {"double-cosh": cosh_model(Nt), "double-sinh": sinh_model(Nt), "double-exp": exp_model()}[fit_model]
-    # ground state parameters
-    window = slice(Nt//4, Nt//4 + Nt//8)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        m0_eff = np.nanmean(effective_mass(Ct_mean)[window])
-        A0_eff = np.nanmean(effective_amplitude(Ct_mean, m0_eff)[window])
-    # excited state parameters
-    Ct_ground = single_model_func(np.arange(Nt), [A0_eff, m0_eff])
-    Ct_excited = Ct_mean - Ct_ground
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        m1_eff = effective_mass(Ct_excited)[fit_range[0]]
-        A1_eff = effective_amplitude(Ct_excited, m1_eff)[fit_range[0]]
-    message(f"guessed p0 = [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
-    if m1_eff < 1.2 * m0_eff:
-        message("guess for excited state mass too small: p0[2] = abs(p0[2]); p0[3] = 2*p0[1]")
-        A1_eff = abs(A1_eff)
-        m1_eff = 2. * m0_eff
-        message(f"---> [{A0_eff}, {m0_eff},  {A1_eff}, {m1_eff}]")
-    return np.array([A0_eff, m0_eff, A1_eff, m1_eff])
+
+    sigma = np.sqrt(variance)
+    seeds = []
+    for gap in gaps:
+        m1 = m0 + gap
+        if not np.isfinite(m1) or m1 <= m0:
+            raise ValueError(f"Mass gap {gap} does not produce a finite mass above m0")
+        design = np.column_stack((model(t, [1.0, m0]), model(t, [1.0, m1]))) / sigma[:, None] 
+        scale = np.max(np.abs(design), axis=0) # scale columns to avoid treating the smaller excited kernel as zero
+        if not np.isfinite(design).all() or np.any(scale == 0):
+            raise ValueError(f"Nonfinite or vanishing model column for mass gap {gap}")
+        amplitudes, _, rank, _ = np.linalg.lstsq(design / scale, y / sigma, rcond=None)
+        amplitudes = amplitudes / scale
+        if rank < 2 or not np.isfinite(amplitudes).all():
+            raise ValueError(f"Cannot resolve two amplitudes for mass gap {gap}")
+        seeds.append([amplitudes[0], m0, amplitudes[1], m1])
+    return np.asarray(seeds)
 
 
 def _try_correlated_fit(db, tag, t, cov_t, p0, make_chi2, config, label, slice_data=True):
@@ -305,9 +298,9 @@ def _try_correlated_fit(db, tag, t, cov_t, p0, make_chi2, config, label, slice_d
         return None, None
 
 
-def _fit_one_excited_range(db, binned_corr_tag, t, p0_input, prev_excited_mean, fit_model, Nt, var, cov_binned, cov_unbinned, model_func, bc, folded, binsize, config, silent):
+def _fit_one_excited_range(db, binned_corr_tag, t, m0, mass_gaps, fit_model, Nt, var, cov_binned, cov_unbinned, model_func, bc, folded, config, silent):
     """One candidate range of the excited-fit loop (mean fits only). Returns
-    ``None`` on convergence error, otherwise ``(t_plateau, excited_spec,
+    ``None`` if all seeds fail to converge, otherwise ``(t_plateau, excited_spec,
     binned_corr_spec, unbinned_corr_spec, best_parameter, seed)`` where ``seed``
     is the unsorted mean-fit parameter for the deferred jackknife fits."""
     message(f"Excited fit range: [[{t[0]},{t[-1]}]]", silent)
@@ -315,20 +308,36 @@ def _fit_one_excited_range(db, binned_corr_tag, t, p0_input, prev_excited_mean, 
     def make_chi2(W):
         return _make_chi2(fit_model, W, Nt)
     chi2_func = make_chi2(np.diag(1.0 / var[t]))
-    p0_guess = get_p0_guess(db, binned_corr_tag, fit_model, t) if p0_input is None else p0_input
-    had_nan = np.isnan(p0_guess).any()
-    p0_tmp = _resolve_initial_p0(p0_guess, prev_excited_mean)
-    if had_nan:
-        message(f"p0 guess contains NaN, use fit result from previous fit range if available, else use available params to estimate NaNs or default to 1: {p0_tmp}")
-    try:
-        message(f"p0 for fit: {p0_tmp}")
-        seed, misc = fit_mean(db, t, binned_corr_tag, p0_tmp, chi2_func, config)
-        misc["fit_model"] = fit_model
-    except ConvergenceError as ce:
-        message(f"{ce} -> jump to next fit range")
-        message(_log_divider(), silent)
-        message(_log_divider(), silent)
+    y = db.database[binned_corr_tag].central_value[t]
+    p0s = get_p0_guesses(t, y, var[t], fit_model, m0, mass_gaps, Nt=Nt)
+    attempts = []
+    best = None
+    for p0 in p0s:
+        attempt = {"p0": p0.copy()}
+        message(f"p0 for fit: {p0}", silent)
+        try:
+            parameters, diagnostics = fit_mean(
+                db, t, binned_corr_tag, p0, chi2_func, config,
+            )
+        except ConvergenceError as exc:
+            attempt["error"] = str(exc)
+            message(str(exc), silent)
+        else:
+            attempt.update(parameters=parameters, diagnostics=diagnostics)
+            if best is None or diagnostics["chi2"] < best[1]["chi2"]:
+                best = parameters, diagnostics
+        attempts.append(attempt)
+
+    if best is None:
+        message("All initial guesses failed for this window", silent)
         return None
+
+    seed, diagnostics = best
+    misc = {
+        **diagnostics,
+        "fit_model": fit_model,
+        "initial_guess_attempts": attempts,
+    }
     best_parameter = _sort_two_state_params(seed)
     print_fit_results(best_parameter, None, misc, silent)
 
@@ -336,14 +345,14 @@ def _fit_one_excited_range(db, binned_corr_tag, t, p0_input, prev_excited_mean, 
     # drives the plateau selection)
     message(_log_divider("correlated mean fit"), silent)
     message("Try correlated fit with binned covariance matrix")
-    binned_best, binned_misc = _try_correlated_fit(db, binned_corr_tag, t, cov_binned[t][:, t], p0_tmp, make_chi2, config, "binned")
+    binned_best, binned_misc = _try_correlated_fit(db, binned_corr_tag, t, cov_binned[t][:, t], seed, make_chi2, config, "binned")
     if binned_best is not None:
         binned_misc["fit_model"] = fit_model
         binned_best = _sort_two_state_params(binned_best)
         print_fit_results(binned_best, None, binned_misc, silent)
 
     message("Try correlated fit with unbinned covariance matrix.")
-    unbinned_best, unbinned_misc = _try_correlated_fit(db, binned_corr_tag, t, cov_unbinned[t][:, t], p0_tmp, make_chi2, config, "unbinned")
+    unbinned_best, unbinned_misc = _try_correlated_fit(db, binned_corr_tag, t, cov_unbinned[t][:, t], seed, make_chi2, config, "unbinned")
     if unbinned_best is not None:
         unbinned_misc["fit_model"] = fit_model
         unbinned_best = _sort_two_state_params(unbinned_best)
@@ -379,20 +388,31 @@ class PlateauTooShortError(ValueError):
     """No candidate fit range reached ``min_plateau_len`` slices."""
 
 
-def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_model, config: FitConfig, silent=False, Nt=None, min_plateau_len=5, folded=False):
+def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, fit_model, config: FitConfig, silent=False, Nt=None, min_plateau_len=5, folded=False, *, m0=None, mass_gaps=None):
     """Two-state fits across candidate ranges; pick the one whose plateau (where
     excited contributions drop below sigma/4) is shortest but at least
     ``min_plateau_len`` long. Returns ``(plateau_fit_range, last_best_parameter)``;
-    raises ``PlateauTooShortError`` if no candidate qualifies."""
+    raises ``PlateauTooShortError`` if no candidate qualifies.
+
+    Mass seeds are shared across windows, in lattice units. By default, ``m0``
+    is the NaN-ignoring mean effective mass over ``[n//4:n//4+n//8]`` of the
+    stored correlator (length ``n``), and ``mass_gaps`` is ``m0 * [0.25, 0.5, 1]``.
+    Both can be overridden. Each window generates its own amplitude guesses
+    and selects its lowest-chi-square converged central fit independently.
+    """
     message(f"Correlator: {tag}")
-    if p0 is None:
-        message("P0 is inferred for each initial fit range automatically.")
-    else:
-        message(f"P0 = {p0}")
     message(f"Binsize = {binsize}", silent)
     message(f"{fit_model} model = {fit_model_dict[fit_model]}")
     message(_log_divider(), silent)
     binned_corr_tag = _ensure_binned(db, tag, binsize)
+    if m0 is None:
+        y = db.database[binned_corr_tag].central_value
+        n = len(y)
+        meff = meff_exp_forward if fit_model == "double-exp" else meff_cosh
+        m0 = np.nanmean(meff(y)[n // 4:n // 4 + n // 8])
+    if mass_gaps is None:
+        mass_gaps = m0 * np.array([0.25, 0.5, 1.0])
+    message(f"Initial mass seed = {m0}, mass gaps = {mass_gaps}", silent)
     cov = db.jackknife_covariance(binned_corr_tag)
     cov_unbinned = cov if binned_corr_tag == tag else db.jackknife_covariance(tag)
     var = np.diag(cov)
@@ -404,18 +424,15 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
     # Pass 1 — mean fits only. Every candidate range yields a suggested
     # plateau; a candidate qualifies if its plateau has at least
     # min_plateau_len slices and is no longer than the first (widest) fit
-    # range. Among qualifiers the shortest plateau wins, later ranges winning
-    # ties — tracked sequentially via ``fit_range``, whose current winner also
-    # seeds the p0 of subsequent ranges (``prev_excited_mean``).
+    # range. Pass 2 tries qualifiers by shortest plateau, later ranges winning
+    # ties. Initial guesses do not depend on results from other windows.
     candidates = []
     suggested_fit_ranges = []
-    fit_range = excited_fit_ranges[0]
-    prev_excited_mean = None
     last_best_parameter = None
     for idx, t in enumerate(excited_fit_ranges):
         result = _fit_one_excited_range(
-            db, binned_corr_tag, t, p0, prev_excited_mean,
-            fit_model, Nt, var, cov, cov_unbinned, model_func, bc, folded, binsize, config, silent,
+            db, binned_corr_tag, t, m0, mass_gaps,
+            fit_model, Nt, var, cov, cov_unbinned, model_func, bc, folded, config, silent,
         )
         if result is None:
             suggested_fit_ranges.append(None)
@@ -432,16 +449,11 @@ def excited_contributions_fit(db, tag, binsize, excited_fit_ranges, p0, fit_mode
         message(f"Determined fit range [[{t_plateau[0]},{t_plateau[-1]}]]", silent)
         if len(t_plateau) <= len(excited_fit_ranges[0]):
             candidates.append(_Candidate(idx, t, t_plateau, seed, excited_cand, binned_cand, unbinned_cand))
-            if len(t_plateau) <= len(fit_range):
-                message("---> Stored fit range is updated", silent)
-                fit_range = t_plateau
-                prev_excited_mean = excited_cand.central_value
         message(_log_divider(), silent)
         message(_log_divider(), silent)
 
     # Pass 2 — deferred jackknife fits: shortest plateau first, later range
-    # wins ties -- same winner as the sequential update rule above, including
-    # when a candidate's resample fits fail and the next-best range takes over.
+    # wins ties. If a candidate's resample fits fail, the next-best range takes over.
     # Only the winner's entries are committed to the db.
     candidates.sort(key=lambda c: (len(c.t_plateau), -c.idx))
     winner = None

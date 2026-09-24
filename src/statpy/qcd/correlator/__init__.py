@@ -14,7 +14,7 @@ from statpy.qcd.correlator.fits import (
     fit_bss,
     fit_jks,
     fit_mean,
-    get_p0_guess,
+    get_p0_guesses,
     ground_state_fit,
 )
 from statpy.qcd.correlator.models import (
