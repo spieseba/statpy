@@ -17,54 +17,54 @@ def _validate_time_parity(time_parity):
     return int(time_parity)
 
 
-# ---------------------------------------------------------------------------
-# periodic boundary conditions
-# ---------------------------------------------------------------------------
+def effective_mass(Ct, *, estimator, Nt=None, axis=0):
+    """Return effective masses along the time axis.
 
-def meff_cosh(Ct, ax=0):
-    with np.errstate(invalid='ignore'):
-        return np.arccosh(0.5 * (np.roll(Ct, -1, axis=ax) + np.roll(Ct, 1, axis=ax)) / Ct)
-
-# spectrum paper
-def meff_cosh_midpoint(Ct, a=1):
-    Nt = len(Ct)
-    with np.errstate(invalid='ignore'):
-        return np.abs(np.arccosh(np.roll(Ct,a)/Ct[Nt//2]) - np.arccosh(np.roll(Ct,-a)/Ct[Nt//2])) / (2. * a)
-
-def meff_sinh(Ct):
-    Nt = len(Ct)
-    eff_m = np.arcsinh(Ct/Ct[Nt-1])
-    return np.abs(np.roll(eff_m, -1) - eff_m)
-
-# ---------------------------------------------------------------------------
-# open boundary conditions
-# ---------------------------------------------------------------------------
-
-def meff_exp_forward(Ct, ax=0):
+    log: forward log ratio; log_symmetric: centered log ratio.
+    arccosh: three-point recurrence, valid for cosh and sinh.
+    cosh_midpoint: abs(acosh(C(t-1)/Cmid) - acosh(C(t+1)/Cmid))/2.
+    Nt defaults to the time-axis length; midpoint data must be present.
+    Times start at zero; neighbor formulas wrap endpoints as with np.roll.
+    """
+    Ct = np.asarray(Ct)
+    if estimator == "cosh_midpoint":
+        Nt = Ct.shape[axis] if Nt is None else Nt
+        midpoint = np.take(Ct, [Nt // 2], axis=axis)
+        with np.errstate(invalid='ignore'):
+            return np.abs(
+                np.arccosh(np.roll(Ct, 1, axis=axis) / midpoint)
+                - np.arccosh(np.roll(Ct, -1, axis=axis) / midpoint)
+            ) / 2.
     with np.errstate(divide='ignore', invalid='ignore'):
-        return np.log(Ct / np.roll(Ct, -1, axis=ax))
+        if estimator == "log":
+            return np.log(Ct / np.roll(Ct, -1, axis=axis))
+        if estimator == "log_symmetric":
+            return np.log(np.roll(Ct, 1, axis=axis) / np.roll(Ct, -1, axis=axis)) / 2
+        if estimator == "arccosh":
+            return np.arccosh(0.5 * (np.roll(Ct, -1, axis=axis) + np.roll(Ct, 1, axis=axis)) / Ct)
+    raise ValueError(f"Unknown effective-mass estimator: {estimator}")
 
-# spectrum paper
-def meff_exp_symmetric(Ct, ax=0):
-    with np.errstate(divide='ignore', invalid='ignore'):
-        return np.log(np.roll(Ct, 1, axis=ax) / np.roll(Ct, -1, axis=ax)) / 2
 
-# cosh
-def Aeff_cosh(Ct, m):
-    Nt = len(Ct)
-    t = np.arange(Nt)
-    return Ct / (np.exp(-m*t) + np.exp(-m*(Nt-t)))
+def effective_amplitude(Ct, mass, *, kernel, Nt=None, axis=0):
+    """Divide Ct by a single-state kernel, preserving its sign.
 
-# sinh
-def Aeff_sinh(Ct, m):
-    Nt = len(Ct)
-    t = np.arange(Nt)
-    return Ct / (np.exp(-m*t) - np.exp(-m*(Nt-t)))
-
-# exp
-def Aeff_exp(Ct, m):
-    Nt = len(Ct)
-    return Ct / np.exp(-m*np.arange(Nt))
+    exp: exp(-mass*t); cosh/sinh: add/subtract exp(-mass*(Nt-t)).
+    Nt defaults to the time-axis length; pass the original Nt for folded data.
+    Times start at zero along axis; exponential sums set the normalization.
+    """
+    Ct = np.asarray(Ct)
+    Nt = Ct.shape[axis] if Nt is None else Nt
+    shape = [1] * Ct.ndim
+    shape[axis] = Ct.shape[axis]
+    t = np.arange(Ct.shape[axis]).reshape(shape)
+    forward = np.exp(-mass * t)
+    if kernel == "exp":
+        return Ct / forward
+    if kernel == "cosh":
+        return Ct / (forward + np.exp(-mass * (Nt - t)))
+    if kernel == "sinh":
+        return Ct / (forward - np.exp(-mass * (Nt - t)))
+    raise ValueError(f"Unknown effective-amplitude kernel: {kernel}")
 
 
 def meson_fold_correlator(arr, time_parity=1):

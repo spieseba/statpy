@@ -18,7 +18,7 @@ from statpy.qcd.correlator._masking import (
 from statpy.qcd.correlator.primitives import (
     _validate_time_parity,
     binned_tag,
-    meff_exp_symmetric,
+    effective_mass,
     meson_fold_correlator,
 )
 from statpy.statistics import core as statistics
@@ -90,7 +90,7 @@ def _boundary_eff_mass(Ct, tsrc):
     average reads as "no contribution here".
     """
     return np.nan_to_num(
-        _flip_sign_boundary(meff_exp_symmetric(Ct), tsrc), nan=0.0, posinf=0.0, neginf=0.0
+        _flip_sign_boundary(effective_mass(Ct, estimator="log_symmetric"), tsrc), nan=0.0, posinf=0.0, neginf=0.0
     )
 
 

@@ -28,8 +28,7 @@ from statpy.qcd.correlator.models import (
 )
 from statpy.qcd.correlator.primitives import (
     binned_tag,
-    meff_cosh,
-    meff_exp_forward,
+    effective_mass,
 )
 from statpy.statistics import bootstrap, jackknife
 
@@ -382,8 +381,8 @@ def excited_contribution_fits(db, tag, binsize, excited_fit_ranges, fit_model, c
     if m0 is None:
         y = db.database[binned_corr_tag].central_value
         n = len(y)
-        meff = meff_exp_forward if fit_model == "double-exp" else meff_cosh
-        m0 = np.nanmean(meff(y)[n // 4:n // 4 + n // 8])
+        estimator = "log" if fit_model == "double-exp" else "arccosh"
+        m0 = np.nanmean(effective_mass(y, estimator=estimator)[n // 4:n // 4 + n // 8])
     if mass_gaps is None:
         mass_gaps = m0 * np.array([0.25, 0.5, 1.0])
     message(f"Initial mass seed = {m0}, mass gaps = {mass_gaps}", silent)

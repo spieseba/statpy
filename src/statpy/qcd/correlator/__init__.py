@@ -38,15 +38,9 @@ from statpy.qcd.correlator.models import (
     sinh_model,
 )
 from statpy.qcd.correlator.primitives import (
-    Aeff_cosh,
-    Aeff_exp,
-    Aeff_sinh,
     binned_tag,
+    effective_amplitude,
+    effective_mass,
     get_tmax_signal_to_noise,
-    meff_cosh,
-    meff_cosh_midpoint,
-    meff_exp_forward,
-    meff_exp_symmetric,
-    meff_sinh,
     meson_fold_correlator,
 )
