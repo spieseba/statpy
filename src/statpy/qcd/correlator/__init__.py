@@ -6,11 +6,11 @@ from statpy.qcd.correlator.averaging import (
     pbc_correlator_average,
 )
 from statpy.qcd.correlator.fits import (
+    ExcitedFitResult,
     FitConfig,
     FitTags,
-    PlateauTooShortError,
     correlator_combined_fit,
-    excited_contributions_fit,
+    excited_contribution_fits,
     fit_bss,
     fit_jks,
     fit_mean,
