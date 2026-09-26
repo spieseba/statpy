@@ -2,7 +2,7 @@
 import numpy as np
 from numba import njit
 
-fit_model_dict = {
+FIT_MODEL_FORMULAS = {
     "cosh": "A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1]",
     "sinh": "A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]",
     "exp": "A * exp(-mt); A = p[0]; m = p[1]",
@@ -17,7 +17,7 @@ fit_model_dict = {
 # ---------------------------------------------------------------------------
 
 # C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1]
-class cosh_model:
+class CoshModel:
     def __init__(self, Nt):
         self.Nt = Nt
     def __call__(self, t, p):
@@ -36,7 +36,7 @@ def cosh_chi2(t, p, y, W, Nt):
 # ---------------------------------------------------------------------------
 
 # C(t) = A0 * [exp(-m0 t) + exp(-m0(Nt-t))] + A1 * [exp(-m1 t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
-class double_cosh_model:
+class DoubleCoshModel:
     def __init__(self, Nt):
         self.Nt = Nt
     def __call__(self, t, p):
@@ -56,7 +56,7 @@ def double_cosh_chi2(t, p, y, W, Nt):
 # ---------------------------------------------------------------------------
 
 # C(t) = A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]
-class sinh_model:
+class SinhModel:
     def __init__(self, Nt):
         self.Nt = Nt
     def __call__(self, t, p):
@@ -75,7 +75,7 @@ def sinh_chi2(t, p, y, W, Nt):
 # ---------------------------------------------------------------------------
 
 # C(t) = A0 * [exp(-m0 t) - exp(-m0(Nt-t))] + A1 * [exp(-m1 t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
-class double_sinh_model:
+class DoubleSinhModel:
     def __init__(self, Nt):
         self.Nt = Nt
     def __call__(self, t, p):
@@ -97,7 +97,7 @@ def double_sinh_chi2(t, p, y, W, Nt):
 # ---------------------------------------------------------------------------
 
 # f(t) = A * exp(-mt); A = p[0]; m = p[1]
-class exp_model:
+class ExpModel:
     def __init__(self):
         pass
     def __call__(self, t, p):
@@ -116,7 +116,7 @@ def exp_chi2(t, p, y, W):
 # ---------------------------------------------------------------------------
 
 # C(t) = A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
-class double_exp_model:
+class DoubleExpModel:
     def __init__(self):
         pass
     def __call__(self, t, p):
@@ -134,13 +134,13 @@ def double_exp_chi2(t, p, y, W):
 # const model to fit effective mass plateau
 # ---------------------------------------------------------------------------
 
-class const_model:
-        def __init__(self):
-            pass
-        def __call__(self, t, p):
-            return p[0]
-        def parameter_gradient(self, t, p):
-            return np.array([np.ones_like(t)])
+class ConstModel:
+    def __init__(self):
+        pass
+    def __call__(self, t, p):
+        return p[0]
+    def parameter_gradient(self, t, p):
+        return np.array([np.ones_like(t)])
 
 @njit(cache=True)
 def const_chi2(t, p, y, W):
@@ -151,8 +151,9 @@ def const_chi2(t, p, y, W):
 # const plus exp model to fit effective mass plateau
 # ---------------------------------------------------------------------------
 
-def const_plus_exp(t, p):
-    return p[0] * np.exp(-p[1] * t) + p[2]
+class ConstPlusExpModel:
+    def __call__(self, t, p):
+        return p[0] * np.exp(-p[1] * t) + p[2]
 
 def const_plus_exp_chi2(t, p, y, W):
     with np.errstate(over='ignore', invalid='ignore'):
@@ -166,11 +167,11 @@ def const_plus_exp_chi2(t, p, y, W):
 
 # Every block model is the same kernel  A * [exp(-mt) + s * exp(-m(Nt-t))],
 # so the block structure is per-point data instead of per-model code:
-#   amp_idx[i] selects the amplitude parameter (0 -> p[0], 1 -> p[1]),
-#   sign[i] is the backward-propagator sign s: +1 cosh, -1 sinh,
+#   amplitude_index[i] selects the amplitude parameter (0 -> p[0], 1 -> p[1]),
+#   backward_sign[i] is the backward-propagator sign s: +1 cosh, -1 sinh,
 #           0 exp (open BC: the backward term drops out exactly).
 # Shared mass m = p[2]. ``t``/``y`` are the concatenated blocks.
 @njit(cache=True)
-def combined_corr_chi2(t, p, y, W, Nt, amp_idx, sign):
-    model = p[amp_idx] * (np.exp(-p[2] * t) + sign * np.exp(-p[2] * (Nt - t)))
+def combined_corr_chi2(t, p, y, W, Nt, amplitude_index, backward_sign):
+    model = p[amplitude_index] * (np.exp(-p[2] * t) + backward_sign * np.exp(-p[2] * (Nt - t)))
     return (model - y) @ W @ (model - y)

@@ -4,7 +4,7 @@ import pytest
 
 from statpy.database.core import DB
 from statpy.qcd.correlator import FitTags, ground_state_fit
-from statpy.qcd.correlator.fits import FitConfig, correlator_combined_fit
+from statpy.qcd.correlator.fits import FitConfig, combined_correlator_fit
 
 NT = 32
 N_CFG = 50
@@ -35,7 +35,7 @@ def test_combined_fit_cosh_cosh_tags_parameters_and_misc():
     tags = ("smsm", "smloc")
     fit_models = ("cosh", "cosh")
 
-    fit_tags = correlator_combined_fit(
+    fit_tags = combined_correlator_fit(
         db, tags, "combined", FIT_RANGES, 2, [1.3, 0.75, 0.24], fit_models,
         CONFIG, silent=True,
     )
@@ -53,7 +53,7 @@ def test_combined_fit_cosh_cosh_tags_parameters_and_misc():
         assert entry.misc["fit_model"] == "combined-cosh-cosh"
         assert entry.misc["fit_models"] == fit_models
         assert entry.misc["tags"] == tags
-        for actual, expected_range in zip(entry.misc["t_blocks"], FIT_RANGES):
+        for actual, expected_range in zip(entry.misc["fit_ranges"], FIT_RANGES):
             np.testing.assert_array_equal(actual, expected_range)
     assert not any("afbare" in tag for tag in db.database)
 
@@ -61,7 +61,7 @@ def test_combined_fit_cosh_cosh_tags_parameters_and_misc():
 def test_combined_fit_routes_cosh_sinh_signs():
     db = _synthetic_db(("cosh", "sinh"))
 
-    fit_tags = correlator_combined_fit(
+    fit_tags = combined_correlator_fit(
         db, ("smsm", "smloc"), "combined", FIT_RANGES, 1,
         [1.3, 0.75, 0.24], ("cosh", "sinh"), CONFIG, silent=True,
     )
@@ -80,7 +80,7 @@ def test_fit_references_resolve_resamples(combined, with_bootstrap):
     config = FitConfig(bootstrap_available=with_bootstrap)
     bootstraps = np.random.default_rng(8).integers(N_CFG, size=(20, N_CFG))
     if combined:
-        fits = correlator_combined_fit(
+        fits = combined_correlator_fit(
             db, ("smsm", "smloc"), "joint", FIT_RANGES, 2,
             [1.3, 0.75, 0.24], ("cosh", "cosh"), config,
             silent=True, bootstraps=bootstraps,
