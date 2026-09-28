@@ -4,6 +4,7 @@ All functions take a database handle as first argument and write their result
 back into it. The OBC/fold routines are valid for mesonic channels only.
 """
 import re
+import textwrap
 
 import numpy as np
 
@@ -39,8 +40,6 @@ def obc_meson_correlator_average(db, corr_tags, bulk_range, store_as, tmax_from_
     Mesons only: time_parity is +1 (even) or -1 (odd); booleans are rejected.
     """
     time_parity = _validate_time_parity(time_parity)
-    message(f"Perform obc tsrc average over all srcs in bulk_range = [[{bulk_range[0]},{bulk_range[-1]}]] with correlator tags: {corr_tags}")
-    message(f"tmax_from_tsrc: {tmax_from_tsrc}")
     # Get src positions in bulk
     tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in corr_tags]
     assert len(corr_tags) == len(tsrcs)
@@ -50,7 +49,17 @@ def obc_meson_correlator_average(db, corr_tags, bulk_range, store_as, tmax_from_
         if (tsrc >= bulk_range[0]) and (tsrc <= bulk_range[-1]):
             corr_tags_in_bulk.append(corr_tag)
             tsrcs_in_bulk.append(tsrc)
-    message(f"tsrcs in bulk: {tsrcs_in_bulk}")
+    message(
+        "OBC source averaging\n"
+        f"  {'Bulk range':<14} [{bulk_range[0]}, {bulk_range[-1]}]\n"
+        f"  {'tmax_from_tsrc':<14} {tmax_from_tsrc}\n"
+        + textwrap.fill(
+            ", ".join(str(t) for t in tsrcs_in_bulk), width=72,
+            initial_indent=f"  {'tsrcs in bulk':<14} ", subsequent_indent=" " * 17,
+        )
+        + "\n  Input tags\n"
+        + "\n".join(f"    {tag}" for tag in corr_tags)
+    )
     tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, bulk_range)
     if tmax_from_tsrc is not None:
         tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1)
