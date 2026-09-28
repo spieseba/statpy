@@ -18,49 +18,47 @@ def _validate_time_parity(time_parity):
 
 
 @np.errstate(divide='ignore', invalid='ignore')
-def effective_mass(corr, *, estimator, Nt=None, axis=0):
-    """Return effective masses along the time axis.
+def effective_mass(corr, *, estimator, Nt=None):
+    """Return effective masses of a 1D correlator.
 
     estimator selects the formula:
       "log": forward log ratio, log(C(t)/C(t+1)).
       "log_symmetric": centered log ratio, log(C(t-1)/C(t+1))/2.
       "arccosh": three-point recurrence, valid for cosh and sinh.
       "cosh_midpoint": abs(acosh(C(t-1)/Cmid) - acosh(C(t+1)/Cmid))/2.
-    Nt (cosh_midpoint only) defaults to the time-axis length; midpoint data must be present.
+    Nt (cosh_midpoint only) defaults to the correlator length; midpoint data must be present.
     Times start at zero; neighbor formulas wrap endpoints as with np.roll.
     Undefined points (e.g. arccosh argument < 1) return NaN or inf without warning.
     """
     corr = np.asarray(corr)
     if estimator == "cosh_midpoint":
-        Nt = corr.shape[axis] if Nt is None else Nt
-        midpoint = np.take(corr, [Nt // 2], axis=axis)
+        Nt = len(corr) if Nt is None else Nt
+        midpoint = corr[Nt // 2]
         return np.abs(
-            np.arccosh(np.roll(corr, 1, axis=axis) / midpoint)
-            - np.arccosh(np.roll(corr, -1, axis=axis) / midpoint)
+            np.arccosh(np.roll(corr, 1) / midpoint)
+            - np.arccosh(np.roll(corr, -1) / midpoint)
         ) / 2
     if estimator == "log":
-        return np.log(corr / np.roll(corr, -1, axis=axis))
+        return np.log(corr / np.roll(corr, -1))
     if estimator == "log_symmetric":
-        return np.log(np.roll(corr, 1, axis=axis) / np.roll(corr, -1, axis=axis)) / 2
+        return np.log(np.roll(corr, 1) / np.roll(corr, -1)) / 2
     if estimator == "arccosh":
-        return np.arccosh(0.5 * (np.roll(corr, -1, axis=axis) + np.roll(corr, 1, axis=axis)) / corr)
+        return np.arccosh(0.5 * (np.roll(corr, -1) + np.roll(corr, 1)) / corr)
     raise ValueError(f"Unknown effective-mass estimator: {estimator}")
 
 
-def effective_amplitude(corr, mass, *, kernel, Nt=None, axis=0):
-    """Divide corr by a single-state kernel, preserving its sign.
+def effective_amplitude(corr, mass, *, kernel, Nt=None):
+    """Divide a 1D correlator by a single-state kernel, preserving its sign.
 
     kernel selects the time dependence:
       "exp": exp(-mass*t).
       "cosh"/"sinh": exp(-mass*t) plus/minus exp(-mass*(Nt-t)).
-    Nt defaults to the time-axis length; pass the original Nt for folded data.
-    Times start at zero along axis; exponential sums set the normalization.
+    Nt defaults to the correlator length; pass the original Nt for folded data.
+    Times start at zero; exponential sums set the normalization.
     """
     corr = np.asarray(corr)
-    Nt = corr.shape[axis] if Nt is None else Nt
-    shape = [1] * corr.ndim
-    shape[axis] = corr.shape[axis]
-    t = np.arange(corr.shape[axis]).reshape(shape)
+    Nt = len(corr) if Nt is None else Nt
+    t = np.arange(len(corr))
     forward = np.exp(-mass * t)
     if kernel == "exp":
         return corr / forward
