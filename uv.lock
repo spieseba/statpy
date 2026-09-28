@@ -371,7 +371,7 @@ requires-dist = [
     { name = "iminuit" },
     { name = "numba" },
     { name = "numpy", specifier = "<2.4" },
-    { name = "scipy" },
+    { name = "scipy", specifier = ">=1.15" },
 ]
 
 [package.metadata.requires-dev]
