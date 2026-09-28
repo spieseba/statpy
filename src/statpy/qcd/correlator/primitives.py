@@ -127,17 +127,34 @@ def meson_fold_correlator(corr, time_parity=1):
     return np.mean([first_half, second_half], axis=0)
 
 
-def get_tmax_signal_to_noise(mean, var, min_signal_to_noise=100, tmin=15, debug=False):
+def get_tmax_signal_to_noise(mean, var, min_signal_to_noise, tmin=None, debug=False):
+    """Return the first failing slice (exclusive endpoint), or the data length.
+
+    A failure is S/N below the required threshold or NaN. Search all slices
+    unless tmin is supplied, in which case only t > tmin is considered.
+    """
     signal_to_noise = mean / var**.5
-    tmax = next((i for i, x in enumerate(signal_to_noise) if (i > tmin) and ((x < min_signal_to_noise) or np.isnan(x))), -1)
-    if tmax == -1:
-        tmax = len(mean)
-        message(f"--- Signal to noise ratio never smaller than {min_signal_to_noise} -> return tmax = len(mean) = {tmax}")
+    times = np.arange(len(signal_to_noise))
+    invalid = (signal_to_noise < min_signal_to_noise) | np.isnan(signal_to_noise)
+    if tmin is not None:
+        invalid &= times > tmin
+    candidates = times[invalid]
+
+    tmax = int(candidates[0]) if candidates.size else len(mean)
+    if not candidates.size:
+        reason = "End of data; no failing slice in search region"
     else:
-        message(f"--- Signal to noise ratio smaller than {min_signal_to_noise} for tmax = {tmax} -> return tmax = {tmax}")
+        reason = "First NaN" if np.isnan(signal_to_noise[tmax]) else "First value below threshold"
+    search_region = "all time slices" if tmin is None else f"t > {tmin}"
+    message(
+        "Signal-to-noise cutoff\n"
+        f"  {'Threshold':<14} {min_signal_to_noise}\n"
+        f"  {'Search region':<14} {search_region}\n"
+        f"  {'tmax':<14} {tmax} (exclusive)\n"
+        f"  {'Reason':<14} {reason}"
+    )
     if debug:
-        message(f"--- Signal to noise ratios: {signal_to_noise}")
-        message(f"--- len(stn) = {len(signal_to_noise)}")
+        message(f"Signal-to-noise values ({len(signal_to_noise)} slices):\n{signal_to_noise}")
     return tmax
 
 
