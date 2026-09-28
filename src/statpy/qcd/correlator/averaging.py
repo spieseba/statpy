@@ -111,9 +111,13 @@ def obc_meson_boundary_average(db, corr_tags, tmin_excited, binsize, tmax_from_t
     time_parity is +1 (even) or -1 (odd); booleans are rejected.
     """
     time_parity = _validate_time_parity(time_parity)
-    message(f"Perform boundary average over all tsrcs with correlator tags: {corr_tags}")
-    message(f"Excited state contributions expected to be removed at t = {tmin_excited}")
-    message(f"tmax_from_tsrc = {tmax_from_tsrc}")
+    message(
+        "OBC boundary averaging\n"
+        f"  {'tmin_excited':<14} {tmin_excited} (excited-state cutoff)\n"
+        f"  {'tmax_from_tsrc':<14} {tmax_from_tsrc}\n"
+        "  Input tags\n"
+        + "\n".join(f"    {tag}" for tag in corr_tags)
+    )
     tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in corr_tags]
     assert len(corr_tags) == len(tsrcs)
 
