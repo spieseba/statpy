@@ -7,6 +7,7 @@ describing fit method + parameters. (Source averaging / folding lives in
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.linalg import cho_factor, cho_solve
 
 from statpy.fitting.core import ConvergenceError, Fitter, get_pvalue, print_fit_results
 from statpy.log import message
@@ -267,26 +268,42 @@ def get_p0_guesses(t, y, var_fit_range, fit_model, m0, mass_gaps, *, Nt=None):
     return np.asarray(guesses)
 
 
-def _try_correlated_fit(db, tag, fit_range, cov_fit_range, p0, make_chi2, config, label, slice_data=True):
+def _inverse_covariance(cov, n_samples):
+    """Return ``(inverse, None)``, or ``(None, reason)`` if ``cov`` is not invertible."""
+    if len(cov) >= n_samples:
+        return None, f"singular: {len(cov)} points from {n_samples} samples"
+    sigma = np.sqrt(np.diag(cov))
+    if not np.all(np.isfinite(sigma) & (sigma > 0)):
+        return None, "not positive definite: non-positive or non-finite variance"
+    scale = np.outer(sigma, sigma)
+    try:
+        factor = cho_factor(cov / scale, lower=True)
+    except np.linalg.LinAlgError:
+        return None, "not positive definite"
+    return cho_solve(factor, np.eye(len(cov))) / scale, None
+
+
+def _try_correlated_fit(db, tag, fit_range, cov_fit_range, n_samples, p0, make_chi2, config, label, slice_data=True):
     """Correlated mean fit on already-sliced ``cov_fit_range``; ``make_chi2`` maps the
     inverted covariance to a chi^2 function. Returns ``(best_parameter, misc)``,
     or ``(None, None)`` if ``cov_fit_range`` is not positive definite or the fit does
     not converge. Post-processing (misc fields, sorting, persisting) is the
     caller's job."""
     message(f"Check positive definiteness of {label} covariance matrix for fit range [[{fit_range[0]},{fit_range[-1]}]].")
-    if not np.all(np.linalg.eigvals(cov_fit_range) > 0):
-        message(f"--> {label} covariance matrix not positive definite.")
+    inverse, reason = _inverse_covariance(cov_fit_range, n_samples)
+    if inverse is None:
+        message(f"--> {label} covariance matrix {reason}.")
         return None, None
     message(f"--> {label} covariance matrix positive definite. Try correlated fit.")
     try:
-        chi2 = make_chi2(np.linalg.inv(cov_fit_range))
+        chi2 = make_chi2(inverse)
         return fit_mean(db, fit_range, tag, p0, chi2, config, slice_data=slice_data)
     except ConvergenceError as ce:
         message(f"{ce} for correlated mean fit with {label} covariance matrix")
         return None, None
 
 
-def _fit_one_excited_range(db, *, binned_corr_tag, fit_range, m0, mass_gaps, fit_model, Nt, var, cov_binned, cov_unbinned, model_func, boundary_condition, folded, config, silent):
+def _fit_one_excited_range(db, *, binned_corr_tag, fit_range, m0, mass_gaps, fit_model, Nt, var, cov_binned, cov_unbinned, n_binned, n_unbinned, model_func, boundary_condition, folded, config, silent):
     """Fit one window's mean and jackknives, retaining convergence failures."""
     message(f"Excited fit range: [[{fit_range[0]},{fit_range[-1]}]]", silent)
     message(_log_divider("uncorrelated fit"), silent)
@@ -330,7 +347,7 @@ def _fit_one_excited_range(db, *, binned_corr_tag, fit_range, m0, mass_gaps, fit
     # determines the proposed ground-state range)
     message(_log_divider("correlated mean fit"), silent)
     message("Try correlated fit with binned covariance matrix")
-    binned_best, binned_misc = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_binned[fit_range][:, fit_range], best_parameter, make_chi2, config, "binned")
+    binned_best, binned_misc = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_binned[fit_range][:, fit_range], n_binned, best_parameter, make_chi2, config, "binned")
     if binned_best is not None:
         binned_misc["fit_model"] = fit_model
         binned_best = _sort_two_state_params(binned_best)
@@ -338,7 +355,7 @@ def _fit_one_excited_range(db, *, binned_corr_tag, fit_range, m0, mass_gaps, fit
     result.binned_correlated = binned_best, binned_misc
 
     message("Try correlated fit with unbinned covariance matrix.")
-    unbinned_best, unbinned_misc = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_unbinned[fit_range][:, fit_range], best_parameter, make_chi2, config, "unbinned")
+    unbinned_best, unbinned_misc = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_unbinned[fit_range][:, fit_range], n_unbinned, best_parameter, make_chi2, config, "unbinned")
     if unbinned_best is not None:
         unbinned_misc["fit_model"] = fit_model
         unbinned_best = _sort_two_state_params(unbinned_best)
@@ -407,6 +424,8 @@ def excited_contribution_fits(db, tag, binsize, excited_fit_ranges, fit_model, c
             var=var,
             cov_binned=cov,
             cov_unbinned=cov_unbinned,
+            n_binned=len(db.database[binned_corr_tag].jks),
+            n_unbinned=len(db.database[tag].jks),
             model_func=model_func,
             boundary_condition=boundary_condition,
             folded=folded,
@@ -457,7 +476,7 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
             for label, cov_tag, note in correlated_fits:
                 message(note)
                 cov_fit_range = db.jackknife_covariance(cov_tag)[fit_range][:, fit_range]
-                best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_fit_range, p0, make_chi2, config, label)
+                best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_fit_range, len(db.database[cov_tag].jks), p0, make_chi2, config, label)
                 if best is not None:
                     misc_corr["fit_model"] = fit_model
                     print_fit_results(best, None, misc_corr, silent)
@@ -567,7 +586,7 @@ def combined_correlator_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit
         if b in [1, binsize]:
             message(_log_divider("correlated mean fit"), silent)
             cov = db.jackknife_covariance(binned_corr_tag)
-            best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range_combined, cov, best_parameter, make_chi2, config, "binned", slice_data=False)
+            best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range_combined, cov, len(db.database[binned_corr_tag].jks), best_parameter, make_chi2, config, "binned", slice_data=False)
             if best is not None:
                 misc_corr.update(combined_misc)
                 print_fit_results(best, None, misc_corr, silent)
