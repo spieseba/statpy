@@ -24,8 +24,8 @@ def _parse_cfg_id(name):
 def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_removed=None, meas_group="messpec", reverse=False, silent=False):
     """Load CLS hdf5 measurements + reweighting factors into a fresh ``DB``.
 
-    Each hdf5 dataset under ``meas_group/data`` whose key contains a
-    pattern in ``correlator_patterns`` becomes an atomic data entry at
+    Each hdf5 dataset under ``meas_group/data`` whose key matches any regex
+    in ``correlator_patterns`` via ``re.search`` becomes an atomic data entry at
     ``{stream_tag}/{run_tag}/{key}`` with cfg labels
     ``{stream_tag}-{cfg_id}`` sorted by ascending cfg id (descending if
     ``reverse=True``). The raw rwf is embedded as ``weights`` — no
@@ -33,6 +33,9 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
 
     ``cfgs_to_be_removed`` filters both streams before insertion; their
     remaining cfg sets must agree exactly.
+
+    Patterns are processed in order; overlapping matches load each dataset
+    once. Escape literal regex metacharacters with ``re.escape``.
     """
     if not os.path.isfile(fn):
         raise FileNotFoundError(f"hdf5 file {fn!r} not found!")
@@ -40,6 +43,8 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         raise FileNotFoundError(f"rwf file {rwf_fn!r} not found!")
     if cfgs_to_be_removed is not None and not isinstance(cfgs_to_be_removed, (list, np.ndarray)):
         raise TypeError("'cfgs_to_be_removed' must be list | np.ndarray | None")
+
+    compiled_patterns = [re.compile(pattern) for pattern in correlator_patterns]
 
     if not silent:
         print()
@@ -51,7 +56,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         f"  {'Run':<14} {run_tag}\n"
         + textwrap.fill(
             str(correlator_patterns), width=72,
-            initial_indent=f"  {'Patterns':<14} ", subsequent_indent=" " * 17,
+            initial_indent=f"  {'Regex patterns':<14} ", subsequent_indent=" " * 17,
             break_long_words=False, break_on_hyphens=False,
         )
         + "\n"
@@ -100,7 +105,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         cfg_labels = np.array([f"{stream_tag}-{int(c)}" for c in common_cfgs])
 
         db = DB()
-        _populate_data(db, f, correlator_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag)
+        _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag)
     return db
 
 
@@ -170,11 +175,12 @@ def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
     return np.sort(rwf_cfgs_filtered)
 
 
-def _populate_data(db, f, correlator_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag):
+def _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag):
     data_keys = list(f["data"].keys())
-    for pattern in correlator_patterns:
+    loaded_keys = set()
+    for pattern in compiled_patterns:
         for key in data_keys:
-            if pattern in key:
+            if key not in loaded_keys and pattern.search(key):
                 f_vals = f["data"].get(key)[:]
                 sample = f_vals[h5_idx]
                 f_tag = f"{stream_tag}/{run_tag}/{key}"
@@ -182,6 +188,7 @@ def _populate_data(db, f, correlator_patterns, h5_idx, cfg_labels, weights, stre
                     tag=f_tag,
                     sample=sample, weights=weights, cfgs=cfg_labels,
                 )
+                loaded_keys.add(key)
 
 
 def decode_v1_ndarray(blob):
