@@ -10,13 +10,9 @@ class ConvergenceError(Exception):
     pass
 
 class Fitter:
-    """
-    fit class using Nelder-Mead provided by scipy or Migrad algorithm provided by iminuit package
+    """Minimize a chi^2 function with Migrad, Simplex (iminuit) or Nelder-Mead (scipy).
 
-        Parameters:
-        -----------
-                chi_squared (function): chi2 squared function of the fit which takes independent variable t, model parameter array p and sample y as input. Returns a number.
-                method (string): minimization method. Can be "Migrad", "Nelder-Mead", or "Simplex". Default is "Migrad".
+    ``minimizer_params`` holds ``tol`` and ``maxiter``.
     """
     def __init__(self, method="Migrad", minimizer_params=None):
         assert method in ["Migrad", "Nelder-Mead", "Simplex"]

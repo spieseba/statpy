@@ -221,16 +221,11 @@ def _select_ground_state_range(fit_range, var_fit_range, best_parameter, model_f
 
 
 def get_p0_guesses(t, y, var_fit_range, fit_model, m0, mass_gaps, *, Nt=None):
-    """Return one [A0, m0, A1, m0 + gap] initial guess per supplied positive mass gap.
+    """Return one ``[A0, m0, A1, m0 + gap]`` guess per mass gap, shape ``(len(mass_gaps), 4)``.
 
-    ``t``, ``y`` and diagonal ``var_fit_range`` contain only the fit-window data.
-    For each fixed mass pair, solve for signed amplitudes by minimizing
-    sum((model - y)**2 / var_fit_range). Gap order is preserved; no nonlinear fit,
-    previous-candidate guess or fallback is used. Periodic models require the
-    full temporal extent ``Nt``, not the length of the fit window.
-
-    Returns an array of shape (len(mass_gaps), 4). Invalid inputs or a mass
-    pair whose amplitudes cannot be resolved numerically raise ValueError.
+    ``t``, ``y`` and ``var_fit_range`` hold the fit-window data. For each mass pair
+    the amplitudes are solved by weighted least squares. Periodic models need the
+    full ``Nt``. Raises ``ValueError`` for invalid inputs or unresolvable amplitudes.
     """
     t, y, var_fit_range, gaps = [np.asarray(x, dtype=float) for x in (t, y, var_fit_range, mass_gaps)]
     if t.ndim != 1 or t.size < 2 or y.shape != t.shape or var_fit_range.shape != t.shape:
@@ -516,16 +511,10 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
 
 def combined_correlator_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit_models,
                             config: FitConfig, Nt=None, silent=False, bootstraps=None):
-    """Joint fit of two concatenated correlator blocks with a shared mass.
+    """Fit two correlators with separate amplitudes and a shared mass, ``p = [A0, A1, m]``.
 
-    Blocks 0 and 1 have independent amplitudes ``p[0]`` and ``p[1]`` and a
-    shared ground-state mass ``p[2]``. ``p0 = [A0, A1, m]``. Each block uses
-    a ``cosh``, ``sinh``, or ``exp`` model; no particular smearing is required.
-    Both fit ranges must lie where excited-state contributions are
-    sufficiently suppressed for these single-state models to apply; this
-    function does not check that assumption. Returns a list of ``FitTags`` in
-    binsize order (1..``binsize``). Bootstrap tags are present only at binsize
-    1 when enabled; correlated mean cross-checks are not included.
+    Each block uses a ``cosh``, ``sinh`` or ``exp`` model. Returns one ``FitTags``
+    per binsize 1..``binsize``; the bootstrap tag is set only at binsize 1.
     """
     if len(tags) != 2 or len(fit_ranges) != 2:
         raise ValueError("tags and fit_ranges must each contain two entries")
