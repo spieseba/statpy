@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+import textwrap
 
 import h5py
 import numpy as np
@@ -40,29 +41,55 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
     if cfgs_to_be_removed is not None and not isinstance(cfgs_to_be_removed, (list, np.ndarray)):
         raise TypeError("'cfgs_to_be_removed' must be list | np.ndarray | None")
 
-    message("---------------------------------", silent)
-    message(f"Load CLS data from {fn}", silent)
-    message(f"Load rw factors from: {rwf_fn}", silent)
-    message(f" -- correlator patterns: {correlator_patterns}", silent)
-    message(f" -- ensemble tag = {stream_tag}", silent)
-    message(f" -- run tag: {run_tag}", silent)
-    message(f" -- cfgs to be removed: {cfgs_to_be_removed}", silent)
+    if not silent:
+        print()
+    message(
+        f"Load CLS data — {stream_tag} / {run_tag}\n"
+        f"  {'HDF5':<14} {fn}\n"
+        f"  {'Reweighting':<14} {rwf_fn}\n"
+        f"  {'Stream':<14} {stream_tag}\n"
+        f"  {'Run':<14} {run_tag}\n"
+        + textwrap.fill(
+            str(correlator_patterns), width=72,
+            initial_indent=f"  {'Patterns':<14} ", subsequent_indent=" " * 17,
+            break_long_words=False, break_on_hyphens=False,
+        )
+        + "\n"
+        + textwrap.fill(
+            str(cfgs_to_be_removed), width=72,
+            initial_indent=f"  {'Excluded cfgs':<14} ", subsequent_indent=" " * 17,
+            break_long_words=False, break_on_hyphens=False,
+        ),
+        silent,
+    )
     with h5py.File(fn, "r") as h5:
         f = h5[meas_group]
         h5_cfgs = np.array([_parse_cfg_id(cfg.decode("utf-8")) for cfg in f["configlist"]])
         h5_cfgs_filtered = h5_cfgs[~np.isin(h5_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else h5_cfgs
         _log_h5_git(f, silent)
-        message(f"Number of cfgs in hdf5 file: {len(h5_cfgs)} | Number of filtered configs in hdf5 file: {len(h5_cfgs_filtered)}", silent)
+        message(
+            "  HDF5 configurations\n"
+            f"    {'Total':<16}  {len(h5_cfgs)}\n"
+            f"    {'After filter':<16}  {len(h5_cfgs_filtered)}",
+            silent,
+            continuation=True,
+        )
 
         _log_rwf_git(rwf_fn, silent)
         rwf_cfgs, rwf_values = _load_rwf_dispatch(rwf_fn)
         rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else rwf_cfgs
-        message(f"Number of cfgs in rwf file: {rwf_cfgs.shape[0]} | Number of filtered configs in rwf file : {rwf_cfgs_filtered.shape[0]}", silent)
+        message(
+            "  Reweighting configurations\n"
+            f"    {'Total':<16}  {rwf_cfgs.shape[0]}\n"
+            f"    {'After filter':<16}  {rwf_cfgs_filtered.shape[0]}",
+            silent,
+            continuation=True,
+        )
 
         common_cfgs = _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag)
         if reverse:
             common_cfgs = common_cfgs[::-1]
-        message(f"Number of filtered configs in hdf5 file and rwf file: {common_cfgs.shape[0]}", silent)
+        message(f"  Matched configurations: {common_cfgs.shape[0]}", silent, continuation=True)
 
         rwf_idx = _argsort_to(rwf_cfgs, common_cfgs)
         h5_idx = _argsort_to(h5_cfgs, common_cfgs)
@@ -74,7 +101,6 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
 
         db = DB()
         _populate_data(db, f, correlator_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag)
-    message("---------------------------------", silent)
     return db
 
 
@@ -87,23 +113,23 @@ def _argsort_to(src_cfgs, target_cfgs):
 def _log_h5_git(f, silent):
     git_dict = f["description"].get("git")
     if git_dict is None:
-        message("Git info not found for hdf5 file!", silent)
+        message("\n  HDF5 Git metadata: unavailable", silent, continuation=True)
         return
-    message("hdf5 git info:", silent)
-    for key, val in git_dict.items():
-        message(f"--- {key}: {val[()].decode()}", silent)
+    message("\n  HDF5 Git metadata\n" + "\n".join(
+        f"    {key:<16}  {val[()].decode()}" for key, val in git_dict.items()
+    ), silent, continuation=True)
 
 
 def _log_rwf_git(rwf_fn, silent):
     rwf_fn_git = rwf_fn + ".git"
     if not os.path.isfile(rwf_fn_git):
-        message("Git info not found for rwf file!", silent)
+        message("\n  Reweighting Git metadata: unavailable", silent, continuation=True)
         return
-    message("rwf git info:", silent)
     with open(rwf_fn_git) as rwf_f:
         rwf_info_dict = json.load(rwf_f)
-    for key, val in rwf_info_dict.items():
-        message(f"--- {key}: {val}", silent)
+    message("\n  Reweighting Git metadata\n" + "\n".join(
+        f"    {key:<16}  {val}" for key, val in rwf_info_dict.items()
+    ), silent, continuation=True)
 
 
 def _load_rwf_dispatch(rwf_fn):
