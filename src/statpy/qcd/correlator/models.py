@@ -3,12 +3,12 @@ import numpy as np
 from numba import njit
 
 FIT_MODEL_FORMULAS = {
-    "cosh": "A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1]",
-    "sinh": "A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]",
-    "exp": "A * exp(-mt); A = p[0]; m = p[1]",
-    "double-cosh": "A0 * [exp(-m0t) + exp(-m0(Nt-t))] + A1 * [exp(-m1t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]",
-    "double-sinh": "A0 * [exp(-m0t) - exp(-m0(Nt-t))] + A1 * [exp(-m1t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]",
-    "double-exp": "A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]",
+    "cosh": "A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0], m = p[1]",
+    "sinh": "A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0], m = p[1]",
+    "exp": "A * exp(-mt); A = p[0], m = p[1]",
+    "double-cosh": "A0 * [exp(-m0t) + exp(-m0(Nt-t))] + A1 * [exp(-m1t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2], m1 = p[3]",
+    "double-sinh": "A0 * [exp(-m0t) - exp(-m0(Nt-t))] + A1 * [exp(-m1t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2], m1 = p[3]",
+    "double-exp": "A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2], m1 = p[3]",
 }
 
 
@@ -16,7 +16,7 @@ FIT_MODEL_FORMULAS = {
 # cosh model to fit correlator with periodic boundary conditions
 # ---------------------------------------------------------------------------
 
-# C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0]; m = p[1]
+# C(t) = A * [exp(-mt) + exp(-m(Nt-t))]; A = p[0], m = p[1]
 class CoshModel:
     def __init__(self, Nt):
         self.Nt = Nt
@@ -35,7 +35,7 @@ def cosh_chi2(t, p, y, W, Nt):
 # double cosh model to fit correlator with periodic boundary conditions
 # ---------------------------------------------------------------------------
 
-# C(t) = A0 * [exp(-m0 t) + exp(-m0(Nt-t))] + A1 * [exp(-m1 t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
+# C(t) = A0 * [exp(-m0 t) + exp(-m0(Nt-t))] + A1 * [exp(-m1 t) + exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2], m1 = p[3]
 class DoubleCoshModel:
     def __init__(self, Nt):
         self.Nt = Nt
@@ -55,7 +55,7 @@ def double_cosh_chi2(t, p, y, W, Nt):
 # sinh model to fit correlator with periodic boundary conditions
 # ---------------------------------------------------------------------------
 
-# C(t) = A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0]; m = p[1]
+# C(t) = A * [exp(-mt) - exp(-m(Nt-t))]; A = p[0], m = p[1]
 class SinhModel:
     def __init__(self, Nt):
         self.Nt = Nt
@@ -74,7 +74,7 @@ def sinh_chi2(t, p, y, W, Nt):
 # double sinh model to fit correlator with periodic boundary conditions
 # ---------------------------------------------------------------------------
 
-# C(t) = A0 * [exp(-m0 t) - exp(-m0(Nt-t))] + A1 * [exp(-m1 t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
+# C(t) = A0 * [exp(-m0 t) - exp(-m0(Nt-t))] + A1 * [exp(-m1 t) - exp(-m1(Nt-t))]; A0 = p[0], m0 = p[1], A1 = p[2], m1 = p[3]
 class DoubleSinhModel:
     def __init__(self, Nt):
         self.Nt = Nt
@@ -96,7 +96,7 @@ def double_sinh_chi2(t, p, y, W, Nt):
 # exp model to fit correlator with open boundary conditions
 # ---------------------------------------------------------------------------
 
-# f(t) = A * exp(-mt); A = p[0]; m = p[1]
+# f(t) = A * exp(-mt); A = p[0], m = p[1]
 class ExpModel:
     def __init__(self):
         pass
@@ -115,7 +115,7 @@ def exp_chi2(t, p, y, W):
 # double exp model to fit correlator with open boundary conditions
 # ---------------------------------------------------------------------------
 
-# C(t) = A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2]; m1 = p[3]
+# C(t) = A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2], m1 = p[3]
 class DoubleExpModel:
     def __init__(self):
         pass
