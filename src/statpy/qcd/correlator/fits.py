@@ -39,10 +39,9 @@ from statpy.statistics import bootstrap, jackknife
 
 @dataclass
 class FitConfig:
-    """Optimizer choice + parameters; ``bootstrap_available`` gates bootstrap fits."""
+    """Optimizer choice and parameters."""
     fit_method: str = "Nelder-Mead"
     fit_params: dict = field(default_factory=lambda: {"maxiter": 5000, "tol": 1e-07})
-    bootstrap_available: bool = True
 
 
 @dataclass(frozen=True)
@@ -489,78 +488,73 @@ def excited_contribution_fits(db, tag, binsize, excited_fit_ranges, fit_model, c
     return results
 
 
-def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, Nt=None, silent=False, bootstraps=None):
-    """Fit the ground state at binsizes 1 through binsize.
+def _jackknife_fit(db, binned_tag, fit_range, p0, make_chi2, config, misc_extra, silent=False):
+    """Diagonal jackknife fit (primary result); return (best_parameter, jks, misc)."""
+    message(_log_divider("jackknife fit"), silent)
+    chi2_func = make_chi2(np.diag(1.0 / db.jackknife_variance(binned_tag)[fit_range]))
+    best, jks, misc = fit_jks(db, fit_range, binned_tag, p0, chi2_func, config)
+    misc.update(misc_extra)
+    print_fit_results(best, jackknife.covariance(jks), misc, silent)
+    return best, jks, misc
 
-    Store jackknife fits, plus an optional bootstrap fit at binsize 1.
-    Return one FitTags per binsize; correlated mean fits are stored as cross-checks.
-    """
-    if config.bootstrap_available and bootstraps is None:
-        raise ValueError("ground_state_fit needs bootstraps= when config.bootstrap_available")
-    message(f"Correlator: {tag}")
-    message(f"P0 = {p0}")
-    message(f"Fit range {fit_range}")
-    message(f"{fit_model} model = {FIT_MODEL_FORMULAS[fit_model]}")
+
+def _correlated_mean_fit(db, label, cov_tag, binned_tag, fit_range, p0, make_chi2, config, fit_model, misc_extra, silent=False):
+    """Correlated mean fit with the covariance of cov_tag (cross-check); store it if it converges."""
+    message(f"Try fit with {label} covariance matrix")
+    cov_fit_range = db.jackknife_covariance(cov_tag)[fit_range][:, fit_range]
+    best, misc = _try_correlated_fit(db, binned_tag, fit_range, cov_fit_range, len(db.database[cov_tag].jks), p0, make_chi2, config, label, silent=silent)
+    if best is not None:
+        misc.update(misc_extra)
+        print_fit_results(best, None, misc, silent)
+        db.add_entry(f"{binned_tag}/{fit_model}_{label}_correlated_mean_fit", central_value=best, misc=misc)
+
+
+def _bootstrap_fit(db, binned_tag, fit_range, start, make_chi2, config, fit_model, misc_extra, bootstraps, silent=False):
+    """Bootstrap fit starting from start; store it and return its tag."""
+    message(_log_divider("bootstrap fit"), silent)
+    chi2_func = make_chi2(np.diag(1.0 / bootstrap.variance(db.bss(binned_tag, bootstraps))[fit_range]))
+    best, bss, misc = fit_bss(db, fit_range, binned_tag, start, chi2_func, config, bootstraps=bootstraps)
+    print_fit_results(best, bootstrap.covariance(bss), misc)
+    misc.update(misc_extra)
+    fit_tag = f"{binned_tag}/{fit_model}_bootstrap_fit"
+    db.add_entry(fit_tag, central_value=best, bss=bss, misc=misc)
+    return fit_tag
+
+
+def _store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc):
+    """Store the jackknife fit as the binsize's primary result; return its tag."""
+    fit_tag = f"{binned_tag}/{fit_model}_fit"
+    db.add_entry(fit_tag, central_value=best, jks=jks, cfgs=db.database[binned_tag].cfgs, misc=misc)
+    return fit_tag
+
+
+def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, *, Nt=None, correlated_fits=(), bootstraps=None, silent=False) -> FitTags:
+    """Fit one binsize with jackknives and the requested cross-checks and bootstraps."""
+    for source in correlated_fits:
+        if source not in ("binned", "unbinned"):
+            raise ValueError(f"Unknown correlated covariance source: {source!r}")
+    if bootstraps is not None and binsize != 1:
+        raise ValueError("Bootstrap fits require binsize == 1")
+    message(f"Binsize = {binsize}", silent)
     Nt = len(db.database[tag].central_value) if Nt is None else Nt
     def make_chi2(W):
         return _make_chi2(fit_model, W, Nt)
-    fit_tags = []
-    for b in range(1, binsize + 1):
-        bootstrap_fit_tag = None
-        message(f"Binsize = {b}", silent)
-        binned_corr_tag = _ensure_binned(db, tag, b)
-
-        # 1. uncorrelated jackknife fit (primary result)
-        message(_log_divider("jackknife fit"), silent)
-        var = db.jackknife_variance(binned_corr_tag)
-        chi2_func = make_chi2(np.diag(1.0 / var[fit_range]))
-        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range, binned_corr_tag, p0, chi2_func, config)
-        misc["fit_model"] = fit_model
-        best_parameter_cov = jackknife.covariance(best_parameter_jks)
-        print_fit_results(best_parameter, best_parameter_cov, misc, silent)
-
-        # 2. correlated mean fits (cross-checks) at the endpoint binsizes;
-        #    the unbinned covariance adds nothing at b == 1
-        if b in [1, binsize]:
-            message(_log_divider("correlated mean fit"), silent)
-            correlated_fits = [("binned", binned_corr_tag, "Try fit with covariance matrix")]
-            if b != 1:
-                correlated_fits.append(("unbinned", tag, "Try fit with unbinned covariance matrix"))
-            for label, cov_tag, note in correlated_fits:
-                message(note)
-                cov_fit_range = db.jackknife_covariance(cov_tag)[fit_range][:, fit_range]
-                best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range, cov_fit_range, len(db.database[cov_tag].jks), p0, make_chi2, config, label, silent=silent)
-                if best is not None:
-                    misc_corr["fit_model"] = fit_model
-                    print_fit_results(best, None, misc_corr, silent)
-                    db.add_entry(f"{binned_corr_tag}/{fit_model}_{label}_correlated_mean_fit", central_value=best, misc=misc_corr)
-            message(_log_divider(), silent)
-
-        # 3. bootstrap fit, starting from the jackknife result; b == 1 only
-        #    because the bootstrap indices refer to unbinned configurations
-        if b == 1 and config.bootstrap_available:
-            message(_log_divider("bootstrap fit"), silent)
-            bss = db.bss(binned_corr_tag, bootstraps)
-            W_bss = np.diag(1.0 / bootstrap.variance(bss)[fit_range])
-            chi2_func_bss = _make_chi2(fit_model, W_bss, Nt)
-            best_parameter_bcentral, best_parameter_bss, misc_bss = fit_bss(db, fit_range, binned_corr_tag, best_parameter, chi2_func_bss, config, bootstraps=bootstraps)
-            best_parameter_bcov = bootstrap.covariance(best_parameter_bss)
-            print_fit_results(best_parameter_bcentral, best_parameter_bcov, misc_bss)
-            misc_bss["fit_model"] = fit_model
-            bootstrap_fit_tag = f"{binned_corr_tag}/{fit_model}_bootstrap_fit"
-            db.add_entry(bootstrap_fit_tag, central_value=best_parameter_bcentral, bss=best_parameter_bss, misc=misc_bss)
-
-        # persist the jackknife fit as this binsize's primary result
-        fit_tag = f"{binned_corr_tag}/{fit_model}_fit"
-        db.add_entry(
-            fit_tag,
-            central_value=best_parameter, jks=best_parameter_jks,
-            cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
-        )
-        fit_tags.append(FitTags(jackknife=fit_tag, bootstrap=bootstrap_fit_tag))
+    misc_extra = {"fit_model": fit_model}
+    binned_tag = _ensure_binned(db, tag, binsize)
+    best, jks, misc = _jackknife_fit(db, binned_tag, fit_range, p0, make_chi2, config, misc_extra, silent)
+    if correlated_fits:
+        message(_log_divider("correlated mean fit"), silent)
+        for source in correlated_fits:
+            cov_tag = binned_tag if source == "binned" else tag
+            _correlated_mean_fit(db, source, cov_tag, binned_tag, fit_range, p0, make_chi2, config, fit_model, misc_extra, silent)
         message(_log_divider(), silent)
-        message(_log_divider(), silent)
-    return fit_tags
+    bootstrap_tag = None
+    if bootstraps is not None:
+        bootstrap_tag = _bootstrap_fit(db, binned_tag, fit_range, best, make_chi2, config, fit_model, misc_extra, bootstraps, silent)
+    fit_tag = FitTags(jackknife=_store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc), bootstrap=bootstrap_tag)
+    message(_log_divider(), silent)
+    message(_log_divider(), silent)
+    return fit_tag
 
 
 # ---------------------------------------------------------------------------
@@ -579,8 +573,6 @@ def combined_correlator_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit
     if len(p0) != 3:
         raise ValueError(f"p0 must contain [A0, A1, m], got {len(p0)} entries")
     fit_model_combined = _combined_model_name(fit_models)
-    if config.bootstrap_available and bootstraps is None:
-        raise ValueError("combined_correlator_fit needs bootstraps= when config.bootstrap_available")
     entries = [db.database[tag] for tag in tags]
     if not np.array_equal(entries[0].cfgs, entries[1].cfgs):
         raise ValueError(f"combined_correlator_fit: cfgs of {tags[0]!r} and {tags[1]!r} differ; cannot pair configs")
@@ -642,7 +634,7 @@ def combined_correlator_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit
 
         # 3. bootstrap fit, starting from the jackknife result; b == 1 only
         #    because the bootstrap indices refer to unbinned configurations
-        if b == 1 and config.bootstrap_available:
+        if b == 1 and bootstraps is not None:
             message(_log_divider("bootstrap fit"), silent)
             W_bss = np.diag(1.0 / bootstrap.variance(db.bss(binned_corr_tag, bootstraps)))
             best_parameter_bcentral, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_corr_tag, best_parameter, make_chi2(W_bss), config, slice_data=False, bootstraps=bootstraps)

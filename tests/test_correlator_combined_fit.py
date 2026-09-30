@@ -10,7 +10,7 @@ NT = 32
 N_CFG = 50
 TRUE_P = np.array([1.4, 0.8, 0.25])
 FIT_RANGES = (np.arange(4, 10), np.arange(4, 10))
-CONFIG = FitConfig(bootstrap_available=False)
+CONFIG = FitConfig()
 
 
 def _model(name, t, amplitude, mass, Nt):
@@ -77,20 +77,22 @@ def test_combined_fit_routes_cosh_sinh_signs():
 @pytest.mark.parametrize("with_bootstrap", [False, True])
 def test_fit_references_resolve_resamples(combined, with_bootstrap):
     db = _synthetic_db(("cosh", "cosh"))
-    config = FitConfig(bootstrap_available=with_bootstrap)
-    bootstraps = np.random.default_rng(8).integers(N_CFG, size=(20, N_CFG))
+    bootstraps = np.random.default_rng(8).integers(N_CFG, size=(20, N_CFG)) if with_bootstrap else None
     if combined:
         fits = combined_correlator_fit(
             db, ("smsm", "smloc"), "joint", FIT_RANGES, 2,
-            [1.3, 0.75, 0.24], ("cosh", "cosh"), config,
+            [1.3, 0.75, 0.24], ("cosh", "cosh"), CONFIG,
             silent=True, bootstraps=bootstraps,
         )
         truth = TRUE_P
     else:
-        fits = ground_state_fit(
-            db, "smsm", 2, FIT_RANGES[0], [1.3, 0.24], "cosh", config,
-            silent=True, bootstraps=bootstraps,
-        )
+        fits = [
+            ground_state_fit(
+                db, "smsm", binsize, FIT_RANGES[0], [1.3, 0.24], "cosh", CONFIG,
+                silent=True, bootstraps=bootstraps if binsize == 1 else None,
+            )
+            for binsize in (1, 2)
+        ]
         truth = TRUE_P[[0, 2]]
     assert len(fits) == 2
     for binsize, fit in enumerate(fits, start=1):
@@ -104,3 +106,13 @@ def test_fit_references_resolve_resamples(combined, with_bootstrap):
             np.testing.assert_allclose(entry_bs.central_value, truth, rtol=0.08, atol=0.02)
         else:
             assert fit.bootstrap is None
+
+
+def test_ground_state_fit_rejects_bootstrap_above_binsize_one():
+    db = _synthetic_db(("cosh", "cosh"))
+
+    with pytest.raises(ValueError, match="binsize == 1"):
+        ground_state_fit(
+            db, "smsm", 5, FIT_RANGES[0], [1.3, 0.24], "cosh", CONFIG,
+            bootstraps=np.zeros((2, N_CFG), dtype=int), silent=True,
+        )
