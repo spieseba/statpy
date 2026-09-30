@@ -23,9 +23,20 @@ def message(s="", silent=False, *, continuation=False):
 
 
 def format_paren(val, err, sig=2):
-    """Format ``val(err)`` with ``sig`` significant digits on ``err``, e.g. ``0.1234(56)``."""
+    """Format ``val(err)`` with ``sig`` significant digits on ``err``, e.g. ``0.1234(56)``.
+
+    Values with magnitude below 1e-3 or from 1e4 on get an exponent, e.g. ``3.548(48)e-07``.
+    """
     if not np.isfinite(err) or err == 0:
         return f"{val}"
+    exponent = int(np.floor(np.log10(abs(val)))) if val != 0 else 0
+    if exponent < -3 or exponent >= 4:
+        return f"{_paren(val / 10**exponent, err / 10**exponent, sig)}e{exponent:+03d}"
+    return _paren(val, err, sig)
+
+
+def _paren(val, err, sig):
+    """Format ``val(err)`` in fixed-point notation."""
     k = int(np.floor(np.log10(abs(err))))
     decimals = max(0, -(k - (sig - 1)))
     err_digits = round(err * 10 ** decimals)

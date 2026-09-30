@@ -16,6 +16,7 @@ from statpy.qcd.correlator.fits import (
     fit_mean,
     get_p0_guesses,
     ground_state_fit,
+    log_fit_header,
 )
 from statpy.qcd.correlator.models import (
     FIT_MODEL_FORMULAS,

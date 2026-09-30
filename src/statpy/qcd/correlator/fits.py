@@ -305,10 +305,48 @@ def _labelled(label, rows):
     return [f"  {label if i == 0 else '':<20} {row}" for i, row in enumerate(rows)]
 
 
-def _format_parameters(parameters, errors=None):
+def _format_parameters(parameters, errors=None, names=_PARAMETER_NAMES):
     if errors is None:
-        return "   ".join(f"{n} {v:.6g}" for n, v in zip(_PARAMETER_NAMES, parameters))
-    return "   ".join(f"{n} {format_paren(v, e)}" for n, v, e in zip(_PARAMETER_NAMES, parameters, errors))
+        return "   ".join(f"{n} {v:.6g}" for n, v in zip(names, parameters))
+    return "   ".join(f"{n} {format_paren(v, e)}" for n, v, e in zip(names, parameters, errors))
+
+
+def _parameter_names(fit_model):
+    """Return the parameter names of fit_model, e.g. ("A", "m") for "cosh"."""
+    parameters = FIT_MODEL_FORMULAS[fit_model].split("; ")[1]
+    return tuple(p.split(" = ")[0] for p in parameters.split(", "))
+
+
+def _fit_table_row(binsize, fit, cells):
+    """Format one row of the per-binsize fit table."""
+    return f"  {binsize:>7}  {fit:<21}" + "".join(f"{cell:<18}" for cell in cells[:-2]) + f"{cells[-2]:<10}{cells[-1]}"
+
+
+def _fit_table_rows(binsize, fit, parameters, misc, errors=None):
+    """Return the table row of one fit, or a row with the failure reason."""
+    if parameters is None:
+        return [f"  {binsize:>7}  {fit:<21}{misc['failure_reason']}"]
+    if errors is None:
+        cells = [f"{v:.6g}" for v in parameters]
+    else:
+        cells = [format_paren(v, e) for v, e in zip(parameters, errors)]
+    return [_fit_table_row(binsize, fit, cells + [f"{misc['chi2'] / misc['dof']:.3g}", f"{misc['pval']:.2f}"])]
+
+
+def log_fit_header(title, tag, fit_model, fit_range, p0, silent=False):
+    """Log the correlator, model, fit range, start values and the fit-table columns."""
+    formula, parameters = FIT_MODEL_FORMULAS[fit_model].split("; ")
+    names = _parameter_names(fit_model)
+    dof = len(fit_range) - len(names)
+    message("\n".join([
+        title,
+        *_labelled("Correlator", [tag]),
+        *_labelled("Model", [f"{fit_model}: {formula}", parameters]),
+        *_labelled("Fit range", [f"{_format_range(fit_range)} ({len(fit_range)} points, {dof} dof)"]),
+        *_labelled("Start", [_format_parameters(p0, names=names)]),
+        "",
+        _fit_table_row("Binsize", "Fit", [*names, "chi2/dof", "p"]),
+    ]), silent)
 
 
 def _format_range(t):
@@ -488,37 +526,35 @@ def excited_contribution_fits(db, tag, binsize, excited_fit_ranges, fit_model, c
     return results
 
 
-def _jackknife_fit(db, binned_tag, fit_range, p0, make_chi2, config, misc_extra, silent=False):
+def _jackknife_fit(db, binned_tag, fit_range, p0, make_chi2, config, misc_extra):
     """Diagonal jackknife fit (primary result); return (best_parameter, jks, misc)."""
-    message(_log_divider("jackknife fit"), silent)
     chi2_func = make_chi2(np.diag(1.0 / db.jackknife_variance(binned_tag)[fit_range]))
     best, jks, misc = fit_jks(db, fit_range, binned_tag, p0, chi2_func, config)
     misc.update(misc_extra)
-    print_fit_results(best, jackknife.covariance(jks), misc, silent)
     return best, jks, misc
 
 
-def _correlated_mean_fit(db, label, cov_tag, binned_tag, fit_range, p0, make_chi2, config, fit_model, misc_extra, silent=False):
-    """Correlated mean fit with the covariance of cov_tag (cross-check); store it if it converges."""
-    message(f"Try fit with {label} covariance matrix")
+def _correlated_mean_fit(db, label, cov_tag, binned_tag, fit_range, p0, make_chi2, config, fit_model, misc_extra):
+    """Correlated mean fit with the covariance of cov_tag (cross-check); store it if it converges.
+
+    Return (best_parameter, misc), or (None, {"failure_reason": ...}).
+    """
     cov_fit_range = db.jackknife_covariance(cov_tag)[fit_range][:, fit_range]
-    best, misc = _try_correlated_fit(db, binned_tag, fit_range, cov_fit_range, len(db.database[cov_tag].jks), p0, make_chi2, config, label, silent=silent)
+    best, misc = _try_correlated_fit(db, binned_tag, fit_range, cov_fit_range, len(db.database[cov_tag].jks), p0, make_chi2, config, label, silent=True)
     if best is not None:
         misc.update(misc_extra)
-        print_fit_results(best, None, misc, silent)
         db.add_entry(f"{binned_tag}/{fit_model}_{label}_correlated_mean_fit", central_value=best, misc=misc)
+    return best, misc
 
 
-def _bootstrap_fit(db, binned_tag, fit_range, start, make_chi2, config, fit_model, misc_extra, bootstraps, silent=False):
-    """Bootstrap fit starting from start; store it and return its tag."""
-    message(_log_divider("bootstrap fit"), silent)
+def _bootstrap_fit(db, binned_tag, fit_range, start, make_chi2, config, fit_model, misc_extra, bootstraps):
+    """Bootstrap fit starting from start; store it and return (tag, best_parameter, bss, misc)."""
     chi2_func = make_chi2(np.diag(1.0 / bootstrap.variance(db.bss(binned_tag, bootstraps))[fit_range]))
     best, bss, misc = fit_bss(db, fit_range, binned_tag, start, chi2_func, config, bootstraps=bootstraps)
-    print_fit_results(best, bootstrap.covariance(bss), misc)
     misc.update(misc_extra)
     fit_tag = f"{binned_tag}/{fit_model}_bootstrap_fit"
     db.add_entry(fit_tag, central_value=best, bss=bss, misc=misc)
-    return fit_tag
+    return fit_tag, best, bss, misc
 
 
 def _store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc):
@@ -529,32 +565,30 @@ def _store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc):
 
 
 def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, *, Nt=None, correlated_fits=(), bootstraps=None, silent=False) -> FitTags:
-    """Fit one binsize with jackknives and the requested cross-checks and bootstraps."""
+    """Fit one binsize with jackknives and the requested cross-checks and bootstraps; log its table rows."""
     for source in correlated_fits:
         if source not in ("binned", "unbinned"):
             raise ValueError(f"Unknown correlated covariance source: {source!r}")
     if bootstraps is not None and binsize != 1:
         raise ValueError("Bootstrap fits require binsize == 1")
-    message(f"Binsize = {binsize}", silent)
     Nt = len(db.database[tag].central_value) if Nt is None else Nt
     def make_chi2(W):
         return _make_chi2(fit_model, W, Nt)
     misc_extra = {"fit_model": fit_model}
     binned_tag = _ensure_binned(db, tag, binsize)
-    best, jks, misc = _jackknife_fit(db, binned_tag, fit_range, p0, make_chi2, config, misc_extra, silent)
-    if correlated_fits:
-        message(_log_divider("correlated mean fit"), silent)
-        for source in correlated_fits:
-            cov_tag = binned_tag if source == "binned" else tag
-            _correlated_mean_fit(db, source, cov_tag, binned_tag, fit_range, p0, make_chi2, config, fit_model, misc_extra, silent)
-        message(_log_divider(), silent)
+
+    best, jks, misc = _jackknife_fit(db, binned_tag, fit_range, p0, make_chi2, config, misc_extra)
+    rows = _fit_table_rows(binsize, "jackknife", best, misc, np.sqrt(np.diag(jackknife.covariance(jks))))
+    for source in correlated_fits:
+        cov_tag = binned_tag if source == "binned" else tag
+        best_c, misc_c = _correlated_mean_fit(db, source, cov_tag, binned_tag, fit_range, p0, make_chi2, config, fit_model, misc_extra)
+        rows += _fit_table_rows("", f"correlated {source}", best_c, misc_c)
     bootstrap_tag = None
     if bootstraps is not None:
-        bootstrap_tag = _bootstrap_fit(db, binned_tag, fit_range, best, make_chi2, config, fit_model, misc_extra, bootstraps, silent)
-    fit_tag = FitTags(jackknife=_store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc), bootstrap=bootstrap_tag)
-    message(_log_divider(), silent)
-    message(_log_divider(), silent)
-    return fit_tag
+        bootstrap_tag, best_b, bss, misc_b = _bootstrap_fit(db, binned_tag, fit_range, best, make_chi2, config, fit_model, misc_extra, bootstraps)
+        rows += _fit_table_rows("", "bootstrap", best_b, misc_b, np.sqrt(np.diag(bootstrap.covariance(bss))))
+    message("\n".join(rows), silent, continuation=True)
+    return FitTags(jackknife=_store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc), bootstrap=bootstrap_tag)
 
 
 # ---------------------------------------------------------------------------
