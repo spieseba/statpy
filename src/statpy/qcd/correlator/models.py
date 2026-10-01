@@ -131,23 +131,6 @@ def double_exp_chi2(t, p, y, W):
 
 
 # ---------------------------------------------------------------------------
-# const model to fit effective mass plateau
-# ---------------------------------------------------------------------------
-
-class ConstModel:
-    def __init__(self):
-        pass
-    def __call__(self, t, p):
-        return p[0]
-    def parameter_gradient(self, t, p):
-        return np.array([np.ones_like(t)])
-
-@njit(cache=True)
-def const_chi2(t, p, y, W):
-    return (p[0] - y) @ W @ (p[0] - y)
-
-
-# ---------------------------------------------------------------------------
 # const plus exp model to fit effective mass plateau
 # ---------------------------------------------------------------------------
 

@@ -20,7 +20,6 @@ from statpy.qcd.correlator.fits import (
 )
 from statpy.qcd.correlator.models import (
     FIT_MODEL_FORMULAS,
-    ConstModel,
     ConstPlusExpModel,
     CoshModel,
     DoubleCoshModel,
@@ -29,7 +28,6 @@ from statpy.qcd.correlator.models import (
     ExpModel,
     SinhModel,
     combined_corr_chi2,
-    const_chi2,
     const_plus_exp_chi2,
     cosh_chi2,
     double_cosh_chi2,
