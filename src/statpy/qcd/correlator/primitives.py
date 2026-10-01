@@ -30,8 +30,8 @@ def effective_mass(corr, *, estimator, Nt=None):
       "cosh_solve": solves cosh(m(t-Nt/2))/cosh(m(t+1-Nt/2)) = C(t)/C(t+1) for m.
       "sinh_solve": solves sinh(m(t-Nt/2))/sinh(m(t+1-Nt/2)) = C(t)/C(t+1) for m.
       (*_solve: Gattringer & Lang, Lect. Notes Phys. 788 (2010), p. 145.)
-    Nt (cosh_midpoint, cosh_solve, sinh_solve only) defaults to the correlator length;
-    cosh_midpoint needs midpoint data. For folded *_solve input, pass the original Nt.
+    Nt is required for cosh_solve and sinh_solve (also for folded input);
+    cosh_midpoint uses the correlator length and needs unfolded data.
     Times start at zero; neighbor formulas wrap endpoints as with np.roll.
     Undefined points (e.g. arccosh argument < 1) return NaN or inf without warning.
     """
@@ -50,6 +50,8 @@ def effective_mass(corr, *, estimator, Nt=None):
     if estimator == "arccosh":
         return np.arccosh(0.5 * (np.roll(corr, -1) + np.roll(corr, 1)) / corr)
     if estimator in ("cosh_solve", "sinh_solve"):
+        if Nt is None:
+            raise ValueError(f"{estimator} needs Nt")
         return _solve_effective_mass(corr, kernel=estimator.removesuffix("_solve"), Nt=Nt)
 
     raise ValueError(f"Unknown effective-mass estimator: {estimator}")
@@ -57,7 +59,6 @@ def effective_mass(corr, *, estimator, Nt=None):
 
 def _solve_effective_mass(corr, *, kernel, Nt):
     """Solve kernel(m|t-Nt/2|)/kernel(m|t+1-Nt/2|) = C(t)/C(t+1) per t; kernel is "cosh" or "sinh"."""
-    Nt = len(corr) if Nt is None else Nt
     t = np.arange(len(corr))
     a = np.abs(t - Nt / 2)
     b = np.abs(t + 1 - Nt / 2)
@@ -101,11 +102,12 @@ def effective_amplitude(corr, mass, *, kernel, Nt=None):
     kernel selects the time dependence:
       "exp": exp(-mass*t).
       "cosh"/"sinh": exp(-mass*t) plus/minus exp(-mass*(Nt-t)).
-    Nt defaults to the correlator length; pass the original Nt for folded data.
+    Nt is required for cosh and sinh (also for folded data).
     Times start at zero; exponential sums set the normalization.
     """
     corr = np.asarray(corr)
-    Nt = len(corr) if Nt is None else Nt
+    if kernel in ("cosh", "sinh") and Nt is None:
+        raise ValueError(f"{kernel} kernel needs Nt")
     t = np.arange(len(corr))
     forward = np.exp(-mass * t)
     if kernel == "exp":

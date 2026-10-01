@@ -441,7 +441,7 @@ def _excited_fits_summary(results):
 # Excited-state fits
 # ---------------------------------------------------------------------------
 
-def excited_state_fits(db, tag, binsize, excited_fit_ranges, fit_model, config: FitConfig, silent=False, Nt=None, folded=False, *, m0=None, mass_gaps=None):
+def excited_state_fits(db, tag, binsize, excited_fit_ranges, fit_model, config: FitConfig, silent=False, *, Nt, folded=False, m0=None, mass_gaps=None):
     """Fit each window's central value and jackknives.
 
     Return ExcitedFitResult objects in input order, retaining convergence failures.
@@ -467,7 +467,6 @@ def excited_state_fits(db, tag, binsize, excited_fit_ranges, fit_model, config: 
     cov = db.jackknife_covariance(binned_corr_tag)
     cov_unbinned = cov if binned_corr_tag == tag else db.jackknife_covariance(tag)
     var = np.diag(cov)
-    Nt = len(db.database[binned_corr_tag].central_value) if Nt is None else Nt
     model_func = {"double-cosh": DoubleCoshModel(Nt),
                   "double-sinh": DoubleSinhModel(Nt),
                   "double-exp": DoubleExpModel()}[fit_model]
