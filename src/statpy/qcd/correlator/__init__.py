@@ -9,7 +9,7 @@ from statpy.qcd.correlator.fits import (
     ExcitedFitResult,
     FitConfig,
     FitTags,
-    excited_contribution_fits,
+    excited_state_fits,
     fit_bss,
     fit_jks,
     fit_mean,

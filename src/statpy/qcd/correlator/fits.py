@@ -438,10 +438,10 @@ def _excited_fits_summary(results):
 
 
 # ---------------------------------------------------------------------------
-# Excited-state / ground-state fits
+# Excited-state fits
 # ---------------------------------------------------------------------------
 
-def excited_contribution_fits(db, tag, binsize, excited_fit_ranges, fit_model, config: FitConfig, silent=False, Nt=None, folded=False, *, m0=None, mass_gaps=None):
+def excited_state_fits(db, tag, binsize, excited_fit_ranges, fit_model, config: FitConfig, silent=False, Nt=None, folded=False, *, m0=None, mass_gaps=None):
     """Fit each window's central value and jackknives.
 
     Return ExcitedFitResult objects in input order, retaining convergence failures.
@@ -496,6 +496,10 @@ def excited_contribution_fits(db, tag, binsize, excited_fit_ranges, fit_model, c
     message("\n".join(["Summary"] + _excited_fits_summary(results)), silent)
     return results
 
+
+# ---------------------------------------------------------------------------
+# Ground-state fits
+# ---------------------------------------------------------------------------
 
 def _jackknife_fit(db, binned_tag, fit_range, p0, make_chi2, config, misc_extra):
     """Diagonal jackknife fit (primary result); return (best_parameter, jks, misc)."""
