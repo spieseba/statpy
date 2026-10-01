@@ -11,6 +11,16 @@ FIT_MODEL_FORMULAS = {
     "double-exp": "A0 * exp(-m0t) + A1 * exp(-m1t); A0 = p[0], m0 = p[1], A1 = p[2], m1 = p[3]",
 }
 
+_BLOCK_FORMULAS = {
+    "cosh": "A{i} * [exp(-mt) + exp(-m(Nt-t))]",
+    "sinh": "A{i} * [exp(-mt) - exp(-m(Nt-t))]",
+    "exp": "A{i} * exp(-mt)",
+}
+FIT_MODEL_FORMULAS |= {
+    f"combined-{m0}-{m1}": f"C0(t) = {_BLOCK_FORMULAS[m0].format(i=0)}, C1(t) = {_BLOCK_FORMULAS[m1].format(i=1)}; A0 = p[0], A1 = p[1], m = p[2]"
+    for m0 in _BLOCK_FORMULAS for m1 in _BLOCK_FORMULAS
+}
+
 
 # ---------------------------------------------------------------------------
 # cosh model to fit correlator with periodic boundary conditions
@@ -148,13 +158,20 @@ def const_plus_exp_chi2(t, p, y, W):
 # combined two-correlator fit (independent amplitudes, shared ground-state mass)
 # ---------------------------------------------------------------------------
 
-# Every block model is the same kernel  A * [exp(-mt) + s * exp(-m(Nt-t))],
-# so the block structure is per-point data instead of per-model code:
-#   amplitude_index[i] selects the amplitude parameter (0 -> p[0], 1 -> p[1]),
-#   backward_sign[i] is the backward-propagator sign s: +1 cosh, -1 sinh,
-#           0 exp (open BC: the backward term drops out exactly).
-# Shared mass m = p[2]. ``t``/``y`` are the concatenated blocks.
+# C0(t) = A0 * [exp(-mt) + s0 * exp(-m(Nt-t))],  C1(t) = A1 * [exp(-mt) + s1 * exp(-m(Nt-t))]
+# s = +1 cosh, -1 sinh, 0 exp; A0 = p[0], A1 = p[1], m = p[2]
 @njit(cache=True)
-def combined_corr_chi2(t, p, y, W, Nt, amplitude_index, backward_sign):
-    model = p[amplitude_index] * (np.exp(-p[2] * t) + backward_sign * np.exp(-p[2] * (Nt - t)))
+def combined_correlator_chi2(t, p, y, W, Nt, L, s0, s1):
+    """chi^2 of two correlators with separate amplitudes and a shared mass.
+
+    t indexes both correlators joined into one array of length 2*L, L being the length
+    of one correlator (e.g. Nt unfolded, Nt/2 folded, shorter after OBC averaging):
+    block-0 time slices, then block-1 time slices + L, e.g. concatenate([t0, L + t1]).
+    y and W follow the same order. Nt is the period used by cosh and sinh blocks.
+    """
+    A0, A1, m = p[0], p[1], p[2]
+    t0, t1 = t[t < L], t[t >= L] - L
+    block0 = A0 * (np.exp(-m * t0) + s0 * np.exp(-m * (Nt - t0)))
+    block1 = A1 * (np.exp(-m * t1) + s1 * np.exp(-m * (Nt - t1)))
+    model = np.concatenate((block0, block1))
     return (model - y) @ W @ (model - y)

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 
-from statpy.fitting.core import ConvergenceError, Fitter, get_pvalue, print_fit_results
+from statpy.fitting.core import ConvergenceError, Fitter, get_pvalue
 from statpy.log import format_paren, message
 from statpy.qcd.correlator.models import (
     FIT_MODEL_FORMULAS,
@@ -19,7 +19,7 @@ from statpy.qcd.correlator.models import (
     DoubleSinhModel,
     ExpModel,
     SinhModel,
-    combined_corr_chi2,
+    combined_correlator_chi2,
     cosh_chi2,
     double_cosh_chi2,
     double_exp_chi2,
@@ -55,22 +55,6 @@ class FitTags:
 # Internal utilities
 # ---------------------------------------------------------------------------
 
-_LOG_DIVIDER_WIDTH = 81
-
-def _log_divider(title=None, fill="-"):
-    """Fixed-width log section divider, with optional centered title."""
-    if title is None:
-        return fill * _LOG_DIVIDER_WIDTH
-    pad = _LOG_DIVIDER_WIDTH - len(title) - 2
-    left = pad // 2
-    return f"{fill * left} {title} {fill * (pad - left)}"
-
-
-def _make_slicer(fit_range, slice_data):
-    """Return ``y -> y[fit_range]`` if ``slice_data`` else ``y -> y`` (data already sliced)."""
-    return (lambda y: y[fit_range]) if slice_data else (lambda y: y)
-
-
 def _ensure_binned(db, tag, binsize):
     """Return the binned tag for ``tag``, creating the binned entry if missing."""
     binned = binned_tag(tag, binsize)
@@ -96,94 +80,73 @@ def _make_chi2(fit_model, W, Nt):
     raise ValueError(f"Unknown fit_model: {fit_model!r}")
 
 
-# Backward-propagator sign per block for :func:`combined_corr_chi2`.
+# Backward-propagator sign s of each block model in combined_correlator_chi2.
 _BACKWARD_SIGN = {"cosh": 1.0, "sinh": -1.0, "exp": 0.0}
 
 
-def _combined_model_name(fit_models):
-    """Return the combined model name for two validated block models."""
-    if len(fit_models) != 2:
-        raise ValueError(f"fit_models must contain two models, got {len(fit_models)}")
-    unknown = [model for model in fit_models if model not in _BACKWARD_SIGN]
-    if unknown:
-        raise ValueError(f"Unknown combined block model(s): {unknown}")
-    return "combined-" + "-".join(fit_models)
-
-
-def _make_combined_chi2(fit_models, W, block_lengths, Nt):
-    """Return a chi^2 lambda for two concatenated correlator blocks."""
-    _combined_model_name(fit_models)
-    backward_sign = np.repeat([_BACKWARD_SIGN[model] for model in fit_models], block_lengths)
-    amplitude_index = np.repeat(np.arange(2), block_lengths)
-    return lambda t, p, y: combined_corr_chi2(t, p, y, W, Nt, amplitude_index, backward_sign)
+def _make_combined_chi2(fit_model, W, Nt, L):
+    """Return a chi^2 lambda for a "combined-<model0>-<model1>" fit of a joined two-block entry."""
+    block_models = fit_model.split("-")[1:]
+    if len(block_models) != 2 or any(m not in _BACKWARD_SIGN for m in block_models):
+        raise ValueError(f"Unknown fit_model: {fit_model!r}")
+    s0, s1 = (_BACKWARD_SIGN[m] for m in block_models)
+    return lambda t, p, y: combined_correlator_chi2(t, p, y, W, Nt, L, s0, s1)
 
 
 # ---------------------------------------------------------------------------
 # Core fit primitives
 # ---------------------------------------------------------------------------
 
-def fit_mean(db, fit_range, tag, p0, chi2_func, config: FitConfig, slice_data=True):
-    """Fit the mean of the entry at ``tag``; returns ``(best_parameter, misc)``
-    with ``misc = {"fit_range", "chi2", "dof", "pval"}``.
-
-    ``slice_data=True``: ``fit_range`` indexes the data, the fit sees ``y[fit_range]``.
-    ``slice_data=False``: the entry is already pre-sliced to length ``len(fit_range)``
-    and ``fit_range`` is only passed through to ``chi2_func`` (combined fits, where
-    ``fit_range`` is the concatenation of two fit ranges).
-    """
+def fit_mean(db, fit_range, tag, p0, chi2_func, config: FitConfig):
+    """Fit the mean of the entry at ``tag`` at ``fit_range``; returns ``(best_parameter, misc)``
+    with ``misc = {"fit_range", "chi2", "dof", "pval"}``."""
     p0 = np.asarray(p0, dtype=float)
     if p0.ndim != 1 or p0.size == 0:
         raise ValueError(f"'p0' must be a non-empty 1-D array, got shape {p0.shape}")
-    if not slice_data and len(fit_range) != len(db.database[tag].central_value):
-        raise ValueError(
-            f"with slice_data=False, len(fit_range)={len(fit_range)} must equal data length "
-            f"{len(db.database[tag].central_value)} for tag {tag!r}"
-        )
     dof = len(fit_range) - p0.size
     if dof <= 0:
         raise ValueError(
             f"non-positive degrees of freedom: len(fit_range)={len(fit_range)}, n_params={p0.size}, dof={dof}"
         )
 
-    sl = _make_slicer(fit_range, slice_data)
+    y = db.database[tag].central_value[fit_range]
     fitter = Fitter(config.fit_method, config.fit_params)
     try:
-        best = fitter.estimate_parameters(fit_range, chi2_func, sl(db.database[tag].central_value), p0)[0]
+        best = fitter.estimate_parameters(fit_range, chi2_func, y, p0)[0]
     except ConvergenceError as e:
         raise ConvergenceError(f"mean fit for tag {tag!r} did not converge: {e}") from e
     if not np.isfinite(best).all():
         raise ConvergenceError(f"mean fit for tag {tag!r} produced non-finite parameters: {best}")
-    chi2 = chi2_func(fit_range, best, sl(db.database[tag].central_value))
+    chi2 = chi2_func(fit_range, best, y)
     if not np.isfinite(chi2):
         raise ConvergenceError(f"non-finite chi^2 = {chi2} for tag {tag!r}")
     return best, {"fit_range": fit_range, "chi2": chi2, "dof": dof, "pval": get_pvalue(chi2, dof)}
 
 
-def _fit_resamples(transform, label, fit_range, tag, p0, chi2_func, config, slice_data, **transform_kwargs):
+def _fit_resamples(transform, label, fit_range, tag, p0, chi2_func, config, **transform_kwargs):
     """Fit each resample via ``transform`` (:meth:`DB.transform_jks` or
     :meth:`DB.transform_bss`); ``label`` is used only in the error message."""
-    sl = _make_slicer(fit_range, slice_data)
     fitter = Fitter(config.fit_method, config.fit_params)
     try:
-        return transform(tag, f=lambda y: fitter.estimate_parameters(fit_range, chi2_func, sl(y), p0)[0], **transform_kwargs)
+        return transform(tag, f=lambda y: fitter.estimate_parameters(fit_range, chi2_func, y[fit_range], p0)[0], **transform_kwargs)
     except ConvergenceError as e:
         raise ConvergenceError(f"{label} fit for tag {tag!r} did not converge: {e}") from e
 
 
-def fit_jks(db, fit_range, tag, p0, chi2_func, config: FitConfig, slice_data=True):
+def fit_jks(db, fit_range, tag, p0, chi2_func, config: FitConfig):
     """Fit the mean, then every jackknife sample starting from the mean fit.
     Returns ``(best_parameter, best_parameter_jks, misc)``."""
-    best, misc = fit_mean(db, fit_range, tag, p0, chi2_func, config, slice_data=slice_data)
-    best_jks = _fit_resamples(db.transform_jks, "jackknife", fit_range, tag, best, chi2_func, config, slice_data)
+    best, misc = fit_mean(db, fit_range, tag, p0, chi2_func, config)
+    best_jks = _fit_resamples(db.transform_jks, "jackknife", fit_range, tag, best, chi2_func, config)
     return best, best_jks, misc
 
 
-def fit_bss(db, fit_range, tag, p0, chi2_func, config: FitConfig, slice_data=True, bootstraps=None):
+def fit_bss(db, fit_range, tag, p0, chi2_func, config: FitConfig, bootstraps=None):
     """Fit the mean, then every bootstrap sample starting from the mean fit.
     Returns ``(best_parameter, best_parameter_bss, misc)``. ``bootstraps`` is
     ignored if the entry already carries ``entry.bss``."""
-    best, misc = fit_mean(db, fit_range, tag, p0, chi2_func, config, slice_data=slice_data)
-    best_bss = _fit_resamples(db.transform_bss, "bootstrap", fit_range, tag, best, chi2_func, config, slice_data, bootstraps=bootstraps)
+    best, misc = fit_mean(db, fit_range, tag, p0, chi2_func, config)
+    best_bss = _fit_resamples(db.transform_bss, "bootstrap", fit_range, tag, best, chi2_func, config, bootstraps=bootstraps)
     return best, best_bss, misc
 
 
@@ -277,7 +240,7 @@ def _inverse_covariance(cov, n_samples):
     return cho_solve(factor, np.eye(len(cov))) / scale, None
 
 
-def _try_correlated_fit(db, tag, fit_range, cov_fit_range, n_samples, p0, make_chi2, config, label, slice_data=True, silent=False):
+def _try_correlated_fit(db, tag, fit_range, cov_fit_range, n_samples, p0, make_chi2, config, label, silent=False):
     """Correlated mean fit on already-sliced ``cov_fit_range``; ``make_chi2`` maps the
     inverted covariance to a chi^2 function. Returns ``(best_parameter, misc)``,
     or ``(None, {"failure_reason": ...})`` if ``cov_fit_range`` is not positive definite
@@ -291,7 +254,7 @@ def _try_correlated_fit(db, tag, fit_range, cov_fit_range, n_samples, p0, make_c
     message(f"--> {label} covariance matrix positive definite. Try correlated fit.", silent)
     try:
         chi2 = make_chi2(inverse)
-        return fit_mean(db, fit_range, tag, p0, chi2, config, slice_data=slice_data)
+        return fit_mean(db, fit_range, tag, p0, chi2, config)
     except ConvergenceError as ce:
         message(f"{ce} for correlated mean fit with {label} covariance matrix", silent)
         return None, {"failure_reason": "fit did not converge"}
@@ -333,16 +296,24 @@ def _fit_table_rows(binsize, fit, parameters, misc, errors=None):
     return [_fit_table_row(binsize, fit, cells + [f"{misc['chi2'] / misc['dof']:.3g}", f"{misc['pval']:.2f}"])]
 
 
-def log_fit_header(title, tag, fit_model, fit_range, p0, silent=False):
-    """Log the correlator, model, fit range, start values and the fit-table columns."""
+def log_fit_header(title, tag, fit_model, fit_range, p0, silent=False, *, L=None):
+    """Log the correlator, model, fit range, start values and the fit-table columns.
+
+    For combined models, L is the length of one joined correlator; the fit range is shown per block.
+    """
     formula, parameters = FIT_MODEL_FORMULAS[fit_model].split("; ")
     names = _parameter_names(fit_model)
     dof = len(fit_range) - len(names)
+    if fit_model.startswith("combined-"):
+        fit_range = np.asarray(fit_range)
+        ranges = f"{_format_range(fit_range[fit_range < L])} + {_format_range(fit_range[fit_range >= L] - L)}"
+    else:
+        ranges = _format_range(fit_range)
     message("\n".join([
         title,
         *_labelled("Correlator", [tag]),
         *_labelled("Model", [f"{fit_model}: {formula}", parameters]),
-        *_labelled("Fit range", [f"{_format_range(fit_range)} ({len(fit_range)} points, {dof} dof)"]),
+        *_labelled("Fit range", [f"{ranges} ({len(fit_range)} points, {dof} dof)"]),
         *_labelled("Start", [_format_parameters(p0, names=names)]),
         "",
         _fit_table_row("Binsize", "Fit", [*names, "chi2/dof", "p"]),
@@ -426,7 +397,7 @@ def _fit_one_excited_range(db, *, binned_corr_tag, fit_range, m0, mass_gaps, fit
         fit_range, var[fit_range], result.central_value, model_func, boundary_condition, folded,
     )
     try:
-        jks = _fit_resamples(db.transform_jks, "jackknife", fit_range, binned_corr_tag, best_parameter, chi2_func, config, slice_data=True)
+        jks = _fit_resamples(db.transform_jks, "jackknife", fit_range, binned_corr_tag, best_parameter, chi2_func, config)
         if not np.isfinite(jks).all():
             raise ConvergenceError("Jackknife fits produced non-finite parameters")
     except ConvergenceError as exc:
@@ -564,16 +535,26 @@ def _store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc):
     return fit_tag
 
 
-def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, *, Nt=None, correlated_fits=(), bootstraps=None, silent=False) -> FitTags:
-    """Fit one binsize with jackknives and the requested cross-checks and bootstraps; log its table rows."""
+def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConfig, *, Nt, correlated_fits=(), bootstraps=None, silent=False) -> FitTags:
+    """Fit one binsize with jackknives and the requested cross-checks and bootstraps; log its table rows.
+
+    Nt is the lattice time extent, also for folded or OBC-averaged correlators.
+    fit_model "combined-<m0>-<m1>" fits two correlators joined with DB.concatenate_entries.
+    """
     for source in correlated_fits:
         if source not in ("binned", "unbinned"):
             raise ValueError(f"Unknown correlated covariance source: {source!r}")
     if bootstraps is not None and binsize != 1:
         raise ValueError("Bootstrap fits require binsize == 1")
-    Nt = len(db.database[tag].central_value) if Nt is None else Nt
-    def make_chi2(W):
-        return _make_chi2(fit_model, W, Nt)
+    if fit_model.startswith("combined-"):
+        if len((db.database[tag].misc or {}).get("tags", ())) != 2:
+            raise ValueError(f"combined fit of {tag!r} needs an entry joined from two correlators")
+        L = len(db.database[tag].central_value) // 2
+        def make_chi2(W):
+            return _make_combined_chi2(fit_model, W, Nt, L)
+    else:
+        def make_chi2(W):
+            return _make_chi2(fit_model, W, Nt)
     misc_extra = {"fit_model": fit_model}
     binned_tag = _ensure_binned(db, tag, binsize)
 
@@ -589,103 +570,3 @@ def ground_state_fit(db, tag, binsize, fit_range, p0, fit_model, config: FitConf
         rows += _fit_table_rows("", "bootstrap", best_b, misc_b, np.sqrt(np.diag(bootstrap.covariance(bss))))
     message("\n".join(rows), silent, continuation=True)
     return FitTags(jackknife=_store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc), bootstrap=bootstrap_tag)
-
-
-# ---------------------------------------------------------------------------
-# Two-correlator combined fit (shared mass)
-# ---------------------------------------------------------------------------
-
-def combined_correlator_fit(db, tags, combined_tag, fit_ranges, binsize, p0, fit_models,
-                            config: FitConfig, Nt=None, silent=False, bootstraps=None):
-    """Fit two correlators with separate amplitudes and a shared mass, ``p = [A0, A1, m]``.
-
-    Each block uses a ``cosh``, ``sinh`` or ``exp`` model. Returns one ``FitTags``
-    per binsize 1..``binsize``; the bootstrap tag is set only at binsize 1.
-    """
-    if len(tags) != 2 or len(fit_ranges) != 2:
-        raise ValueError("tags and fit_ranges must each contain two entries")
-    if len(p0) != 3:
-        raise ValueError(f"p0 must contain [A0, A1, m], got {len(p0)} entries")
-    fit_model_combined = _combined_model_name(fit_models)
-    entries = [db.database[tag] for tag in tags]
-    if not np.array_equal(entries[0].cfgs, entries[1].cfgs):
-        raise ValueError(f"combined_correlator_fit: cfgs of {tags[0]!r} and {tags[1]!r} differ; cannot pair configs")
-    if not np.array_equal(entries[0].weights, entries[1].weights):
-        raise ValueError(f"combined_correlator_fit: weights of {tags[0]!r} and {tags[1]!r} differ; cannot pair configs")
-    if len(entries[0].central_value) != len(entries[1].central_value):
-        raise ValueError(f"combined_correlator_fit: data lengths of {tags[0]!r} and {tags[1]!r} differ")
-
-    message(_log_divider("combined correlator fit"), silent)
-    for i, (tag, fit_range, fit_model) in enumerate(zip(tags, fit_ranges, fit_models)):
-        message(f"block {i}: {tag}, fit range {fit_range}, {fit_model} model = {FIT_MODEL_FORMULAS[fit_model]}", silent)
-    message("shared mass m = p[2]", silent)
-    message(f"P0 = {p0}")
-
-    Nt = len(entries[0].central_value) if Nt is None else Nt
-    fit_range_combined = np.hstack(fit_ranges)
-    def make_chi2(W):
-        return _make_combined_chi2(fit_models, W, tuple(map(len, fit_ranges)), Nt)
-    combined_misc = {
-        "fit_model": fit_model_combined,
-        "fit_models": fit_models,
-        "fit_ranges": fit_ranges,
-        "tags": tags,
-    }
-
-    # combined data entry: per config, blocks pre-sliced to their fit ranges
-    # and concatenated — all fits below use slice_data=False
-    samples = [entry.sample for entry in entries]
-    combined_sample = np.array([
-        np.hstack([sample[fit_range] for sample, fit_range in zip(config_samples, fit_ranges)])
-        for config_samples in zip(*samples)
-    ])
-    db.add_entry(combined_tag, sample=combined_sample, weights=entries[0].weights, cfgs=entries[0].cfgs)
-
-    fit_tags = []
-    for b in range(1, binsize + 1):
-        bootstrap_fit_tag = None
-        message(f"Binsize = {b}", silent)
-        binned_corr_tag = _ensure_binned(db, combined_tag, b)
-
-        # 1. uncorrelated jackknife fit (primary result)
-        message(_log_divider("jackknife fit"), silent)
-        chi2_func = make_chi2(np.diag(1.0 / db.jackknife_variance(binned_corr_tag)))
-        best_parameter, best_parameter_jks, misc = fit_jks(db, fit_range_combined, binned_corr_tag, p0, chi2_func, config, slice_data=False)
-        misc.update(combined_misc)
-        print_fit_results(best_parameter, jackknife.covariance(best_parameter_jks), misc, silent)
-
-        # 2. correlated mean fit (cross-check) at the endpoint binsizes,
-        #    starting from the jackknife result
-        if b in [1, binsize]:
-            message(_log_divider("correlated mean fit"), silent)
-            cov = db.jackknife_covariance(binned_corr_tag)
-            best, misc_corr = _try_correlated_fit(db, binned_corr_tag, fit_range_combined, cov, len(db.database[binned_corr_tag].jks), best_parameter, make_chi2, config, "binned", slice_data=False, silent=silent)
-            if best is not None:
-                misc_corr.update(combined_misc)
-                print_fit_results(best, None, misc_corr, silent)
-                db.add_entry(f"{binned_corr_tag}/{fit_model_combined}_correlated_mean_fit", central_value=best, misc=misc_corr)
-            message(_log_divider(), silent)
-
-        # 3. bootstrap fit, starting from the jackknife result; b == 1 only
-        #    because the bootstrap indices refer to unbinned configurations
-        if b == 1 and bootstraps is not None:
-            message(_log_divider("bootstrap fit"), silent)
-            W_bss = np.diag(1.0 / bootstrap.variance(db.bss(binned_corr_tag, bootstraps)))
-            best_parameter_bcentral, best_parameter_bss, misc_bss = fit_bss(db, fit_range_combined, binned_corr_tag, best_parameter, make_chi2(W_bss), config, slice_data=False, bootstraps=bootstraps)
-            misc_bss.update(combined_misc)
-            print_fit_results(best_parameter_bcentral, bootstrap.covariance(best_parameter_bss), misc_bss)
-            bootstrap_fit_tag = f"{binned_corr_tag}/{fit_model_combined}_bootstrap_fit"
-            db.add_entry(bootstrap_fit_tag, central_value=best_parameter_bcentral, bss=best_parameter_bss, misc=misc_bss)
-
-        # persist the jackknife fit as this binsize's primary result
-        fit_tag = f"{binned_corr_tag}/{fit_model_combined}_fit"
-        db.add_entry(
-            fit_tag,
-            central_value=best_parameter, jks=best_parameter_jks,
-            cfgs=db.database[binned_corr_tag].cfgs, misc=misc,
-        )
-        fit_tags.append(FitTags(jackknife=fit_tag, bootstrap=bootstrap_fit_tag))
-
-        message(_log_divider(), silent)
-        message(_log_divider(), silent)
-    return fit_tags

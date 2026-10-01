@@ -342,6 +342,34 @@ class DB:
             "binsize": binsize,
         }
 
+    ################################ CONCATENATION #############################
+
+    def concatenate_entries(self, tags):
+        """Join unbinned data entries per config along the data axis.
+
+        Returns a dict of ``sample``, ``central_value``, ``weights``, ``cfgs``
+        and ``misc``, ready to splat into :meth:`add_entry`. Nothing is stored here.
+        """
+        entries = [self.database[tag] for tag in tags]
+        for tag, entry in zip(tags, entries):
+            if entry.binsize != 1 or entry.sample is None:
+                raise ValueError(f"concatenate_entries: {tag!r} must be an unbinned data entry")
+        first = entries[0]
+        for tag, entry in zip(tags[1:], entries[1:]):
+            if not np.array_equal(entry.cfgs, first.cfgs):
+                raise ValueError(f"concatenate_entries: cfgs of {tag!r} and {tags[0]!r} differ")
+            if not np.array_equal(entry.weights, first.weights):
+                raise ValueError(f"concatenate_entries: weights of {tag!r} and {tags[0]!r} differ")
+            if entry.sample.shape != first.sample.shape:
+                raise ValueError(f"concatenate_entries: sample shapes of {tag!r} and {tags[0]!r} differ")
+        return {
+            "sample": np.concatenate([e.sample for e in entries], axis=1),
+            "central_value": np.concatenate([e.central_value for e in entries]),
+            "weights": first.weights,
+            "cfgs": first.cfgs,
+            "misc": {"tags": tuple(tags)},
+        }
+
     ################################ STATISTICS ################################
 
     def jackknife_variance(self, tag):
