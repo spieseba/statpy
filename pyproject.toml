@@ -13,7 +13,7 @@ requires-python=">=3.12"
 authors = [
     {name="Sebastian Spiegel", email="spieseba@mailbox.org"}
 ]
-dependencies=["numpy<2.4", "scipy>=1.15", "iminuit", "numba", "h5py"]
+dependencies=["numpy", "scipy>=1.15", "iminuit", "numba", "h5py"]
 
 [dependency-groups]
 dev = [

@@ -47,7 +47,7 @@ See [caa-control-variates](https://github.com/spieseba/caa-control-variates) for
 ---
 
 ### Prerequisites
-- Python >= 3.12
+- Python >= 3.12 (developed and tested with 3.14; older versions are no longer checked)
 - `uv` installed (see https://docs.astral.sh/uv/getting-started/)
 
 ### Installation
