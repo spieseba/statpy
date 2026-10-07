@@ -13,42 +13,42 @@ def sample(x, weights=None):
     w_col = w.reshape((-1,) + (1,) * (x.ndim - 1))
     return mean + w_col * (mean - x) / (N_w - w_col)
 
-def variance(jks, mean=None):
-    if mean is None: mean = np.mean(jks, axis=0)
-    N = len(jks)
-    return np.sum((jks - mean)**2, axis=0) * (N-1) / N
+def variance(jackknife_samples, mean=None):
+    if mean is None: mean = np.mean(jackknife_samples, axis=0)
+    N = len(jackknife_samples)
+    return np.sum((jackknife_samples - mean)**2, axis=0) * (N-1) / N
 
-def covariance(jks, mean=None):
-    if mean is None: mean = np.mean(jks, axis=0)
-    N = len(jks)
-    d = (jks - mean).reshape(N, -1)   # np.outer flattens its inputs
+def covariance(jackknife_samples, mean=None):
+    if mean is None: mean = np.mean(jackknife_samples, axis=0)
+    N = len(jackknife_samples)
+    d = (jackknife_samples - mean).reshape(N, -1)   # np.outer flattens its inputs
     return np.sum(d[:, :, None] * d[:, None, :], axis=0) * (N-1) / N
 
 
-def delayed_binning(jks, binsize, weights=None, mean=None):
+def delayed_binning(jackknife_samples, bin_size, weights=None, mean=None):
     """Construct the binned jackknife sample from an unbinned one (delayed
     binning, arxiv:2410.17053).
 
     The idea is to defer binning to the end of an analysis: run the whole
-    pipeline once on the unbinned (binsize-1) jackknife sample -- applying
+    pipeline once on the unbinned (bin-size-1) jackknife sample -- applying
     functions to the samples as usual -- and only then call this to obtain the
-    binned jackknife sample at any ``binsize`` for error estimation, instead of
-    re-running the analysis per binsize. The result agrees statistically with
-    having binned the raw data up front (identical when ``binsize`` divides
-    ``len(jks)``). The trailing incomplete bin is truncated.
+    binned jackknife sample at any ``bin_size`` for error estimation, instead of
+    re-running the analysis per bin_size. The result agrees statistically with
+    having binned the raw data up front (identical when ``bin_size`` divides
+    ``len(jackknife_samples)``). The trailing incomplete bin is truncated.
 
     Binning is over axis 0. For a weighted jackknife sample (built by ``sample``
     with non-uniform ``weights``), pass the same ``weights``: the reconstruction
     then uses the per-sample factor (W - w_j)/(W - omega_i) about the weighted
     mean. With ``weights`` None or uniform this reduces to the scalar
-    (N-1)/(N-binsize) form.
+    (N-1)/(N-bin_size) form.
 
     Parameters
     ----------
-    ``jks``: ndarray
-        The unbinned (binsize-1) jackknife sample.
-    ``binsize``: int
-        Desired binsize for the binned jackknife sample.
+    ``jackknife_samples``: ndarray
+        The unbinned (bin-size-1) jackknife sample.
+    ``bin_size``: int
+        Desired bin_size for the binned jackknife sample.
     ``weights``: ndarray, optional
         Per-sample weights the jackknife sample was built with. Required only
         for non-uniform weights.
@@ -59,30 +59,30 @@ def delayed_binning(jks, binsize, weights=None, mean=None):
     Returns:
     --------
     ndarray
-        Binned jackknife sample with binsize ``binsize``.
+        Binned jackknife sample with bin_size ``bin_size``.
     """
-    if binsize <= 1:
-        raise ValueError(f"binsize must be > 1, got {binsize}")
-    N = len(jks)
-    n_bins = N // binsize          # trailing incomplete bin is truncated
-    keep = n_bins * binsize
+    if bin_size <= 1:
+        raise ValueError(f"bin_size must be > 1, got {bin_size}")
+    N = len(jackknife_samples)
+    num_bins = N // bin_size          # trailing incomplete bin is truncated
+    keep = num_bins * bin_size
 
     # uniform weights (None or all equal): the scalar factor is exact, as the
     # constant cancels in both the mean reconstruction and the per-sample factor
     if weights is None or np.all(weights == weights[0]):
         if mean is None: 
-            mean = np.mean(jks, axis=0)
-        bin_sums = jks[:keep].reshape(n_bins, binsize, *jks.shape[1:]).sum(axis=1)
-        return mean + (bin_sums - binsize * mean) * (N-1)/(N-binsize)
+            mean = np.mean(jackknife_samples, axis=0)
+        bin_sums = jackknife_samples[:keep].reshape(num_bins, bin_size, *jackknife_samples.shape[1:]).sum(axis=1)
+        return mean + (bin_sums - bin_size * mean) * (N-1)/(N-bin_size)
 
     # weighted case (! This needs to be checked at some point !)
     warnings.warn("delayed_binning: I have not yet validated the weighted delayed binning; "
                   "results should be cross-checked before use.", stacklevel=2)
-    bcast = (-1,) + (1,) * (jks.ndim - 1)
+    bcast = (-1,) + (1,) * (jackknife_samples.ndim - 1)
     W = weights.sum()
     Ww = (W - weights).reshape(bcast)                                       # (W - w_j), per sample
     if mean is None: 
-        mean = (jks * Ww).sum(axis=0) / (W * (N-1))            # weighted mean from replicates
-    omega = weights[:keep].reshape(n_bins, binsize).sum(axis=1).reshape(bcast)   # omega_i, per bin
-    bin_terms = ((jks[:keep] - mean) * Ww[:keep]).reshape(n_bins, binsize, *jks.shape[1:]).sum(axis=1)
+        mean = (jackknife_samples * Ww).sum(axis=0) / (W * (N-1))            # weighted mean from replicates
+    omega = weights[:keep].reshape(num_bins, bin_size).sum(axis=1).reshape(bcast)   # omega_i, per bin
+    bin_terms = ((jackknife_samples[:keep] - mean) * Ww[:keep]).reshape(num_bins, bin_size, *jackknife_samples.shape[1:]).sum(axis=1)
     return mean + bin_terms / (W - omega)

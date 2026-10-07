@@ -20,8 +20,8 @@ from statpy.statistics import core as statistics
 # names, so a future rename needs a key migration at load — but against plain
 # dicts under a version gate, not against unpickled instances.
 # Retired formats: v1 custom JSON (io.load_v1_json), v2 b"SPDB" pickled Entry
-# instances.
-_MAGIC = b"SPD3"
+# instances, v3 b"SPD3" abbreviated field names (jks, bss, cfgs, misc, sample).
+_MAGIC = b"SPD4"
 _commit_logged = False
 
 
@@ -64,8 +64,8 @@ class DB:
                         + ("..." if len(dup) > 5 else "")
                     )
                 for t, entry in src.database.items():
-                    if entry.cfgs is not None:
-                        _check_unique_cfgs(f"DB merge: entry {t!r}", entry.cfgs)
+                    if entry.configurations is not None:
+                        _check_unique_cfgs(f"DB merge: entry {t!r}", entry.configurations)
                 for t, entry in src.database.items():
                     self.database[t] = Entry(**vars(entry))
 
@@ -98,8 +98,8 @@ class DB:
         # Validate every entry before inserting any, so a bad file leaves
         # the DB untouched.
         for t, state in src_db.items():
-            if state.get("cfgs") is not None:
-                _check_unique_cfgs(f"load({src!r}): entry {t!r}", state["cfgs"])
+            if state.get("configurations") is not None:
+                _check_unique_cfgs(f"load({src!r}): entry {t!r}", state["configurations"])
         for t, state in src_db.items():
             self.database[t] = Entry(**state)
 
@@ -117,20 +117,20 @@ class DB:
 
     ################################ ENTRY MANAGEMENT ##########################
 
-    def add_entry(self, tag, *, central_value=None, jks=None, sample=None, weights=None,
-                 cfgs=None, bss=None, misc=None, binsize=1):
+    def add_entry(self, tag, *, central_value=None, jackknife_samples=None, samples=None, weights=None,
+                 configurations=None, bootstrap_samples=None, metadata=None, bin_size=1):
         """Add a new entry at ``tag``.
 
         Three valid shapes:
-          - Data entry: ``sample`` + ``weights`` + ``cfgs`` (matching length);
-            ``jks`` is auto-derived and ``central_value`` defaults to the
-            weighted sample mean unless supplied explicitly.
-          - Derived entry: ``sample=None`` but ``jks`` and ``cfgs`` given
-            (matching length).
-          - Result entry: only ``central_value`` and optionally ``bss``.
-        ``cfgs`` labels must be unique -- each identifies exactly one
+          - Data entry: ``samples`` + ``weights`` + ``configurations`` (matching
+            length); ``jackknife_samples`` is auto-derived and ``central_value``
+            defaults to the weighted mean of ``samples`` unless supplied explicitly.
+          - Derived entry: ``samples=None`` but ``jackknife_samples`` and
+            ``configurations`` given (matching length).
+          - Result entry: only ``central_value`` and optionally ``bootstrap_samples``.
+        ``configurations`` labels must be unique -- each identifies exactly one
         resample (:meth:`combine` aligns entries by cfg label).
-        ``binsize`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
+        ``bin_size`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
 
         Entries are create-only: an existing ``tag`` raises
         :class:`DuplicateTagError`. To replace, :meth:`remove_entry` first.
@@ -138,39 +138,40 @@ class DB:
         if tag in self.database:
             raise DuplicateTagError(f"add_entry({tag!r}): tag already exists")
 
-        if sample is not None:
+        if samples is not None:
             if weights is None:
-                raise ValueError(f"add_entry({tag!r}): sample requires weights")
-            if cfgs is None:
-                raise ValueError(f"add_entry({tag!r}): sample requires cfgs")
-            if not isinstance(sample, np.ndarray):
-                raise TypeError(f"add_entry({tag!r}): sample must be np.ndarray, got {type(sample).__name__}")
+                raise ValueError(f"add_entry({tag!r}): samples requires weights")
+            if configurations is None:
+                raise ValueError(f"add_entry({tag!r}): samples requires configurations")
+            if not isinstance(samples, np.ndarray):
+                raise TypeError(f"add_entry({tag!r}): samples must be np.ndarray, got {type(samples).__name__}")
             if not isinstance(weights, np.ndarray):
                 raise TypeError(f"add_entry({tag!r}): weights must be np.ndarray, got {type(weights).__name__}")
-            if not isinstance(cfgs, np.ndarray):
-                raise TypeError(f"add_entry({tag!r}): cfgs must be np.ndarray, got {type(cfgs).__name__}")
-            if not (len(sample) == len(weights) == len(cfgs)):
+            if not isinstance(configurations, np.ndarray):
+                raise TypeError(f"add_entry({tag!r}): configurations must be np.ndarray, got {type(configurations).__name__}")
+            if not (len(samples) == len(weights) == len(configurations)):
                 raise ValueError(
-                    f"add_entry({tag!r}): length mismatch sample={len(sample)} "
-                    f"weights={len(weights)} cfgs={len(cfgs)}"
+                    f"add_entry({tag!r}): length mismatch samples={len(samples)} "
+                    f"weights={len(weights)} configurations={len(configurations)}"
                 )
-            if jks is not None:
-                raise ValueError(f"add_entry({tag!r}): do not pass jks when sample+weights are given; jks is derived")
-            jks = jackknife.sample(sample, weights=weights)
+            if jackknife_samples is not None:
+                raise ValueError(f"add_entry({tag!r}): do not pass jackknife_samples when samples+weights are given; they are derived")
+            jackknife_samples = jackknife.sample(samples, weights=weights)
             if central_value is None:
-                central_value = np.average(sample, axis=0, weights=weights)
+                central_value = np.average(samples, axis=0, weights=weights)
         else:
-            if cfgs is not None and jks is not None and len(jks) != len(cfgs):
+            if configurations is not None and jackknife_samples is not None and len(jackknife_samples) != len(configurations):
                 raise ValueError(
-                    f"add_entry({tag!r}): jks/cfgs length mismatch jks={len(jks)} cfgs={len(cfgs)}"
+                    f"add_entry({tag!r}): jackknife_samples/configurations length mismatch "
+                    f"jackknife_samples={len(jackknife_samples)} configurations={len(configurations)}"
                 )
 
-        if cfgs is not None:
-            _check_unique_cfgs(f"add_entry({tag!r})", cfgs)
+        if configurations is not None:
+            _check_unique_cfgs(f"add_entry({tag!r})", configurations)
 
         self.database[tag] = Entry(
-            central_value=central_value, jks=jks, sample=sample, weights=weights,
-            cfgs=cfgs, bss=bss, misc=misc, binsize=binsize,
+            central_value=central_value, jackknife_samples=jackknife_samples, samples=samples, weights=weights,
+            configurations=configurations, bootstrap_samples=bootstrap_samples, metadata=metadata, bin_size=bin_size,
         )
 
     def remove_entry(self, tag):
@@ -191,20 +192,20 @@ class DB:
         del self.database[old]
 
     def __repr__(self):
-        return f"<DB n_entries={len(self.database)}>"
+        return f"<DB num_entries={len(self.database)}>"
 
     def __str__(self):
         """Multi-line overview: entry counts per category."""
-        counts = {"raw data": 0, "binned data": 0, "derived (jks)": 0, "result (central_value/bss)": 0}
+        counts = {"raw data": 0, "binned data": 0, "derived (jackknife)": 0, "result (central/bootstrap)": 0}
         for entry in self.database.values():
-            if entry.sample is not None and entry.binsize == 1:
+            if entry.samples is not None and entry.bin_size == 1:
                 counts["raw data"] += 1
-            elif entry.sample is not None:
+            elif entry.samples is not None:
                 counts["binned data"] += 1
-            elif entry.jks is not None:
-                counts["derived (jks)"] += 1
+            elif entry.jackknife_samples is not None:
+                counts["derived (jackknife)"] += 1
             else:
-                counts["result (central_value/bss)"] += 1
+                counts["result (central/bootstrap)"] += 1
         lines = [f"DB with {len(self.database)} entries:"]
         for cat, n in counts.items():
             lines.append(f"  {cat:20s} {n}")
@@ -220,9 +221,9 @@ class DB:
         """Print the tags matching ``pattern``, one per line, sorted."""
         print(*sorted(self.get_tags(pattern)), sep="\n")
 
-    def get_cfgs(self, tag):
-        """Cfg labels of the entry at ``tag`` as a list."""
-        return list(self.database[tag].cfgs)
+    def get_configurations(self, tag):
+        """Configuration labels of the entry at ``tag`` as a list."""
+        return list(self.database[tag].configurations)
 
     ################################ TRANSFORM #################################
 
@@ -231,36 +232,37 @@ class DB:
         every bootstrap sample of the entry at ``tag``.
 
         If ``store_as`` is given, the result is stored under that tag and
-        nothing is returned; otherwise the ``(central_value, jks, bss)`` tuple
-        is returned.
+        nothing is returned; otherwise the
+        ``(central_value, jackknife_samples, bootstrap_samples)`` tuple is returned.
         """
         entry = self.database[tag]
         central_value = f(entry.central_value)
-        jks = self.transform_jks(tag, f) if entry.jks is not None else None
-        bss = self.transform_bss(tag, f) if entry.bss is not None else None
+        jks = self.transform_jackknife(tag, f) if entry.jackknife_samples is not None else None
+        bss = self.transform_bootstrap(tag, f) if entry.bootstrap_samples is not None else None
         if store_as is not None:
-            self.add_entry(store_as, central_value=central_value, jks=jks, cfgs=entry.cfgs, bss=bss)
+            self.add_entry(store_as, central_value=central_value, jackknife_samples=jks,
+                           configurations=entry.configurations, bootstrap_samples=bss)
             return
         return central_value, jks, bss
 
-    def transform_jks(self, tag, f):
-        """Return ``f``-mapped ``jks`` array of the entry at ``tag``."""
-        return np.array([f(jk) for jk in self.database[tag].jks])
+    def transform_jackknife(self, tag, f):
+        """Return ``f`` applied to every jackknife sample of the entry at ``tag``."""
+        return np.array([f(jk) for jk in self.database[tag].jackknife_samples])
 
-    def transform_bss(self, tag, f, bootstraps=None):
-        """Return ``f``-mapped ``bss`` array of the entry at ``tag``.
+    def transform_bootstrap(self, tag, f, bootstraps=None):
+        """Return ``f`` applied to every bootstrap sample of the entry at ``tag``.
 
-        If the entry has no stored ``bss`` (raw-data entry with sample+weights),
-        bootstrap samples are computed on the fly via :meth:`bss`; pass the
-        ``(n_bs, n_cfgs)`` bootstrap-index matrix as ``bootstraps``.
+        If the entry has no stored ``bootstrap_samples`` (raw-data entry with
+        samples+weights), they are computed on the fly via :meth:`bootstrap_samples`;
+        pass the ``(num_bs, num_configurations)`` bootstrap-index matrix as ``bootstraps``.
         """
         entry = self.database[tag]
-        if entry.bss is not None:
-            bss = entry.bss
+        if entry.bootstrap_samples is not None:
+            bss = entry.bootstrap_samples
         else:
             if bootstraps is None:
-                raise ValueError(f"transform_bss({tag!r}): entry has no stored bss; pass bootstraps=<index matrix>")
-            bss = self.bss(tag, bootstraps)
+                raise ValueError(f"transform_bootstrap({tag!r}): entry has no stored bootstrap_samples; pass bootstraps=<index matrix>")
+            bss = self.bootstrap_samples(tag, bootstraps)
         return np.array([f(b) for b in bss])
 
     ################################ COMBINE ###################################
@@ -270,76 +272,77 @@ class DB:
 
         Cfg sets may differ — the union is taken in encounter order and
         entries missing a cfg contribute their ``central_value`` (= "no
-        fluctuation at this cfg"). ``bss`` are aligned by bootstrap index and
-        combined only if every input has ``bss`` set.
+        fluctuation at this cfg"). ``bootstrap_samples`` are aligned by bootstrap
+        index and combined only if every input has them.
 
         If ``store_as`` is given, the result is stored under that tag and
-        nothing is returned; otherwise the ``(central_value, jks, bss)`` tuple
-        is returned.
+        nothing is returned; otherwise the
+        ``(central_value, jackknife_samples, bootstrap_samples)`` tuple is returned.
         """
         entries = [self.database[tag] for tag in tags]
         for tag, entry in zip(tags, entries):
-            if entry.cfgs is None:
-                raise ValueError(f"combine({tag!r}): input entry has no cfgs")
-            if entry.jks is None:
-                raise ValueError(f"combine({tag!r}): input entry has no jks")
+            if entry.configurations is None:
+                raise ValueError(f"combine({tag!r}): input entry has no configurations")
+            if entry.jackknife_samples is None:
+                raise ValueError(f"combine({tag!r}): input entry has no jackknife_samples")
 
         # Union cfgs in encounter order — preserves tags[0]'s ordering.
         seen = set()
         union_cfgs = []
         for entry in entries:
-            for c in entry.cfgs:
+            for c in entry.configurations:
                 if c not in seen:
                     seen.add(c)
                     union_cfgs.append(c)
         union_cfgs = np.array(union_cfgs)
 
-        idx_maps = [{c: i for i, c in enumerate(entry.cfgs)} for entry in entries]
+        idx_maps = [{c: i for i, c in enumerate(entry.configurations)} for entry in entries]
 
         central_value = f(*[entry.central_value for entry in entries])
         jks = np.array([
-            f(*[entry.jks[idx_maps[i][c]] if c in idx_maps[i] else entry.central_value
+            f(*[entry.jackknife_samples[idx_maps[i][c]] if c in idx_maps[i] else entry.central_value
                 for i, entry in enumerate(entries)])
             for c in union_cfgs
         ])
         bss = None
-        if all(entry.bss is not None for entry in entries):
-            n_bs = entries[0].bss.shape[0]
-            bss = np.array([f(*[entry.bss[i] for entry in entries]) for i in range(n_bs)])
+        if all(entry.bootstrap_samples is not None for entry in entries):
+            num_bs = entries[0].bootstrap_samples.shape[0]
+            bss = np.array([f(*[entry.bootstrap_samples[i] for entry in entries]) for i in range(num_bs)])
 
         if store_as is not None:
-            self.add_entry(store_as, central_value=central_value, jks=jks, cfgs=union_cfgs, bss=bss)
+            self.add_entry(store_as, central_value=central_value, jackknife_samples=jks,
+                           configurations=union_cfgs, bootstrap_samples=bss)
             return
         return central_value, jks, bss
 
     ################################ BINNING ###################################
 
-    def bin_entry(self, tag, binsize):
-        """Bin the data entry at ``tag`` into bins of ``binsize`` configs.
+    def bin_entry(self, tag, bin_size):
+        """Bin the data entry at ``tag`` into bins of ``bin_size`` configs.
 
-        Returns a dict of the binned ``sample``, ``weights``, ``cfgs``,
-        ``binsize`` and ``misc``, ready to splat into :meth:`add_entry` --
+        Returns a dict of the binned ``samples``, ``weights``, ``configurations``,
+        ``bin_size`` and ``metadata``, ready to splat into :meth:`add_entry` --
         the caller picks the destination tag. Nothing is stored here.
 
-        Cfgs become synthetic ``f"{src}-bin{i}"`` labels; the trailing
+        Configurations become synthetic ``f"{src}-bin{i}"`` labels; the trailing
         incomplete bin is truncated.
         """
-        if binsize <= 1:
-            raise ValueError(f"bin_entry({tag!r}): binsize must be > 1, got {binsize}")
+        if bin_size <= 1:
+            raise ValueError(f"bin_entry({tag!r}): bin_size must be > 1, got {bin_size}")
         src_entry = self.database[tag]
-        if src_entry.binsize != 1:
-            raise ValueError(f"bin_entry({tag!r}): entry is already binned (binsize={src_entry.binsize})")
-        if src_entry.sample is None or src_entry.weights is None:
-            raise ValueError(f"bin_entry({tag!r}): entry must carry sample and weights")
+        if src_entry.bin_size != 1:
+            raise ValueError(f"bin_entry({tag!r}): entry is already binned (bin_size={src_entry.bin_size})")
+        if src_entry.samples is None or src_entry.weights is None:
+            raise ValueError(f"bin_entry({tag!r}): entry must carry samples and weights")
         # statistics.bin truncates a trailing incomplete bin.
-        n_bins = len(src_entry.sample) // binsize
+        num_bins = len(src_entry.samples) // bin_size
         prefix = tag.split("/")[0]
         return {
-            "sample": statistics.bin(src_entry.sample, binsize, weights=src_entry.weights),
-            "weights": statistics.bin(src_entry.weights, binsize=binsize),
-            "cfgs": np.array([f"{prefix}-bin{i}" for i in range(n_bins)]),
-            "misc": src_entry.misc,
-            "binsize": binsize,
+            "samples": statistics.bin(src_entry.samples, bin_size, weights=src_entry.weights),
+            "weights": statistics.bin(src_entry.weights, bin_size=bin_size),
+            "configurations": np.array([f"{prefix}-bin{i}" for i in range(num_bins)]),
+            "metadata": src_entry.metadata,
+            "bin_size": bin_size,
         }
 
     ################################ CONCATENATION #############################
@@ -347,55 +350,56 @@ class DB:
     def concatenate_entries(self, tags):
         """Join unbinned data entries per config along the data axis.
 
-        Returns a dict of ``sample``, ``central_value``, ``weights``, ``cfgs``
-        and ``misc``, ready to splat into :meth:`add_entry`. Nothing is stored here.
+        Returns a dict of ``samples``, ``central_value``, ``weights``,
+        ``configurations`` and ``metadata``, ready to splat into :meth:`add_entry`.
+        Nothing is stored here.
         """
         entries = [self.database[tag] for tag in tags]
         for tag, entry in zip(tags, entries):
-            if entry.binsize != 1 or entry.sample is None:
+            if entry.bin_size != 1 or entry.samples is None:
                 raise ValueError(f"concatenate_entries: {tag!r} must be an unbinned data entry")
         first = entries[0]
         for tag, entry in zip(tags[1:], entries[1:]):
-            if not np.array_equal(entry.cfgs, first.cfgs):
-                raise ValueError(f"concatenate_entries: cfgs of {tag!r} and {tags[0]!r} differ")
+            if not np.array_equal(entry.configurations, first.configurations):
+                raise ValueError(f"concatenate_entries: configurations of {tag!r} and {tags[0]!r} differ")
             if not np.array_equal(entry.weights, first.weights):
                 raise ValueError(f"concatenate_entries: weights of {tag!r} and {tags[0]!r} differ")
-            if entry.sample.shape != first.sample.shape:
-                raise ValueError(f"concatenate_entries: sample shapes of {tag!r} and {tags[0]!r} differ")
+            if entry.samples.shape != first.samples.shape:
+                raise ValueError(f"concatenate_entries: samples shapes of {tag!r} and {tags[0]!r} differ")
         return {
-            "sample": np.concatenate([e.sample for e in entries], axis=1),
+            "samples": np.concatenate([e.samples for e in entries], axis=1),
             "central_value": np.concatenate([e.central_value for e in entries]),
             "weights": first.weights,
-            "cfgs": first.cfgs,
-            "misc": {"tags": tuple(tags)},
+            "configurations": first.configurations,
+            "metadata": {"tags": tuple(tags)},
         }
 
     ################################ STATISTICS ################################
 
     def jackknife_variance(self, tag):
         """Variance of the entry's stored jackknife samples."""
-        return jackknife.variance(self.database[tag].jks)
+        return jackknife.variance(self.database[tag].jackknife_samples)
 
     def jackknife_covariance(self, tag):
         """Covariance of the entry's stored jackknife samples."""
-        return jackknife.covariance(self.database[tag].jks)
+        return jackknife.covariance(self.database[tag].jackknife_samples)
 
-    def bss(self, tag, bootstraps):
-        """Compute bootstrap samples of ``tag``'s sample.
+    def bootstrap_samples(self, tag, bootstraps):
+        """Compute bootstrap samples of ``tag``'s samples.
 
-        ``bootstraps`` is the ``(n_bs, n_cfgs)`` index matrix produced by
+        ``bootstraps`` is the ``(num_bs, num_configurations)`` index matrix produced by
         :func:`statpy.statistics.bootstrap.generate_bootstraps` (or read
         from a ``.boot.txt`` file via :func:`parse_bootstrap_file`).
         ``tag`` must point at an unbinned entry — the indices reference
         cfg positions, not bin positions.
         """
         entry = self.database[tag]
-        return bootstrap.sample(entry.sample, bootstraps, weights=entry.weights)
+        return bootstrap.sample(entry.samples, bootstraps, weights=entry.weights)
 
     def bootstrap_variance(self, tag):
         """Variance of the entry's stored bootstrap samples."""
-        return bootstrap.variance(self.database[tag].bss)
+        return bootstrap.variance(self.database[tag].bootstrap_samples)
 
     def bootstrap_covariance(self, tag):
         """Covariance of the entry's stored bootstrap samples."""
-        return bootstrap.covariance(self.database[tag].bss)
+        return bootstrap.covariance(self.database[tag].bootstrap_samples)

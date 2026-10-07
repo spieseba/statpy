@@ -5,21 +5,21 @@ from statpy.qcd.correlator.primitives import _validate_time_parity
 
 
 # Masked sample for OBC averaging (vectorized over configs).
-# sample (N_cfg, n_corrs, T) -> masked (N_cfg, 2*n_corrs, T): forward corrs in the
-# first n_corrs rows, time-reversed backward corrs in the second. Mask is config-independent.
+# sample (N_cfg, num_corrs, T) -> masked (N_cfg, 2*num_corrs, T): forward corrs in the
+# first num_corrs rows, time-reversed backward corrs in the second. Mask is config-independent.
 # Mesons only: the backward half is folded as the same state (time_parity=-1 -> sinh, else cosh).
 def _get_masked_meson_sample(sample, tmax_fw, tmax_bw, time_parity):
     time_parity = _validate_time_parity(time_parity)
-    N, n_corrs, T = sample.shape
+    N, num_corrs, T = sample.shape
     # backward = time-reverse each corr (flip then roll by 1)
     bw = np.roll(np.flip(sample, axis=2), 1, axis=2)
     bw[:, :, 1:] *= time_parity
-    out = np.ma.empty((N, 2*n_corrs, T))
+    out = np.ma.empty((N, 2*num_corrs, T))
     out.mask = True
-    out[:, :n_corrs, :tmax_fw] = sample[:, :, :tmax_fw]
-    out.mask[:, :n_corrs, :tmax_fw] = False
-    out[:, n_corrs:, :tmax_bw] = bw[:, :, :tmax_bw]
-    out.mask[:, n_corrs:, :tmax_bw] = False
+    out[:, :num_corrs, :tmax_fw] = sample[:, :, :tmax_fw]
+    out.mask[:, :num_corrs, :tmax_fw] = False
+    out[:, num_corrs:, :tmax_bw] = bw[:, :, :tmax_bw]
+    out.mask[:, num_corrs:, :tmax_bw] = False
     return out
 
 
@@ -36,9 +36,9 @@ def _get_tmax_fw_bw(tsrcs, bulk_range):
 def _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc=None):
     # get corrs in terms of original lattice
     corrs_aligned = np.roll(corrs, tsrc, axis=1)
-    n_corrs = corrs.shape[0]
+    num_corrs = corrs.shape[0]
     # 1: create masked array
-    corrs_ma = np.ma.empty((n_corrs, corrs.shape[1]) )
+    corrs_ma = np.ma.empty((num_corrs, corrs.shape[1]) )
     corrs_ma.mask = True
     # 2: fill in all elements that are not excited states
     corrs_ma[:,:tsrc-(tmin_excited-1)] = corrs_aligned[:,:tsrc-(tmin_excited-1)]

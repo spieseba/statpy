@@ -14,19 +14,19 @@ def test_large_dynamic_range_is_accepted_and_inverted():
     cov = corr * np.outer(sigma, sigma)
     assert not np.all(np.linalg.eigvals(cov) > 0)  # previous check rejects it
 
-    inverse, reason = _inverse_covariance(cov, n_samples=1000)
+    inverse, reason = _inverse_covariance(cov, num_samples=1000)
     assert reason is None
     np.testing.assert_allclose(inverse * np.outer(sigma, sigma) @ corr, np.eye(n), atol=1e-10)
 
 
 def test_indefinite_matrix_is_rejected():
     corr = np.array([[1.0, 0.9, 0.9], [0.9, 1.0, -0.9], [0.9, -0.9, 1.0]])
-    inverse, reason = _inverse_covariance(corr, n_samples=100)
+    inverse, reason = _inverse_covariance(corr, num_samples=100)
     assert inverse is None and reason.startswith("not positive definite")
 
 
 def test_too_few_samples_is_rejected():
     rng = np.random.default_rng(0)
     cov = np.cov(rng.normal(size=(10, 12)), rowvar=False)
-    inverse, reason = _inverse_covariance(cov, n_samples=10)
+    inverse, reason = _inverse_covariance(cov, num_samples=10)
     assert inverse is None and reason == "singular: 12 points from 10 samples"

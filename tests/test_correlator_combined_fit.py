@@ -26,7 +26,7 @@ def _synthetic_db(fit_models):
     db = DB()
     for tag, model, amplitude in zip(("smsm", "smloc"), fit_models, TRUE_P[:2]):
         sample = _model(model, t, amplitude, TRUE_P[2], NT) + rng.normal(scale=0.003, size=(N_CFG, NT))
-        db.add_entry(tag, sample=sample, weights=weights, cfgs=cfgs)
+        db.add_entry(tag, samples=sample, weights=weights, configurations=cfgs)
     return db
 
 
@@ -36,30 +36,30 @@ def test_fit_references_resolve_resamples(with_bootstrap):
     bootstraps = np.random.default_rng(8).integers(N_CFG, size=(20, N_CFG)) if with_bootstrap else None
     fits = [
         ground_state_fit(
-            db, "smsm", binsize, FIT_RANGES[0], [1.3, 0.24], "cosh", CONFIG,
-            Nt=NT, silent=True, bootstraps=bootstraps if binsize == 1 else None,
+            db, "smsm", bin_size, FIT_RANGES[0], [1.3, 0.24], "cosh", CONFIG,
+            Nt=NT, silent=True, bootstraps=bootstraps if bin_size == 1 else None,
         )
-        for binsize in (1, 2)
+        for bin_size in (1, 2)
     ]
     truth = TRUE_P[[0, 2]]
     assert len(fits) == 2
-    for binsize, fit in enumerate(fits, start=1):
+    for bin_size, fit in enumerate(fits, start=1):
         assert isinstance(fit, FitTags)
         entry = db.database[fit.jackknife]
-        assert entry.jks.shape == (N_CFG // binsize, len(truth))
+        assert entry.jackknife_samples.shape == (N_CFG // bin_size, len(truth))
         np.testing.assert_allclose(entry.central_value, truth, rtol=0.08, atol=0.02)
-        if with_bootstrap and binsize == 1:
+        if with_bootstrap and bin_size == 1:
             entry_bs = db.database[fit.bootstrap]
-            assert entry_bs.bss.shape == (len(bootstraps), len(truth))
+            assert entry_bs.bootstrap_samples.shape == (len(bootstraps), len(truth))
             np.testing.assert_allclose(entry_bs.central_value, truth, rtol=0.08, atol=0.02)
         else:
             assert fit.bootstrap is None
 
 
-def test_ground_state_fit_rejects_bootstrap_above_binsize_one():
+def test_ground_state_fit_rejects_bootstrap_above_bin_size_one():
     db = _synthetic_db(("cosh", "cosh"))
 
-    with pytest.raises(ValueError, match="binsize == 1"):
+    with pytest.raises(ValueError, match="bin_size == 1"):
         ground_state_fit(
             db, "smsm", 5, FIT_RANGES[0], [1.3, 0.24], "cosh", CONFIG,
             Nt=NT, bootstraps=np.zeros((2, N_CFG), dtype=int), silent=True,

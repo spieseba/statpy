@@ -21,7 +21,7 @@ def _parse_cfg_id(name):
     return int(m.group(1))
 
 
-def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_removed=None, meas_group="messpec", reverse=False, silent=False):
+def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configurations_to_be_removed=None, meas_group="messpec", reverse=False, silent=False):
     """Load CLS hdf5 measurements + reweighting factors into a fresh ``DB``.
 
     Each hdf5 dataset under ``meas_group/data`` whose key matches any regex
@@ -31,7 +31,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
     ``reverse=True``). The raw rwf is embedded as ``weights`` — no
     separate ``/rwf`` / ``/nrwf`` entries.
 
-    ``cfgs_to_be_removed`` filters both streams before insertion; their
+    ``configurations_to_be_removed`` filters both streams before insertion; their
     remaining cfg sets must agree exactly.
 
     Patterns are processed in order; overlapping matches load each dataset
@@ -41,8 +41,8 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         raise FileNotFoundError(f"hdf5 file {fn!r} not found!")
     if not os.path.isfile(rwf_fn):
         raise FileNotFoundError(f"rwf file {rwf_fn!r} not found!")
-    if cfgs_to_be_removed is not None and not isinstance(cfgs_to_be_removed, (list, np.ndarray)):
-        raise TypeError("'cfgs_to_be_removed' must be list | np.ndarray | None")
+    if configurations_to_be_removed is not None and not isinstance(configurations_to_be_removed, (list, np.ndarray)):
+        raise TypeError("'configurations_to_be_removed' must be list | np.ndarray | None")
 
     compiled_patterns = [re.compile(pattern) for pattern in correlator_patterns]
 
@@ -61,7 +61,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
         )
         + "\n"
         + textwrap.fill(
-            str(cfgs_to_be_removed), width=72,
+            str(configurations_to_be_removed), width=72,
             initial_indent=f"  {'Excluded cfgs':<14} ", subsequent_indent=" " * 17,
             break_long_words=False, break_on_hyphens=False,
         ),
@@ -70,7 +70,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
     with h5py.File(fn, "r") as h5:
         f = h5[meas_group]
         h5_cfgs = np.array([_parse_cfg_id(cfg.decode("utf-8")) for cfg in f["configlist"]])
-        h5_cfgs_filtered = h5_cfgs[~np.isin(h5_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else h5_cfgs
+        h5_cfgs_filtered = h5_cfgs[~np.isin(h5_cfgs, configurations_to_be_removed)] if configurations_to_be_removed is not None else h5_cfgs
         _log_h5_git(f, silent)
         message(
             "  HDF5 configurations\n"
@@ -82,7 +82,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, cfgs_to_be_re
 
         _log_rwf_git(rwf_fn, silent)
         rwf_cfgs, rwf_values = _load_rwf_dispatch(rwf_fn)
-        rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, cfgs_to_be_removed)] if cfgs_to_be_removed is not None else rwf_cfgs
+        rwf_cfgs_filtered = rwf_cfgs[~np.isin(rwf_cfgs, configurations_to_be_removed)] if configurations_to_be_removed is not None else rwf_cfgs
         message(
             "  Reweighting configurations\n"
             f"    {'Total':<16}  {rwf_cfgs.shape[0]}\n"
@@ -186,7 +186,7 @@ def _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream
                 f_tag = f"{stream_tag}/{run_tag}/{key}"
                 db.add_entry(
                     tag=f_tag,
-                    sample=sample, weights=weights, cfgs=cfg_labels,
+                    samples=sample, weights=weights, configurations=cfg_labels,
                 )
                 loaded_keys.add(key)
 
@@ -200,8 +200,8 @@ def decode_v1_ndarray(blob):
 def load_v1_json(fn, silent=False):
     """Convert a retired v1 (custom-JSON) statpy database into a new ``DB``.
 
-    Samples get uniform weights; ``mean`` and ``jks`` are recomputed and ``misc``
-    is kept. Raises ``ValueError`` if a leaf's samples cannot be stacked.
+    Samples get uniform weights; ``mean`` and ``jackknife_samples`` are recomputed
+    and ``misc`` is kept as ``metadata``. Raises ``ValueError`` if a leaf's samples cannot be stacked.
     """
     if not os.path.isfile(fn):
         raise FileNotFoundError(f"{fn} not found")
@@ -223,6 +223,6 @@ def load_v1_json(fn, silent=False):
             )
         sample = np.array(rows)
         weights = np.ones(len(cfgs))
-        db.add_entry(tag, sample=sample, weights=weights, cfgs=cfgs, misc=leaf.get("misc"))
+        db.add_entry(tag, samples=sample, weights=weights, configurations=cfgs, metadata=leaf.get("misc"))
     message(f" -- migrated {len(raw)} entries", silent)
     return db

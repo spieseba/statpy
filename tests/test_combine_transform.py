@@ -19,20 +19,20 @@ def _db():
     cfgs = np.array([f"c{i}" for i in range(50)])
     weights = np.ones(len(cfgs))
     db = DB()
-    db.add_entry("a", sample=5.0 + rng.standard_normal((50, 3)), weights=weights, cfgs=cfgs)
-    db.add_entry("b", sample=5.0 + rng.standard_normal((50, 3)), weights=weights, cfgs=cfgs)
+    db.add_entry("a", samples=5.0 + rng.standard_normal((50, 3)), weights=weights, configurations=cfgs)
+    db.add_entry("b", samples=5.0 + rng.standard_normal((50, 3)), weights=weights, configurations=cfgs)
     return db
 
 
 def test_transform_returns_tuple_without_store_as():
     db = _db()
-    n_before = len(db.database)
+    num_before = len(db.database)
     out = db.transform("a", f=lambda x: 2 * x)
     assert isinstance(out, tuple) and len(out) == 3            # (mean, jks, bss)
     mean, _, bss = out
     np.testing.assert_allclose(mean, 2 * db.database["a"].central_value, rtol=1e-12)
     assert bss is None                                         # data entry has no bss
-    assert len(db.database) == n_before                        # nothing stored
+    assert len(db.database) == num_before                        # nothing stored
 
 
 def test_transform_stores_and_returns_none_with_store_as():
@@ -42,15 +42,15 @@ def test_transform_stores_and_returns_none_with_store_as():
     assert ret is None                                         # store mode returns nothing
     assert "a2" in db.database
     np.testing.assert_allclose(db.database["a2"].central_value, mean, rtol=1e-12)
-    np.testing.assert_allclose(db.database["a2"].jks, jks, rtol=1e-12)
+    np.testing.assert_allclose(db.database["a2"].jackknife_samples, jks, rtol=1e-12)
 
 
 def test_combine_returns_tuple_without_store_as():
     db = _db()
-    n_before = len(db.database)
+    num_before = len(db.database)
     out = db.combine("a", "b", f=lambda x, y: x / y)
     assert isinstance(out, tuple) and len(out) == 3
-    assert len(db.database) == n_before                        # nothing stored
+    assert len(db.database) == num_before                        # nothing stored
 
 
 def test_combine_stores_and_returns_none_with_store_as():
@@ -60,7 +60,7 @@ def test_combine_stores_and_returns_none_with_store_as():
     assert ret is None
     assert "r" in db.database
     np.testing.assert_allclose(db.database["r"].central_value, mean, rtol=1e-12)
-    np.testing.assert_allclose(db.database["r"].jks, jks, rtol=1e-12)
+    np.testing.assert_allclose(db.database["r"].jackknife_samples, jks, rtol=1e-12)
 
 
 if __name__ == "__main__":

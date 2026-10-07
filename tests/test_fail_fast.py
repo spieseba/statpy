@@ -11,9 +11,9 @@ from statpy.database.core import DB, DuplicateTagError
 def _data_entry_kwargs(seed=0):
     rng = np.random.default_rng(seed)
     return {
-        "sample": rng.normal(size=(10, 4)),
+        "samples": rng.normal(size=(10, 4)),
         "weights": np.ones(10),
-        "cfgs": np.array([f"c{i}" for i in range(10)]),
+        "configurations": np.array([f"c{i}" for i in range(10)]),
     }
 
 

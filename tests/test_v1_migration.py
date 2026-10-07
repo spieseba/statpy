@@ -78,15 +78,15 @@ def _run(tmpdir):
     assert set(db.database) == set(expected), "tag set must be preserved"
     for tag, (cfgs, mean, stacked, jks, misc) in expected.items():
         e = db.database[tag]
-        assert list(e.cfgs) == cfgs, f"{tag}: cfg labels/order preserved"
-        assert np.array_equal(e.sample, stacked), f"{tag}: sample decoded/stacked exactly"
+        assert list(e.configurations) == cfgs, f"{tag}: cfg labels/order preserved"
+        assert np.array_equal(e.samples, stacked), f"{tag}: sample decoded/stacked exactly"
         np.testing.assert_allclose(e.central_value, mean, rtol=1e-12, atol=0,
                                    err_msg=f"{tag}: derived mean matches v1")
         v1_jks = np.array([jks[c] for c in cfgs])
-        np.testing.assert_allclose(e.jks, v1_jks, rtol=1e-12, atol=0,
+        np.testing.assert_allclose(e.jackknife_samples, v1_jks, rtol=1e-12, atol=0,
                                    err_msg=f"{tag}: derived jks matches v1 leave-one-out")
         assert np.array_equal(e.weights, np.ones(len(cfgs))), f"{tag}: uniform weights"
-        assert e.misc == misc, f"{tag}: misc carried through unchanged"
+        assert e.metadata == misc, f"{tag}: misc carried through unchanged"
 
     # save/load (v2 pickle+CRC32) round-trips
     dst = os.path.join(tmpdir, "fermionic.db")
@@ -94,7 +94,7 @@ def _run(tmpdir):
     reloaded = DB(dst)
     assert set(reloaded.database) == set(expected)
     for tag in expected:
-        np.testing.assert_array_equal(reloaded.database[tag].sample, db.database[tag].sample)
+        np.testing.assert_array_equal(reloaded.database[tag].samples, db.database[tag].samples)
 
 
 def test_v1_migration_round_trip():

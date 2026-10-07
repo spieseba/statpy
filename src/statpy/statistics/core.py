@@ -2,18 +2,18 @@ import numpy as np
 
 
 # binning
-def bin(data, binsize, weights=None):
-    assert binsize is not None
-    if binsize == 1:
+def bin(data, bin_size, weights=None):
+    assert bin_size is not None
+    if bin_size == 1:
         return data
     N = len(data)
     w = np.ones(N) if weights is None else weights
-    Nb = N // binsize # cut off data of last incomplete bin
-    keep = Nb * binsize
+    Nb = N // bin_size # cut off data of last incomplete bin
+    keep = Nb * bin_size
     tail = (1,) * (np.ndim(data) - 1)
-    d = np.asarray(data)[:keep].reshape((Nb, binsize) + np.shape(data)[1:])
-    wb = np.asarray(w)[:keep].reshape(Nb, binsize)
-    return (d * wb.reshape((Nb, binsize) + tail)).sum(axis=1) / wb.sum(axis=1).reshape((-1,) + tail)
+    d = np.asarray(data)[:keep].reshape((Nb, bin_size) + np.shape(data)[1:])
+    wb = np.asarray(w)[:keep].reshape(Nb, bin_size)
+    return (d * wb.reshape((Nb, bin_size) + tail)).sum(axis=1) / wb.sum(axis=1).reshape((-1,) + tail)
 
 
 def normalize_covariance(cov):
@@ -32,7 +32,7 @@ def inflated_covariance(jk_cov, bs_std):
         Jackknife covariance.
     bs_std : (N,) array
         Per-component bootstrap std dev (e.g. from
-        ``np.sqrt(bootstrap.variance(bss))``).
+        ``np.sqrt(bootstrap.variance(bootstrap_samples))``).
     """
     cov_n = normalize_covariance(jk_cov)
     return np.outer(bs_std, bs_std) * cov_n 

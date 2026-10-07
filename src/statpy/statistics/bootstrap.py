@@ -21,15 +21,15 @@ def sample(x, bootstraps, weights=None):
                          / wb.sum(axis=1).reshape((-1,) + tail)
     return out
 
-def variance(bss, mean=None):
-    return np.var(bss, mean=mean, ddof=1, axis=0)
+def variance(bootstrap_samples, mean=None):
+    return np.var(bootstrap_samples, mean=mean, ddof=1, axis=0)
 
-def covariance(bss, mean=None):
-    if mean is None: mean = np.mean(bss, axis=0)
-    B = len(bss)
-    d = (bss - mean).reshape(B, -1)   # np.outer flattens its inputs
+def covariance(bootstrap_samples, mean=None):
+    if mean is None: mean = np.mean(bootstrap_samples, axis=0)
+    B = len(bootstrap_samples)
+    d = (bootstrap_samples - mean).reshape(B, -1)   # np.outer flattens its inputs
     return np.sum(d[:, :, None] * d[:, None, :], axis=0) / (B-1)
 
-def rescale(bss, s):
-    mean = np.mean(bss, axis=0)
-    return mean + s * (bss - mean)
+def rescale(bootstrap_samples, s):
+    mean = np.mean(bootstrap_samples, axis=0)
+    return mean + s * (bootstrap_samples - mean)

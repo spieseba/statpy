@@ -15,18 +15,18 @@ import numpy as np
 import statpy as sp
 
 rng = np.random.default_rng(0)
-n_cfg, n_t = 200, 8
-cfgs = np.array([f"cfg-{i}" for i in range(n_cfg)])
-w = np.ones(n_cfg)
+num_cfg, num_t = 200, 8
+cfgs = np.array([f"cfg-{i}" for i in range(num_cfg)])
+w = np.ones(num_cfg)
 
 # Two measured correlators, one sample per configuration.
-t = np.arange(n_t)
-C1 = np.exp(-0.5 * t) * (1 + 0.05 * rng.normal(size=(n_cfg, n_t)))
-C2 = np.exp(-0.7 * t) * (1 + 0.05 * rng.normal(size=(n_cfg, n_t)))
+t = np.arange(num_t)
+C1 = np.exp(-0.5 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
+C2 = np.exp(-0.7 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
 
 db = sp.database.core.DB()
-db.add_entry("C1", sample=C1, weights=w, cfgs=cfgs)
-db.add_entry("C2", sample=C2, weights=w, cfgs=cfgs)
+db.add_entry("C1", samples=C1, weights=w, configurations=cfgs)
+db.add_entry("C2", samples=C2, weights=w, configurations=cfgs)
 
 # Transform one entry: effective mass  m(t) = log(C1(t) / C1(t+1)).
 db.transform("C1", lambda c: np.log(c[:-1] / c[1:]), store_as="m_eff")
