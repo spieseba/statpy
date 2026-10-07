@@ -1,17 +1,11 @@
-import warnings
-
 import numpy as np
 
 
-def sample(x, weights=None):
-    N = len(x)
-    w = np.ones(N) if weights is None else weights
-    if len(w) != N:
-        raise ValueError(f"jackknife.sample: weights length {len(w)} != sample length {N}")
-    mean = np.average(x, axis=0, weights=w)
-    N_w = np.sum(w)
-    w_col = w.reshape((-1,) + (1,) * (x.ndim - 1))
-    return mean + w_col * (mean - x) / (N_w - w_col)
+def sample(x, weights):
+    mean = np.average(x, axis=0, weights=weights)
+    W = np.sum(weights)
+    w_bcast = weights.reshape((-1,) + (1,) * (x.ndim - 1))
+    return mean + w_bcast * (mean - x) / (W - w_bcast)
 
 def variance(jackknife_samples, mean=None):
     if mean is None: mean = np.mean(jackknife_samples, axis=0)
@@ -30,29 +24,22 @@ def delayed_binning(jackknife_samples, bin_size, weights, mean=None):
 
     Bins over axis 0 and truncates the trailing incomplete bin. ``weights`` are
     those the jackknife sample was built with; ``mean`` is recovered from the
-    samples if not given.
+    sample if not specified.
     """
     if bin_size <= 1:
         raise ValueError(f"bin_size must be > 1, got {bin_size}")
     N = len(jackknife_samples)
     num_bins = N // bin_size          # trailing incomplete bin is truncated
     keep = num_bins * bin_size
-
-    # uniform weights
-    if np.all(weights == weights[0]):
-        if mean is None: 
-            mean = np.mean(jackknife_samples, axis=0)
-        bin_sums = jackknife_samples[:keep].reshape(num_bins, bin_size, *jackknife_samples.shape[1:]).sum(axis=1)
-        return mean + (bin_sums - bin_size * mean) * (N-1)/(N-bin_size)
-
-    # weighted case (! This needs to be checked at some point !)
-    warnings.warn("delayed_binning: I have not yet validated the weighted delayed binning; "
-                  "results should be cross-checked before use.", stacklevel=2)
     bcast = (-1,) + (1,) * (jackknife_samples.ndim - 1)
-    W = weights.sum()
-    Ww = (W - weights).reshape(bcast)                                       # (W - w_j), per sample
-    if mean is None: 
-        mean = (jackknife_samples * Ww).sum(axis=0) / (W * (N-1))            # weighted mean from replicates
-    omega = weights[:keep].reshape(num_bins, bin_size).sum(axis=1).reshape(bcast)   # omega_i, per bin
-    bin_terms = ((jackknife_samples[:keep] - mean) * Ww[:keep]).reshape(num_bins, bin_size, *jackknife_samples.shape[1:]).sum(axis=1)
-    return mean + bin_terms / (W - omega)
+
+    W = np.sum(weights)
+    W_minus_w = (W - weights).reshape(bcast)                     # W - w_j
+    if mean is None:
+        mean = np.sum(W_minus_w * jackknife_samples, axis=0) / (W * (N - 1))
+
+    # jk_(bin i) = mean + sum_{j in bin i} (W - w_j)(jk_j - mean) / (W - W_bins[i])
+    terms = W_minus_w[:keep] * (jackknife_samples[:keep] - mean)
+    bin_sums = terms.reshape(num_bins, bin_size, *jackknife_samples.shape[1:]).sum(axis=1)
+    W_bins = weights[:keep].reshape(num_bins, bin_size).sum(axis=1).reshape(bcast)   # weight sum per bin
+    return mean + bin_sums / (W - W_bins)
