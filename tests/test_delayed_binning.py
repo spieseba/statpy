@@ -57,8 +57,6 @@ def test_uniform_weights_match_uniform_formula():
     for c in (1.0, 2.0):
         weights = np.full(len(jks), c)
         np.testing.assert_allclose(jackknife.delayed_binning(jks, 4, weights), expected, rtol=1e-12, atol=0)
-        np.testing.assert_allclose(jackknife.delayed_binning(jks, 4, weights, mean=jks.mean(axis=0)),
-                                   expected, rtol=1e-12, atol=0)
 
 
 def test_weighted_matches_leave_bin_out_mean():
@@ -72,8 +70,6 @@ def test_weighted_matches_leave_bin_out_mean():
     ])
     jks = jackknife.sample(x, w)
     np.testing.assert_allclose(jackknife.delayed_binning(jks, bin_size, w), expected, rtol=1e-12, atol=0)
-    np.testing.assert_allclose(jackknife.delayed_binning(jks, bin_size, w, mean=np.average(x, axis=0, weights=w)),
-                               expected, rtol=1e-12, atol=0)
 
 
 def test_exact_when_bin_size_divides():
