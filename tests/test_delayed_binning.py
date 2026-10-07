@@ -26,7 +26,7 @@ def _data(N, seed=0):
 
 def _variances(x, bin_size, g):
     """Binned variance of g(x): delayed binning vs. binning the raw data up front."""
-    delayed = jackknife.delayed_binning(g(jackknife.sample(x)), bin_size)
+    delayed = jackknife.delayed_binning(g(jackknife.sample(x)), bin_size, np.ones(len(x)))
     upfront = g(jackknife.sample(bin_data(x, bin_size)))
     return jackknife.variance(delayed), jackknife.variance(upfront)
 
@@ -40,23 +40,21 @@ def _mean_reldev(N, bin_size, g, seeds=8):
     return float(np.mean(devs))
 
 
-def test_uniform_weights_match_none_and_do_not_warn():
+def test_uniform_weights_agree_and_do_not_warn():
     jks = jackknife.sample(_data(1000))
-    ref = jackknife.delayed_binning(jks, 4)
-    # all-ones and any other uniform value must take the scalar branch (no warning)
+    # any uniform value must take the scalar branch (no warning)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         ones = jackknife.delayed_binning(jks, 4, weights=np.ones(len(jks)))
         twos = jackknife.delayed_binning(jks, 4, weights=np.full(len(jks), 2.0))
-    np.testing.assert_allclose(ones, ref, rtol=1e-12, atol=0)
-    np.testing.assert_allclose(twos, ref, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(twos, ones, rtol=1e-12, atol=0)
 
 
 def test_exact_when_bin_size_divides():
     x = _data(1000)
     # identity pipeline: the delayed-binned sample equals the up-front binned one
     for bin_size in (2, 4, 5, 8):  # all divide 1000
-        delayed = jackknife.delayed_binning(jackknife.sample(x), bin_size)
+        delayed = jackknife.delayed_binning(jackknife.sample(x), bin_size, np.ones(len(x)))
         upfront = jackknife.sample(bin_data(x, bin_size))
         np.testing.assert_allclose(delayed, upfront, rtol=1e-10, atol=0)
     # linear pipeline: variances are exact too
@@ -80,7 +78,7 @@ def test_deviation_decreases_with_sample_size():
 
 
 if __name__ == "__main__":
-    test_uniform_weights_match_none_and_do_not_warn()
+    test_uniform_weights_agree_and_do_not_warn()
     test_exact_when_bin_size_divides()
     test_deviation_decreases_with_sample_size()
     print("OK: delayed_binning uniform-weights + exact-when-divides + convergence with N")

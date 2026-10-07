@@ -25,12 +25,12 @@ def covariance(jackknife_samples, mean=None):
     return np.sum(d[:, :, None] * d[:, None, :], axis=0) * (N-1) / N
 
 
-def delayed_binning(jackknife_samples, bin_size, weights=None, mean=None):
+def delayed_binning(jackknife_samples, bin_size, weights, mean=None):
     """Binned jackknife sample from an unbinned one (delayed binning, arxiv:2410.17053).
 
-    Bins over axis 0 and truncates the trailing incomplete bin. Pass the
-    ``weights`` used to build a weighted jackknife sample; ``mean`` is
-    recovered from the samples if not given.
+    Bins over axis 0 and truncates the trailing incomplete bin. ``weights`` are
+    those the jackknife sample was built with; ``mean`` is recovered from the
+    samples if not given.
     """
     if bin_size <= 1:
         raise ValueError(f"bin_size must be > 1, got {bin_size}")
@@ -38,9 +38,8 @@ def delayed_binning(jackknife_samples, bin_size, weights=None, mean=None):
     num_bins = N // bin_size          # trailing incomplete bin is truncated
     keep = num_bins * bin_size
 
-    # uniform weights (None or all equal): the scalar factor is exact, as the
-    # constant cancels in both the mean reconstruction and the per-sample factor
-    if weights is None or np.all(weights == weights[0]):
+    # uniform weights
+    if np.all(weights == weights[0]):
         if mean is None: 
             mean = np.mean(jackknife_samples, axis=0)
         bin_sums = jackknife_samples[:keep].reshape(num_bins, bin_size, *jackknife_samples.shape[1:]).sum(axis=1)
