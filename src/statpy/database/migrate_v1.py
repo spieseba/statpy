@@ -1,11 +1,9 @@
-"""CLI: migrate a single retired-v1 JSON statpy database to the v2 format.
+"""CLI: migrate a single retired-v1 JSON statpy database to the current DB format.
 
 Usage:
     python -m statpy.database.migrate_v1 IN.sample[.blinded] OUT.db
 
 Faithful single-file conversion (see :func:`statpy.database.io.load_v1_json`).
-Batch/tree mirroring with an output-naming policy is intentionally left to the
-consuming project, so this stays a pure, format-only primitive.
 """
 import sys
 

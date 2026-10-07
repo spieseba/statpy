@@ -539,7 +539,7 @@ def _store_jackknife_fit(db, binned_tag, fit_model, best, jks, misc):
 
 
 def ground_state_fit(db, tag, bin_size, fit_range, p0, fit_model, config: FitConfig, *, Nt, correlated_fits=(), bootstraps=None, silent=False) -> FitTags:
-    """Fit one bin_size with jackknives and the requested cross-checks and bootstraps; log its table rows.
+    """Fit one bin size with jackknives and the requested cross-checks and bootstraps; log its table rows.
 
     Nt is the lattice time extent, also for folded or OBC-averaged correlators.
     fit_model "combined-<m0>-<m1>" fits two correlators joined with DB.concatenate_entries.

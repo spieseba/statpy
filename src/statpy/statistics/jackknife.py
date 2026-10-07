@@ -26,40 +26,11 @@ def covariance(jackknife_samples, mean=None):
 
 
 def delayed_binning(jackknife_samples, bin_size, weights=None, mean=None):
-    """Construct the binned jackknife sample from an unbinned one (delayed
-    binning, arxiv:2410.17053).
+    """Binned jackknife sample from an unbinned one (delayed binning, arxiv:2410.17053).
 
-    The idea is to defer binning to the end of an analysis: run the whole
-    pipeline once on the unbinned (bin-size-1) jackknife sample -- applying
-    functions to the samples as usual -- and only then call this to obtain the
-    binned jackknife sample at any ``bin_size`` for error estimation, instead of
-    re-running the analysis per bin_size. The result agrees statistically with
-    having binned the raw data up front (identical when ``bin_size`` divides
-    ``len(jackknife_samples)``). The trailing incomplete bin is truncated.
-
-    Binning is over axis 0. For a weighted jackknife sample (built by ``sample``
-    with non-uniform ``weights``), pass the same ``weights``: the reconstruction
-    then uses the per-sample factor (W - w_j)/(W - omega_i) about the weighted
-    mean. With ``weights`` None or uniform this reduces to the scalar
-    (N-1)/(N-bin_size) form.
-
-    Parameters
-    ----------
-    ``jackknife_samples``: ndarray
-        The unbinned (bin-size-1) jackknife sample.
-    ``bin_size``: int
-        Desired bin_size for the binned jackknife sample.
-    ``weights``: ndarray, optional
-        Per-sample weights the jackknife sample was built with. Required only
-        for non-uniform weights.
-    ``mean``: ndarray or float, optional
-        Mean of the data. Recovered from the jackknife sample (and ``weights``)
-        if not specified.
-
-    Returns:
-    --------
-    ndarray
-        Binned jackknife sample with bin_size ``bin_size``.
+    Bins over axis 0 and truncates the trailing incomplete bin. Pass the
+    ``weights`` used to build a weighted jackknife sample; ``mean`` is
+    recovered from the samples if not given.
     """
     if bin_size <= 1:
         raise ValueError(f"bin_size must be > 1, got {bin_size}")

@@ -35,7 +35,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configuration
     remaining cfg sets must agree exactly.
 
     Patterns are processed in order; overlapping matches load each dataset
-    once. Escape literal regex metacharacters with ``re.escape``.
+    once.
     """
     if not os.path.isfile(fn):
         raise FileNotFoundError(f"hdf5 file {fn!r} not found!")

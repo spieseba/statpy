@@ -134,9 +134,7 @@ def obc_meson_boundary_average(db, corr_tags, tmin_excited, bin_size, tmax_from_
         am_t_means.append(_boundary_eff_mass(np.average(b_sample, axis=0, weights=b_weights), tsrc))
         am_t_jks.append(np.array([_boundary_eff_mass(jk, tsrc) for jk in jks]))
         if cfgs is None:
-            # every tsrc shares the same (binned) cfg set, so the cross-tsrc
-            # average is a plain stack -- no cfg alignment needed. Binned labels
-            # mirror DB.bin_entry; the tag still routes through binned_tag().
+            # binned labels as in DB.bin_entry
             cfgs = entry.configurations if bin_size == 1 else np.array(
                 [f"{corr_tag.split('/')[0]}-bin{i}" for i in range(len(b_sample))]
             )

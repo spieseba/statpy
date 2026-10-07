@@ -12,15 +12,8 @@ from statpy.log import message
 from statpy.statistics import bootstrap, jackknife
 from statpy.statistics import core as statistics
 
-# DB file header: magic(4) + u32 CRC32 of payload, little-endian. The magic
-# carries the format version — bump it on any format change, so older or
-# foreign files fail the magic check. The payload is a pickle of
-# {tag: <entry state dict>} — plain dicts, not Entry instances, so the pickle
-# carries no class import path. The dict keys still mirror Entry attribute
-# names, so a future rename needs a key migration at load — but against plain
-# dicts under a version gate, not against unpickled instances.
-# Retired formats: v1 custom JSON (io.load_v1_json), v2 b"SPDB" pickled Entry
-# instances, v3 b"SPD3" abbreviated field names (jks, bss, cfgs, misc, sample).
+# DB file: magic (format version) + u32 CRC32 + pickled {tag: entry state dict}.
+# Bump the magic on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3.
 _MAGIC = b"SPD4"
 _commit_logged = False
 

@@ -161,10 +161,5 @@ def get_tmax_signal_to_noise(mean, var, min_signal_to_noise, tmin=None, debug=Fa
 
 
 def binned_tag(tag, bin_size):
-    """Conventional tag of the bin_size-``bin_size`` variant of ``tag``.
-
-    ``bin_size == 1`` returns ``tag`` unchanged (no binning needed). This is
-    the single home of the ``<tag>/bin_size<N>`` naming convention: producers
-    and consumers must both route tag construction through it so they agree.
-    """
+    """Tag of the binned variant of ``tag``: ``<tag>/bin_size<N>``, or ``tag`` if ``bin_size == 1``."""
     return tag if bin_size == 1 else f"{tag}/bin_size{bin_size}"
