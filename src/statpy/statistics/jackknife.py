@@ -1,7 +1,8 @@
 import numpy as np
 
 
-def sample(x, weights):
+def mean_sample(x, weights):
+    """Weighted mean of ``x`` over axis 0 with each configuration left out in turn."""
     mean = np.average(x, axis=0, weights=weights)
     W = np.sum(weights)
     w_bcast = weights.reshape((-1,) + (1,) * (x.ndim - 1))

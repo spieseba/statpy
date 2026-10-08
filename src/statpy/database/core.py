@@ -149,7 +149,7 @@ class DB:
                 )
             if jackknife_samples is not None:
                 raise ValueError(f"add_entry({tag!r}): do not pass jackknife_samples when samples+weights are given; they are derived")
-            jackknife_samples = jackknife.sample(samples, weights=weights)
+            jackknife_samples = jackknife.mean_sample(samples, weights=weights)
             if central_value is None:
                 central_value = np.average(samples, axis=0, weights=weights)
         else:
@@ -332,7 +332,7 @@ class DB:
         prefix = tag.split("/")[0]
         return {
             "samples": statistics.bin(src_entry.samples, bin_size, weights=src_entry.weights),
-            "weights": statistics.bin(src_entry.weights, bin_size=bin_size),
+            "weights": statistics.bin(src_entry.weights, bin_size, weights=np.ones(len(src_entry.weights))),
             "configurations": np.array([f"{prefix}-bin{i}" for i in range(num_bins)]),
             "metadata": src_entry.metadata,
             "bin_size": bin_size,
@@ -387,7 +387,7 @@ class DB:
         cfg positions, not bin positions.
         """
         entry = self.database[tag]
-        return bootstrap.sample(entry.samples, bootstraps, weights=entry.weights)
+        return bootstrap.mean_sample(entry.samples, bootstraps, weights=entry.weights)
 
     def bootstrap_variance(self, tag):
         """Variance of the entry's stored bootstrap samples."""

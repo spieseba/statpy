@@ -129,8 +129,8 @@ def obc_meson_boundary_average(db, corr_tags, tmin_excited, bin_size, tmax_from_
             for corrs in entry.samples
         ])
         b_sample = statistics.bin(masked_excited_state_sample, bin_size, weights=entry.weights)
-        b_weights = statistics.bin(entry.weights, bin_size)
-        jks = jackknife.sample(b_sample, weights=b_weights)
+        b_weights = statistics.bin(entry.weights, bin_size, weights=np.ones(len(entry.weights)))
+        jks = jackknife.mean_sample(b_sample, weights=b_weights)
         am_t_means.append(_boundary_eff_mass(np.average(b_sample, axis=0, weights=b_weights), tsrc))
         am_t_jks.append(np.array([_boundary_eff_mass(jk, tsrc) for jk in jks]))
         if cfgs is None:

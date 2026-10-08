@@ -2,18 +2,17 @@ import numpy as np
 
 
 # binning
-def bin(data, bin_size, weights=None):
+def bin(data, bin_size, weights):
     assert bin_size is not None
     if bin_size == 1:
         return data
     N = len(data)
-    w = np.ones(N) if weights is None else weights
     Nb = N // bin_size # cut off data of last incomplete bin
     keep = Nb * bin_size
-    tail = (1,) * (np.ndim(data) - 1)
+    bcast = (1,) * (np.ndim(data) - 1)
     d = np.asarray(data)[:keep].reshape((Nb, bin_size) + np.shape(data)[1:])
-    wb = np.asarray(w)[:keep].reshape(Nb, bin_size)
-    return (d * wb.reshape((Nb, bin_size) + tail)).sum(axis=1) / wb.sum(axis=1).reshape((-1,) + tail)
+    wb = np.asarray(weights)[:keep].reshape(Nb, bin_size)
+    return (d * wb.reshape((Nb, bin_size) + bcast)).sum(axis=1) / wb.sum(axis=1).reshape((-1,) + bcast)
 
 
 def normalize_covariance(cov):
