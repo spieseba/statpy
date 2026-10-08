@@ -114,16 +114,15 @@ class DB:
                  configurations=None, bootstrap_samples=None, metadata=None, bin_size=1):
         """Add a new entry at ``tag``.
 
-        Three valid shapes:
-          - Data entry: ``samples`` + ``weights`` + ``configurations`` (matching
-            length); ``jackknife_samples`` is auto-derived and ``central_value``
-            defaults to the weighted mean of ``samples`` unless supplied explicitly.
-          - Derived entry: ``samples=None`` but ``jackknife_samples`` and
-            ``configurations`` given (matching length).
-          - Result entry: only ``central_value`` and optionally ``bootstrap_samples``.
-        ``configurations`` labels must be unique -- each identifies exactly one
-        resample (:meth:`combine` aligns entries by cfg label).
-        ``bin_size`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
+        With ``samples`` (data entry): requires ``weights`` and ``configurations``
+        of the same length; ``jackknife_samples`` is derived for the weighted mean
+        and ``central_value`` defaults to it.
+        Without ``samples``: stores the given ``central_value``,
+        ``jackknife_samples``, ``configurations`` and ``bootstrap_samples``
+        unchanged; nothing is derived. ``jackknife_samples`` requires
+        ``configurations`` of the same length.
+        ``configurations`` labels must be unique; :meth:`combine` aligns entries
+        by them. ``bin_size`` is 1 for raw, >1 for binned (see :meth:`bin_entry`).
 
         Entries are create-only: an existing ``tag`` raises
         :class:`DuplicateTagError`. To replace, :meth:`remove_entry` first.
@@ -152,8 +151,10 @@ class DB:
             jackknife_samples = jackknife.mean_sample(samples, weights=weights)
             if central_value is None:
                 central_value = np.average(samples, axis=0, weights=weights)
-        else:
-            if configurations is not None and jackknife_samples is not None and len(jackknife_samples) != len(configurations):
+        elif jackknife_samples is not None:
+            if configurations is None:
+                raise ValueError(f"add_entry({tag!r}): jackknife_samples requires configurations")
+            if len(jackknife_samples) != len(configurations):
                 raise ValueError(
                     f"add_entry({tag!r}): jackknife_samples/configurations length mismatch "
                     f"jackknife_samples={len(jackknife_samples)} configurations={len(configurations)}"

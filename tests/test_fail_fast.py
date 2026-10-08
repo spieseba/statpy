@@ -86,3 +86,14 @@ def test_guarded_caching_idiom_still_works():
         if "a" not in db.database:
             db.add_entry("a", **_data_entry_kwargs(1))
     assert len(db.database) == 1
+
+
+def test_jackknife_samples_require_configurations():
+    db = DB()
+    try:
+        db.add_entry("a", central_value=np.zeros(4), jackknife_samples=np.zeros((10, 4)))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for jackknife_samples without configurations")
+    assert "a" not in db.database

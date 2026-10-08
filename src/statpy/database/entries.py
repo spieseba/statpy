@@ -1,15 +1,15 @@
 
 
 class Entry:
-    """Atomic data unit in a :class:`DB`.
+    """One quantity in a :class:`DB` (a correlator, a fit result, ...) with its
+    central value and resamples.
 
-    A entry either carries per-cfg data (``samples`` + ``weights`` +
-    ``configurations``, plus the derived ``jackknife_samples``) or a cfg-less
-    result (``central_value`` and optional ``bootstrap_samples``, with
-    ``configurations=None``).
-
-    ``central_value`` defaults to the weighted mean of ``samples`` (see
-    :meth:`DB.add_entry`) but may be any central estimate, e.g. a fit result.
+    A data entry holds per-configuration measurements (``samples``, ``weights``,
+    ``configurations``); its estimate is the weighted mean, with jackknife
+    samples derived from it. Any other entry holds a computed result, e.g. from a
+    fit, a transformation or another estimator: any of ``central_value``,
+    ``jackknife_samples`` (one per label in ``configurations``) and
+    ``bootstrap_samples``.
 
     Arrays are pre-sorted at insertion time and never re-sorted on read.
     Do not mutate them in place.
