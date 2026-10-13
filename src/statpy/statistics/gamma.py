@@ -5,10 +5,10 @@ remaining axes, e.g. a time slice, is a component and is analysed independently.
 """
 
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.fft import irfft, next_fast_len, rfft
-
 
 # ---------------------------------------------------------------------------
 # Entry points
@@ -25,6 +25,39 @@ def mean_and_fluctuations(values, weights):
     w_bcast = weights.reshape((-1,) + (1,) * (values.ndim - 1))
     delta = w_bcast * (values - mean) / np.mean(weights)
     return mean, delta
+
+
+@dataclass(frozen=True)
+class ErrorAnalysis:
+    """Gamma-method error analysis of one quantity, per component."""
+    error: np.ndarray
+    error_of_error: np.ndarray
+    tau_int: np.ndarray          # bias-corrected, at chosen W
+    error_tau_int: np.ndarray    # at chosen W
+    window: np.ndarray           # chosen W
+    gamma: np.ndarray            # all lags, for autocorrelation plot
+    tau_ints: np.ndarray         # all W, for plateau plot
+    error_tau_ints: np.ndarray   # all W
+
+
+def error_analysis(fluctuations, chains, positions, S=1.5):
+    """Gamma-method error analysis of ``fluctuations`` per component (Wolff, S default 1.5)."""
+    num_configurations = len(fluctuations)
+    gamma = autocovariance(fluctuations, chains, positions)
+    tau_ints = integrated_autocorrelation_times(gamma)
+    error_tau_ints = error_integrated_autocorrelation_times(tau_ints, num_configurations)
+    W = window(tau_ints, num_configurations, S)
+    error = np.sqrt(variance(gamma, tau_ints, W, num_configurations))
+    return ErrorAnalysis(
+        error=error,
+        error_of_error=error_of_error(error, W, num_configurations),
+        tau_int=_at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations),
+        error_tau_int=_at_window(error_tau_ints, W),
+        window=W,
+        gamma=gamma,
+        tau_ints=tau_ints,
+        error_tau_ints=error_tau_ints,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -116,10 +149,18 @@ def _g(W, tau, num_configurations):
 
 def variance(gamma, tau_ints, W, num_configurations):
     """Variance of the estimate, ``2 tau_int(W) gamma[0] / N`` per component, bias-corrected (Wolff eqs. 44, 49)."""
-    tau_int = np.take_along_axis(tau_ints, W[np.newaxis], axis=0)[0]
-    C_F = 2 * tau_int * gamma[0]
-    C_F *= (1 + (2 * W + 1) / num_configurations) # bias correction
-    return C_F  / num_configurations
+    tau_int = _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations)
+    return 2 * tau_int * gamma[0] / num_configurations
+
+
+def _at_window(values, W):
+    """``values`` at the chosen W per component."""
+    return np.take_along_axis(values, W[np.newaxis], axis=0)[0]
+
+
+def _tau_int_bias_correction(W, num_configurations):
+    """Factor ``1 + (2W+1)/N`` correcting the bias of ``tau_int(W)``, i.e. of ``C_F(W)`` (Wolff eq. 49)."""
+    return 1 + (2 * W + 1) / num_configurations
 
 
 def error_of_error(error, W, num_configurations):
