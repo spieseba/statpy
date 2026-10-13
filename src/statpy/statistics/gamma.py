@@ -10,8 +10,12 @@ import numpy as np
 from scipy.fft import irfft, next_fast_len, rfft
 
 
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
 def mean_and_fluctuations(values, weights):
-    """Weighted mean of ``values`` over axis 0 and its fluctuations per configuration.
+    """Weighted mean of primary data ``values`` over axis 0 and its fluctuations per configuration.
 
     ``delta_i = weights_i (values_i - mean) / mean(weights)``: the fluctuations
     of ``weights * values`` and ``weights`` projected with the gradient of
@@ -22,6 +26,10 @@ def mean_and_fluctuations(values, weights):
     delta = w_bcast * (values - mean) / np.mean(weights)
     return mean, delta
 
+
+# ---------------------------------------------------------------------------
+# Steps of the analysis, in call order
+# ---------------------------------------------------------------------------
 
 def autocovariance(fluctuations, chains, positions, max_lag=None, fft=True):
     """Autocovariance of ``fluctuations`` for lags 0 to ``max_lag``, using only
