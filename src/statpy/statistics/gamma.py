@@ -1,3 +1,9 @@
+"""Gamma-method error analysis (Wolff, hep-lat/0306017).
+
+Arrays have configurations (or lags, windows) on axis 0; every element of the
+remaining axes, e.g. a time slice, is a component and is analysed independently.
+"""
+
 import warnings
 
 import numpy as np
@@ -70,9 +76,9 @@ def integrated_autocorrelation_times(gamma):
 
 
 def window(tau_ints, num_configurations, S=1.5):
-    """Summation window W per column, with ``tau_ints`` from ``integrated_autocorrelation_times``."""
-    columns = tau_ints.reshape(len(tau_ints), -1).T
-    windows = np.array([_window_1d(column, num_configurations, S) for column in columns])
+    """Summation window W per component, with ``tau_ints`` from ``integrated_autocorrelation_times``."""
+    components = tau_ints.reshape(len(tau_ints), -1).T
+    windows = np.array([_window_1d(component, num_configurations, S) for component in components])
     return windows.reshape(tau_ints.shape[1:])
 
 
@@ -95,7 +101,7 @@ def _g(W, tau, num_configurations):
 
 
 def variance(gamma, tau_ints, W, num_configurations):
-    """Variance of the estimate, ``2 tau_int(W) gamma[0] / N`` per column, bias-corrected (Wolff eqs. 44, 49)."""
+    """Variance of the estimate, ``2 tau_int(W) gamma[0] / N`` per component, bias-corrected (Wolff eqs. 44, 49)."""
     tau_int = np.take_along_axis(tau_ints, W[np.newaxis], axis=0)[0]
     C_F = 2 * tau_int * gamma[0]
     C_F *= (1 + (2 * W + 1) / num_configurations) # bias correction
@@ -103,11 +109,11 @@ def variance(gamma, tau_ints, W, num_configurations):
 
 
 def error_tau_int(tau_ints, W, num_configurations):
-    """Error of ``tau_int(W)`` per column (Wolff eq. 42)."""
+    """Error of ``tau_int(W)`` per component (Wolff eq. 42)."""
     tau_int = np.take_along_axis(tau_ints, W[np.newaxis], axis=0)[0]
     return 2 * tau_int * (np.abs(W + 0.5 - tau_int) / num_configurations)**.5 # abs: noise can make tau_int > W + 1/2 (as pyerrors)
 
 
 def error_of_error(error, W, num_configurations):
-    """Error of ``error = sqrt(variance)`` per column (Wolff eq. 40)."""
+    """Error of ``error = sqrt(variance)`` per component (Wolff eq. 40)."""
     return error * ((W + 0.5) / num_configurations)**.5
