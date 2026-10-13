@@ -1,4 +1,4 @@
-"""Tests for gamma: lag sums and autocovariance against direct sums."""
+"""Tests for gamma."""
 
 import numpy as np
 
@@ -27,3 +27,11 @@ def test_autocovariance_matches_direct_pair_sum():
         # Mean over pairs = product sum / number of pairs.
         expected.append(np.mean([fluctuations[i] * fluctuations[j] for i, j in pairs], axis=0))
     np.testing.assert_allclose(gamma.autocovariance(fluctuations, chains, positions), expected)
+
+
+def test_integrated_autocorrelation_times_by_hand():
+    gamma_values = np.array([[1.0, 0.5, 0.25],
+                             [2.0, 1.0, 0.5]]).T
+    expected = np.array([[0.5, 1.0, 1.25],
+                         [0.5, 1.0, 1.25]]).T
+    np.testing.assert_allclose(gamma.integrated_autocorrelation_times(gamma_values), expected)

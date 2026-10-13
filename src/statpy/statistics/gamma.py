@@ -54,3 +54,14 @@ def _insert_gaps(values, positions):
     measured = np.zeros(indices.max() + 1)
     measured[indices] = 1 
     return values_with_gaps, measured
+
+
+def autocorrelation(gamma):
+    """Autocorrelation ``gamma / gamma[0]``, with ``gamma`` from ``autocovariance``."""
+    return gamma / gamma[0]
+
+
+def integrated_autocorrelation_times(gamma):
+    """Integrated autocorrelation times ``0.5 + sum(gamma[1:W+1]) / gamma[0]`` for
+    windows W = 0, ..., len(gamma) - 1, with ``gamma`` from ``autocovariance``."""
+    return np.cumsum(autocorrelation(gamma), axis=0) - 0.5
