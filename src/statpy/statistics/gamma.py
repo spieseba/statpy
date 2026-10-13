@@ -75,6 +75,12 @@ def integrated_autocorrelation_times(gamma):
     return np.cumsum(autocorrelation(gamma), axis=0) - 0.5
 
 
+def error_integrated_autocorrelation_times(tau_ints, num_configurations):
+    """Errors of ``tau_ints`` for every W per component (Wolff eq. 42)."""
+    Ws = np.arange(len(tau_ints)).reshape((-1,) + (1,) * (tau_ints.ndim - 1))
+    return 2 * tau_ints * (np.abs(Ws + 0.5 - tau_ints) / num_configurations)**.5  # abs: noise can make tau_int > W + 1/2 (as pyerrors)
+
+
 def window(tau_ints, num_configurations, S=1.5):
     """Summation window W per component, with ``tau_ints`` from ``integrated_autocorrelation_times``."""
     components = tau_ints.reshape(len(tau_ints), -1).T
@@ -106,12 +112,6 @@ def variance(gamma, tau_ints, W, num_configurations):
     C_F = 2 * tau_int * gamma[0]
     C_F *= (1 + (2 * W + 1) / num_configurations) # bias correction
     return C_F  / num_configurations
-
-
-def error_tau_int(tau_ints, W, num_configurations):
-    """Error of ``tau_int(W)`` per component (Wolff eq. 42)."""
-    tau_int = np.take_along_axis(tau_ints, W[np.newaxis], axis=0)[0]
-    return 2 * tau_int * (np.abs(W + 0.5 - tau_int) / num_configurations)**.5 # abs: noise can make tau_int > W + 1/2 (as pyerrors)
 
 
 def error_of_error(error, W, num_configurations):
