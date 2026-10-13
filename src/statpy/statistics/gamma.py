@@ -54,7 +54,7 @@ def _insert_gaps(values, positions):
     values_with_gaps = np.zeros((indices.max() + 1,) + values.shape[1:])
     values_with_gaps[indices] = values
     measured = np.zeros(indices.max() + 1)
-    measured[indices] = 1 
+    measured[indices] = 1
     return values_with_gaps, measured
 
 
@@ -92,3 +92,22 @@ def _window_1d(tau_ints, num_configurations, S):
 def _g(W, tau, num_configurations):
     """Wolff's window criterion g(W) (eq. 52)."""
     return np.exp(- W / tau) - tau / np.sqrt(W * num_configurations)
+
+
+def variance(gamma, tau_ints, W, num_configurations):
+    """Variance of the estimate, ``2 tau_int(W) gamma[0] / N`` per column, bias-corrected (Wolff eqs. 44, 49)."""
+    tau_int = np.take_along_axis(tau_ints, W[np.newaxis], axis=0)[0]
+    C_F = 2 * tau_int * gamma[0]
+    C_F *= (1 + (2 * W + 1) / num_configurations) # bias correction
+    return C_F  / num_configurations
+
+
+def error_tau_int(tau_ints, W, num_configurations):
+    """Error of ``tau_int(W)`` per column (Wolff eq. 42)."""
+    tau_int = np.take_along_axis(tau_ints, W[np.newaxis], axis=0)[0]
+    return 2 * tau_int * (np.abs(W + 0.5 - tau_int) / num_configurations)**.5 # abs: noise can make tau_int > W + 1/2 (as pyerrors)
+
+
+def error_of_error(error, W, num_configurations):
+    """Error of ``error = sqrt(variance)`` per column (Wolff eq. 40)."""
+    return error * ((W + 0.5) / num_configurations)**.5
