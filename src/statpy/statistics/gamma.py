@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 from scipy.fft import irfft, next_fast_len, rfft
 
@@ -65,3 +67,28 @@ def integrated_autocorrelation_times(gamma):
     """Integrated autocorrelation times ``0.5 + sum(gamma[1:W+1]) / gamma[0]`` for
     windows W = 0, ..., len(gamma) - 1, with ``gamma`` from ``autocovariance``."""
     return np.cumsum(autocorrelation(gamma), axis=0) - 0.5
+
+
+def window(tau_ints, num_configurations, S=1.5):
+    """Summation window W per column, with ``tau_ints`` from ``integrated_autocorrelation_times``."""
+    columns = tau_ints.reshape(len(tau_ints), -1).T
+    windows = np.array([_window_1d(column, num_configurations, S) for column in columns])
+    return windows.reshape(tau_ints.shape[1:])
+
+
+def _window_1d(tau_ints, num_configurations, S):
+    """First W >= 1 with g(W) < 0 or ``tau_int <= 1/2`` (Wolff eq. 52); the largest W with a warning if none."""
+    tau_ints = tau_ints[1:]
+    Ws = np.arange(1, len(tau_ints) + 1)
+    accepted = tau_ints <= 0.5
+    taus = S / np.log( (2 * tau_ints[~accepted] + 1) / (2 * tau_ints[~accepted] - 1) )
+    accepted[~accepted] = _g(Ws[~accepted], taus, num_configurations) < 0
+    if not accepted.any():
+        warnings.warn(f"No window found; using the largest W = {Ws[-1]}.")
+        return Ws[-1]
+    return Ws[np.argmax(accepted)]
+
+
+def _g(W, tau, num_configurations):
+    """Wolff's window criterion g(W) (eq. 52)."""
+    return np.exp(- W / tau) - tau / np.sqrt(W * num_configurations)

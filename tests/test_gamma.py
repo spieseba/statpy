@@ -1,6 +1,7 @@
 """Tests for gamma."""
 
 import numpy as np
+import pytest
 
 from statpy.statistics import gamma
 
@@ -35,3 +36,11 @@ def test_integrated_autocorrelation_times_by_hand():
     expected = np.array([[0.5, 1.0, 1.25],
                          [0.5, 1.0, 1.25]]).T
     np.testing.assert_allclose(gamma.integrated_autocorrelation_times(gamma_values), expected)
+
+
+def test_window():
+    tau_ints = np.array([[0.5, 0.4] + [1.0] * 8,    # tau_int <= 1/2 at W = 1
+                         [0.5] + [1.0] * 9,         # g(7) > 0 > g(8)
+                         [0.5] + [50.0] * 9]).T     # no sign change: largest W = 9
+    with pytest.warns(UserWarning, match="No window found"):
+        np.testing.assert_array_equal(gamma.window(tau_ints, 10_000), [1, 8, 9])
