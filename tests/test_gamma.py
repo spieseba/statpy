@@ -58,3 +58,20 @@ def test_variance_and_errors_by_hand():
     np.testing.assert_allclose(errors[W, [0, 1]], [0.1, 0.9])
     # error sqrt((W + 1/2) / N) with N = 150
     np.testing.assert_allclose(gamma.error_of_error(np.array([2.0, 3.0]), np.array([1, 13]), 150), [0.2, 0.9])
+
+
+def test_error_analysis_matches_exact_ar1():
+    phis = np.array([0.0, 0.8])                     # one AR(1) chain per component
+    num_configurations = 100_000
+    rng = np.random.default_rng(0)
+    values = np.zeros((num_configurations, 2))
+    values[0] = rng.normal(size=2) / np.sqrt(1 - phis**2)   # start with the settled variance 1 / (1 - phi^2)
+    for i in range(1, num_configurations):
+        values[i] = phis * values[i - 1] + rng.normal(size=2)
+    _, fluctuations = gamma.mean_and_fluctuations(values, np.ones(num_configurations))
+    result = gamma.error_analysis(fluctuations, np.zeros(num_configurations, int), np.arange(num_configurations))
+    # exact AR(1): tau_int = (1 + phi) / (2 (1 - phi)), error = 1 / ((1 - phi) sqrt(N))
+    tau_int = (1 + phis) / (2 * (1 - phis))
+    error = 1 / ((1 - phis) * np.sqrt(num_configurations))
+    assert np.all(np.abs(result.tau_int - tau_int) < 3 * result.error_tau_int)
+    assert np.all(np.abs(result.error - error) < 3 * result.error_of_error)
