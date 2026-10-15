@@ -75,3 +75,13 @@ def test_error_analysis_matches_exact_ar1():
     error = 1 / ((1 - phis) * np.sqrt(num_configurations))
     assert np.all(np.abs(result.tau_int - tau_int) < 3 * result.error_tau_int)
     assert np.all(np.abs(result.error - error) < 3 * result.error_of_error)
+
+
+@pytest.mark.filterwarnings("error")
+def test_error_analysis_constant_component():
+    rng = np.random.default_rng(0)
+    fluctuations = np.stack([rng.normal(size=100), np.zeros(100)], axis=1)   # component 1 constant
+    result = gamma.error_analysis(fluctuations, np.zeros(100, int), np.arange(100))
+    assert result.window[1] == 0
+    np.testing.assert_array_equal([result.error[1], result.error_of_error[1], result.tau_int[1], result.error_tau_int[1]],
+                                  [0, 0, 0.5, 0])

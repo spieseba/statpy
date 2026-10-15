@@ -47,12 +47,13 @@ def error_analysis(fluctuations, chains, positions, S=1.5):
     tau_ints = integrated_autocorrelation_times(gamma)
     error_tau_ints = error_integrated_autocorrelation_times(tau_ints, num_configurations)
     W = window(tau_ints, num_configurations, S)
-    error = np.sqrt(variance(gamma, tau_ints, W, num_configurations))
+    constant = gamma[0] == 0    # constant: error = 0, tau_int = 1/2, error_tau_int = 0
+    error = np.where(constant, 0.0, np.sqrt(variance(gamma, tau_ints, W, num_configurations)))
     return ErrorAnalysis(
         error=error,
         error_of_error=error_of_error(error, W, num_configurations),
-        tau_int=_at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations),
-        error_tau_int=_at_window(error_tau_ints, W),
+        tau_int=np.where(constant, 0.5, _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations)),
+        error_tau_int=np.where(constant, 0.0, _at_window(error_tau_ints, W)),
         window=W,
         gamma=gamma,
         tau_ints=tau_ints,
@@ -61,7 +62,7 @@ def error_analysis(fluctuations, chains, positions, S=1.5):
 
 
 # ---------------------------------------------------------------------------
-# Steps of the analysis, in call order
+# Steps of the analysis, in order
 # ---------------------------------------------------------------------------
 
 def autocovariance(fluctuations, chains, positions, max_lag=None, fft=True):
@@ -106,8 +107,9 @@ def _insert_gaps(values, positions):
 
 
 def autocorrelation(gamma):
-    """Autocorrelation ``gamma / gamma[0]``, with ``gamma`` from ``autocovariance``."""
-    return gamma / gamma[0]
+    """Autocorrelation ``gamma / gamma[0]``, with ``gamma`` from ``autocovariance``; NaN for a constant component."""
+    constant = gamma[0] == 0
+    return np.divide(gamma, gamma[0], out=np.full(gamma.shape, np.nan), where=~constant)
 
 
 def integrated_autocorrelation_times(gamma):
@@ -130,7 +132,9 @@ def window(tau_ints, num_configurations, S=1.5):
 
 
 def _window_1d(tau_ints, num_configurations, S):
-    """First W >= 1 with g(W) < 0 or ``tau_int <= 1/2`` (Wolff eq. 52); the largest W with a warning if none."""
+    """First W >= 1 with g(W) < 0 or ``tau_int <= 1/2`` (Wolff eq. 52); the largest W with a warning if none; 0 for a constant component."""
+    if np.isnan(tau_ints[0]):   # constant component
+        return 0
     tau_ints = tau_ints[1:]
     Ws = np.arange(1, len(tau_ints) + 1)
     accepted = tau_ints <= 0.5
