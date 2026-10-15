@@ -6,6 +6,13 @@ import pytest
 from statpy.statistics import gamma
 
 
+def test_mean_and_fluctuations_with_weights_by_hand():
+    # mean = (1 + 2 + 2 * 3) / 4 = 9/4; delta = w (a - 9/4) / mean(w) with mean(w) = 4/3
+    mean, fluctuations = gamma.mean_and_fluctuations(np.array([1.0, 2.0, 3.0]), np.array([1.0, 1.0, 2.0]))
+    np.testing.assert_allclose(mean, 9 / 4)
+    np.testing.assert_allclose(fluctuations, [-15 / 16, -3 / 16, 18 / 16])
+
+
 def test_lag_sum_fft_matches_direct_sum():
     rng = np.random.default_rng(0)
     for shape, max_lag in [((50,), 10), ((50, 3), 49), ((5, 3), 8)]:
