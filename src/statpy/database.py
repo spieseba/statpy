@@ -1,6 +1,5 @@
 import os
 import pickle
-import re
 import struct
 import zlib
 from collections.abc import Mapping
@@ -145,13 +144,3 @@ class Database(Mapping):
         for cat, n in counts.items():
             lines.append(f"  {cat:20s} {n}")
         return "\n".join(lines)
-
-    ################################ QUERIES ###################################
-
-    def get_tags(self, pattern=".*"):
-        """Tags matching the regex ``pattern`` (via :func:`re.search`)."""
-        return [tag for tag in self._variables if re.search(pattern, tag)]
-
-    def print_tags(self, pattern=".*"):
-        """Print the tags matching ``pattern``, one per line, sorted."""
-        print(*sorted(self.get_tags(pattern)), sep="\n")
