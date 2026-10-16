@@ -158,8 +158,3 @@ def get_tmax_signal_to_noise(mean, var, min_signal_to_noise, tmin=None, debug=Fa
     if debug:
         message(f"Signal-to-noise values ({len(signal_to_noise)} slices):\n{signal_to_noise}")
     return tmax
-
-
-def binned_tag(tag, bin_size):
-    """Tag of the binned variant of ``tag``: ``<tag>/bin_size<N>``, or ``tag`` if ``bin_size == 1``."""
-    return tag if bin_size == 1 else f"{tag}/bin_size{bin_size}"

@@ -9,9 +9,9 @@ for a linear and a non-linear pipeline. Runs under pytest or as a plain script:
 """
 import numpy as np
 
-from statpy.variable import Layout, Variable
 from statpy.statistics import jackknife
 from statpy.statistics.core import bin as bin_data
+from statpy.variable import Layout, Variable
 
 
 def _linear(y):     return 2 * y[..., 0] + 3 * y[..., 1]      # linear combination

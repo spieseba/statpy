@@ -1,16 +1,16 @@
-from collections.abc import Mapping
 import os
 import pickle
 import re
 import struct
 import zlib
+from collections.abc import Mapping
 
 import statpy
-from statpy.variable import Layout, Variable, _check_unique_cfgs
 from statpy.log import message
+from statpy.variable import Layout, Variable, _check_unique_cfgs
 
-# Database file: magic (format version) + u32 CRC32 + pickled {tag: variable state dict}.
-# Bump the magic on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3, v4 SPD4, v5 SPD5.
+# Database file: magic number (format version) + u32 CRC32 + pickled {tag: variable state dict}.
+# Change the magic number on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3, v4 SPD4, v5 SPD5.
 _MAGIC = b"SPD6"
 _commit_logged = False
 
@@ -20,10 +20,10 @@ class DuplicateTagError(ValueError):
 
 
 class Database(Mapping):
-    """Dict-like variable store with snapshot I/O."""
+    """Dict-like store of Variables by tag, saved to and loaded from a database file."""
 
     def __init__(self, *args):
-        """Create an empty Database and merge disjoint snapshots or databases."""
+        """Create a Database from database files or Databases with disjoint tags."""
         global _commit_logged
         self._variables = {}
         if not _commit_logged:
@@ -46,7 +46,7 @@ class Database(Mapping):
                     self._variables[t] = Variable(**vars(variable))
 
     def load(self, src):
-        """Load a snapshot and add variables with disjoint tags."""
+        """Load a database file and add its variables; tags must not overlap."""
         message(f"Load {src}")
         if not os.path.isfile(src):
             raise FileNotFoundError(f"{src} not found")

@@ -32,13 +32,13 @@ def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range, *
         variable = correlators[tsrc]
         masked_sample = _get_masked_meson_sample(variable.observations, tmax_fw[src_idx], tmax_bw[src_idx], time_parity)
         masked_samples.append(masked_sample)
-    ref_lf = correlators[tsrcs_in_bulk[0]]
+    reference = correlators[tsrcs_in_bulk[0]]
     # mask pattern is config-independent, so mean+compress over the whole stack at once
     combined = np.ma.concatenate(masked_samples, axis=1).mean(axis=1)  # (N_cfg, T)
     combined_sample = np.ma.compress_cols(combined)
     return Variable.from_data(
         combined_sample,
-        ref_lf.layout,
+        reference.layout,
         metadata={"tsrcs": tsrcs_in_bulk, "bulk_range": bulk_range, "time_parity": time_parity},
     )
 

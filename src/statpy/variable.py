@@ -45,7 +45,7 @@ class Variable:
         self.metadata = metadata
 
     @classmethod
-    def from_data(cls, observations, layout, metadata=None):
+    def from_data(cls, observations, layout, metadata=None, bootstraps=None):
         """Compute the weighted mean and jackknife replicates of data."""
         if layout is None:
             raise ValueError("from_data: observations requires layout")
@@ -60,8 +60,9 @@ class Variable:
             )
         jackknife_replicates = jackknife.mean_replicates(observations, weights=layout.weights)
         central_value = np.average(observations, axis=0, weights=layout.weights)
+        bootstrap_replicates = None if bootstraps is None else bootstrap.mean_replicates(observations, bootstraps, weights=layout.weights)
         return cls(central_value=central_value, jackknife_replicates=jackknife_replicates,
-                   observations=observations, layout=layout, metadata=metadata)
+                   bootstrap_replicates=bootstrap_replicates, observations=observations, layout=layout, metadata=metadata)
 
     @classmethod
     def from_results(cls, central_value=None, jackknife_replicates=None, bootstrap_replicates=None,
@@ -144,10 +145,6 @@ class Variable:
         weights = statistics.bin(self.layout.weights, bin_size, weights=np.ones(len(self.layout.weights)))
         configurations = np.array([f"{prefix}/bin_size{bin_size}-{i}" for i in range(num_bins)])
         return type(self).from_data(observations, Layout(configurations, weights), self.metadata)
-
-    def resample_bootstrap(self, bootstraps):
-        """Compute weighted bootstrap means using the supplied index matrix."""
-        return bootstrap.mean_replicates(self.observations, bootstraps, weights=self.layout.weights)
 
     def _jackknife_replicates(self, bin_size):
         if self.jackknife_replicates is None:
