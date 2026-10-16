@@ -24,14 +24,15 @@ from statpy.qcd.correlator.primitives import (
 )
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife
+from statpy.variable import Layout, Variable
 
 
 def pbc_correlator_average(db, corr_tag, store_as):
     """PBC source-axis average; write to ``store_as``. Any channel (no folding)."""
     assert isinstance(corr_tag, str)
-    entry = db.database[corr_tag]
-    new_sample = entry.samples.mean(axis=1)
-    db.add_entry(store_as, samples=new_sample, weights=entry.weights, configurations=entry.configurations, metadata=entry.metadata)
+    variable = db[corr_tag]
+    new_sample = variable.observations.mean(axis=1)
+    db[store_as] = Variable.from_data(new_sample, variable.layout, metadata=variable.metadata)
 
 
 def obc_meson_correlator_average(db, corr_tags, bulk_range, store_as, tmax_from_tsrc=None, time_parity=1):
@@ -66,30 +67,27 @@ def obc_meson_correlator_average(db, corr_tags, bulk_range, store_as, tmax_from_
         tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
     masked_samples = []
     for src_idx, corr_tag in enumerate(corr_tags_in_bulk):
-        entry = db.database[corr_tag]
-        masked_sample = _get_masked_meson_sample(entry.samples, tmax_fw[src_idx], tmax_bw[src_idx], time_parity)
+        variable = db[corr_tag]
+        masked_sample = _get_masked_meson_sample(variable.observations, tmax_fw[src_idx], tmax_bw[src_idx], time_parity)
         masked_samples.append(masked_sample)
-    ref_lf = db.database[corr_tags_in_bulk[0]]
+    ref_lf = db[corr_tags_in_bulk[0]]
     # mask pattern is config-independent, so mean+compress over the whole stack at once
     combined = np.ma.concatenate(masked_samples, axis=1).mean(axis=1)  # (N_cfg, T)
     combined_sample = np.ma.compress_cols(combined)
-    db.add_entry(
-        store_as, samples=combined_sample, weights=ref_lf.weights, configurations=ref_lf.configurations,
+    db[store_as] = Variable.from_data(
+        combined_sample,
+        ref_lf.layout,
         metadata={"tsrcs": tsrcs_in_bulk, "bulk_range": bulk_range, "time_parity": time_parity},
     )
 
 
 def meson_fold_correlator_entry(db, corr_tag, store_as, time_parity=1):
-    """Fold a DB correlator entry around T/2 into ``store_as``. Mesons only.
-
-    Unrelated to the pipeline-level ``fold_correlators`` config toggle.
-    time_parity is +1 (even) or -1 (odd); booleans are rejected.
-    """
+    """Fold a meson correlator variable around T/2 into ``store_as``."""
     time_parity = _validate_time_parity(time_parity)
     message(f"Fold correlator {corr_tag}.")
-    entry = db.database[corr_tag]
-    folded = np.array([meson_fold_correlator(corr, time_parity) for corr in entry.samples])
-    db.add_entry(store_as, samples=folded, weights=entry.weights, configurations=entry.configurations, metadata=entry.metadata)
+    variable = db[corr_tag]
+    folded = np.array([meson_fold_correlator(corr, time_parity) for corr in variable.observations])
+    db[store_as] = Variable.from_data(folded, variable.layout, metadata=variable.metadata)
 
 
 def _boundary_eff_mass(corr, tsrc):
@@ -123,20 +121,20 @@ def obc_meson_boundary_average(db, corr_tags, tmin_excited, bin_size, tmax_from_
 
     am_t_means, am_t_jks, cfgs = [], [], None
     for corr_tag, tsrc in zip(corr_tags, tsrcs):
-        entry = db.database[corr_tag]
+        variable = db[corr_tag]
         masked_excited_state_sample = np.array([
             _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0)
-            for corrs in entry.samples
+            for corrs in variable.observations
         ])
-        b_sample = statistics.bin(masked_excited_state_sample, bin_size, weights=entry.weights)
-        b_weights = statistics.bin(entry.weights, bin_size, weights=np.ones(len(entry.weights)))
-        jks = jackknife.mean_sample(b_sample, weights=b_weights)
+        b_sample = statistics.bin(masked_excited_state_sample, bin_size, weights=variable.layout.weights)
+        b_weights = statistics.bin(variable.layout.weights, bin_size, weights=np.ones(len(variable.layout.weights)))
+        jks = jackknife.mean_replicates(b_sample, weights=b_weights)
         am_t_means.append(_boundary_eff_mass(np.average(b_sample, axis=0, weights=b_weights), tsrc))
         am_t_jks.append(np.array([_boundary_eff_mass(jk, tsrc) for jk in jks]))
         if cfgs is None:
-            # binned labels as in DB.bin_entry
-            cfgs = entry.configurations if bin_size == 1 else np.array(
-                [f"{corr_tag.split('/')[0]}-bin{i}" for i in range(len(b_sample))]
+            # binned labels as in Variable.bin
+            cfgs = variable.layout.configurations if bin_size == 1 else np.array(
+                [f"{corr_tag.split('/')[0]}/bin_size{bin_size}-{i}" for i in range(len(b_sample))]
             )
 
     def source_average(stack):
@@ -148,6 +146,11 @@ def obc_meson_boundary_average(db, corr_tags, tmin_excited, bin_size, tmax_from_
 
     masked_tag = f"{corr_tags[0]}/maskedES"
     avg_mt_tag = re.sub(r'(tsrc)\d+', r'\1None', f"{binned_tag(masked_tag, bin_size)}/am_t")
-    db.add_entry(avg_mt_tag, central_value=avg_mean, jackknife_samples=avg_jks, configurations=cfgs, metadata={"nsrc_hist": nsrc_hist})
-    db.transform(avg_mt_tag, f=lambda mt: _fold_meson_boundary(mt, time_parity), store_as=f"{avg_mt_tag}/folded")
+    db[avg_mt_tag] = Variable.from_results(
+        central_value=avg_mean,
+        jackknife_replicates=avg_jks,
+        metadata={"nsrc_hist": nsrc_hist},
+        layout=Layout(cfgs),
+    )
+    db[f"{avg_mt_tag}/folded"] = Variable.derive(lambda mt: _fold_meson_boundary(mt, time_parity), db[avg_mt_tag])
     return avg_mt_tag

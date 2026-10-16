@@ -6,6 +6,7 @@ import statpy.fitting
 import statpy.log
 import statpy.qcd
 import statpy.statistics
+import statpy.variable
 
 
 def _commit_hash():

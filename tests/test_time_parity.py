@@ -26,7 +26,7 @@ from statpy.qcd.correlator.primitives import meson_fold_correlator
     pytest.param(lambda p: _get_masked_meson_sample(None, 4, 4, p), id="mask"),
     pytest.param(
         lambda p: meson_fold_correlator_entry(None, "input", "output", p),
-        id="fold-entry",
+        id="fold-variable",
     ),
     pytest.param(
         lambda p: obc_meson_correlator_average(None, [], None, "output", time_parity=p),
@@ -38,7 +38,7 @@ from statpy.qcd.correlator.primitives import meson_fold_correlator
     ),
 ])
 def test_invalid_parity_rejected_before_accessing_data(call, time_parity):
-    # None inputs ensure validation happens before array/DB access or writes.
+    # None inputs ensure validation happens before array/Database access or writes.
     with pytest.raises(ValueError, match="time_parity must be"):
         call(time_parity)
 

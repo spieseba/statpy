@@ -9,6 +9,7 @@ for a linear and a non-linear pipeline. Runs under pytest or as a plain script:
 """
 import numpy as np
 
+from statpy.variable import Layout, Variable
 from statpy.statistics import jackknife
 from statpy.statistics.core import bin as bin_data
 
@@ -23,7 +24,7 @@ def _data(N, seed=0):
 
 
 def _sample(x):
-    return jackknife.mean_sample(x, np.ones(len(x)))
+    return jackknife.mean_replicates(x, np.ones(len(x)))
 
 
 def _uniform_formula(jks, bin_size):
@@ -68,7 +69,7 @@ def test_weighted_matches_leave_bin_out_mean():
         (S - (w[i:i + bin_size, None] * x[i:i + bin_size]).sum(axis=0)) / (W - w[i:i + bin_size].sum())
         for i in range(0, N - N % bin_size, bin_size)
     ])
-    jks = jackknife.mean_sample(x, w)
+    jks = jackknife.mean_replicates(x, w)
     np.testing.assert_allclose(jackknife.delayed_binning(jks, bin_size, w), expected, rtol=1e-12, atol=0)
 
 
@@ -97,6 +98,16 @@ def test_deviation_decreases_with_sample_size():
         devs = [_mean_reldev(N, bin_size, g) for N in Ns]
         assert devs[0] > devs[1] > devs[2], (g.__name__, devs)   # strictly decreasing
         assert devs[2] < devs[0] / 4, (g.__name__, devs)         # ~1/N over the x16 range
+
+
+def test_derived_delayed_variance_matches_upfront_binning():
+    samples = _data(1000)
+    data = Variable.from_data(samples, Layout(np.arange(1000), np.ones(1000)))
+    bin_size = 4
+    derived = Variable.derive(_linear, data)
+    upfront = Variable.derive(_linear, data.bin(bin_size, "e"))
+    np.testing.assert_allclose(derived.jackknife_variance(bin_size=bin_size),
+                               upfront.jackknife_variance(), rtol=1e-12)
 
 
 if __name__ == "__main__":

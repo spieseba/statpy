@@ -31,7 +31,7 @@ def inflated_covariance(jk_cov, bs_std):
         Jackknife covariance.
     bs_std : (N,) array
         Per-component bootstrap std dev (e.g. from
-        ``np.sqrt(bootstrap.variance(bootstrap_samples))``).
+        ``np.sqrt(bootstrap.variance(bootstrap_replicates))``).
     """
     cov_n = normalize_covariance(jk_cov)
     return np.outer(bs_std, bs_std) * cov_n 

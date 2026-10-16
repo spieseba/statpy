@@ -7,7 +7,7 @@ from statpy.qcd.correlator._masking import _fold_meson_boundary
 
 def test_fold_does_not_mutate_input():
     # np.flip yields a view; the antisymmetric sign flip must not write
-    # through it into the caller's array (e.g. a DB entry's mean/jks).
+    # through it into the caller's array (e.g. a Database variable's mean/jks).
     arr = np.arange(8.0)
     _fold_meson_boundary(arr, time_parity=-1)
     np.testing.assert_array_equal(arr, np.arange(8.0))

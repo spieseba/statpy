@@ -6,8 +6,9 @@ import textwrap
 import h5py
 import numpy as np
 
-from statpy.database.core import DB
+from statpy.database import Database
 from statpy.log import message
+from statpy.variable import Layout, Variable
 
 _CFG_ID_RE = re.compile(r"n(\d+)$")
 
@@ -21,21 +22,7 @@ def _parse_cfg_id(name):
 
 
 def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configurations_to_be_removed=None, meas_group="messpec", reverse=False, silent=False):
-    """Load CLS hdf5 measurements + reweighting factors into a fresh ``DB``.
-
-    Each hdf5 dataset under ``meas_group/data`` whose key matches any regex
-    in ``correlator_patterns`` via ``re.search`` becomes an atomic data entry at
-    ``{stream_tag}/{run_tag}/{key}`` with cfg labels
-    ``{stream_tag}-{cfg_id}`` sorted by ascending cfg id (descending if
-    ``reverse=True``). The raw rwf is embedded as ``weights`` — no
-    separate ``/rwf`` / ``/nrwf`` entries.
-
-    ``configurations_to_be_removed`` filters both streams before insertion; their
-    remaining cfg sets must agree exactly.
-
-    Patterns are processed in order; overlapping matches load each dataset
-    once.
-    """
+    """Load CLS hdf5 measurements and reweighting factors into a fresh Database."""
     if not os.path.isfile(fn):
         raise FileNotFoundError(f"hdf5 file {fn!r} not found!")
     if not os.path.isfile(rwf_fn):
@@ -103,7 +90,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configuration
         weights = rwf_values[rwf_idx]
         cfg_labels = np.array([f"{stream_tag}-{int(c)}" for c in common_cfgs])
 
-        db = DB()
+        db = Database()
         _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag)
     return db
 
@@ -183,8 +170,5 @@ def _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream
                 f_vals = f["data"].get(key)[:]
                 sample = f_vals[h5_idx]
                 f_tag = f"{stream_tag}/{run_tag}/{key}"
-                db.add_entry(
-                    tag=f_tag,
-                    samples=sample, weights=weights, configurations=cfg_labels,
-                )
+                db[f_tag] = Variable.from_data(sample, Layout(cfg_labels, weights))
                 loaded_keys.add(key)

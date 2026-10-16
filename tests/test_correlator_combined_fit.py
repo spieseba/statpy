@@ -2,9 +2,10 @@
 import numpy as np
 import pytest
 
-from statpy.database.core import DB
+from statpy.database import Database
 from statpy.qcd.correlator import FitTags, ground_state_fit
 from statpy.qcd.correlator.fits import FitConfig
+from statpy.variable import Layout, Variable
 
 NT = 32
 N_CFG = 50
@@ -23,10 +24,10 @@ def _synthetic_db(fit_models):
     cfgs = np.array([f"c{i}" for i in range(N_CFG)])
     weights = np.ones(N_CFG)
     t = np.arange(NT)
-    db = DB()
+    db = Database()
     for tag, model, amplitude in zip(("smsm", "smloc"), fit_models, TRUE_P[:2]):
         sample = _model(model, t, amplitude, TRUE_P[2], NT) + rng.normal(scale=0.003, size=(N_CFG, NT))
-        db.add_entry(tag, samples=sample, weights=weights, configurations=cfgs)
+        db[tag] = Variable.from_data(sample, Layout(cfgs, weights))
     return db
 
 
@@ -45,13 +46,13 @@ def test_fit_references_resolve_resamples(with_bootstrap):
     assert len(fits) == 2
     for bin_size, fit in enumerate(fits, start=1):
         assert isinstance(fit, FitTags)
-        entry = db.database[fit.jackknife]
-        assert entry.jackknife_samples.shape == (N_CFG // bin_size, len(truth))
-        np.testing.assert_allclose(entry.central_value, truth, rtol=0.08, atol=0.02)
+        variable = db[fit.jackknife]
+        assert variable.jackknife_replicates.shape == (N_CFG // bin_size, len(truth))
+        np.testing.assert_allclose(variable.central_value, truth, rtol=0.08, atol=0.02)
         if with_bootstrap and bin_size == 1:
-            entry_bs = db.database[fit.bootstrap]
-            assert entry_bs.bootstrap_samples.shape == (len(bootstraps), len(truth))
-            np.testing.assert_allclose(entry_bs.central_value, truth, rtol=0.08, atol=0.02)
+            variable_bs = db[fit.bootstrap]
+            assert variable_bs.bootstrap_replicates.shape == (len(bootstraps), len(truth))
+            np.testing.assert_allclose(variable_bs.central_value, truth, rtol=0.08, atol=0.02)
         else:
             assert fit.bootstrap is None
 

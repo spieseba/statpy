@@ -5,14 +5,15 @@ A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in th
 
 ## What it does
 
-- **Automatic error propagation through arbitrary, nonlinear operations:** `db.transform(tag, f)` and `db.combine(t1, t2, f=...)` apply any function to the central value and to every jackknife/bootstrap resample, so error bars on quantities like effective masses `log(C(t)/C(t+1))` or ratios fall out with no hand-derived Jacobians and no Gaussian linearization.
-- **Correlations preserved by construction:** combining entries aligns jackknife resamples by config label (union of config sets, configs missing from an input contributing their central value) and bootstrap resamples by index, so covariances between derived quantities are carried through every step.
+- **Automatic error propagation through arbitrary, nonlinear operations:** `Variable.derive(f, *variables)` applies any function to the central value and to every jackknife/bootstrap resample, so error bars on quantities like effective masses `log(C(t)/C(t+1))` or ratios fall out with no hand-derived Jacobians and no Gaussian linearization.
+- **Correlations preserved by construction:** combining variables aligns jackknife resamples by config label (union of config sets, configs missing from an input contributing their central value) and bootstrap resamples by index, so covariances between derived quantities are carried through every step.
 - **Autocorrelation-aware UQ for MCMC time series:** jackknife, bootstrap, and a published delayed-binning estimator ([Phys. Rev. D 111](https://doi.org/10.1103/mj3d-yq87)) for errors on correlated samples, plus correlated least-squares fitting with the full covariance matrix.
-- **Reproducible, self-describing storage:** a tagged binary database carries samples, jackknife blocks, and the statpy commit hash in a CRC-checked file, so an analysis and its provenance travel together.
+- **Reproducible, self-describing storage:** a tagged binary database carries observations, jackknife replicates, and the statpy commit hash in a CRC-checked file, so an analysis and its provenance travel together.
 
 ```python
 import numpy as np
 import statpy as sp
+from statpy.variable import Layout, Variable
 
 rng = np.random.default_rng(0)
 num_cfg, num_t = 200, 8
@@ -24,20 +25,20 @@ t = np.arange(num_t)
 C1 = np.exp(-0.5 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
 C2 = np.exp(-0.7 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
 
-db = sp.database.core.DB()
-db.add_entry("C1", samples=C1, weights=w, configurations=cfgs)
-db.add_entry("C2", samples=C2, weights=w, configurations=cfgs)
+db = sp.database.Database()
+db["C1"] = Variable.from_data(C1, Layout(cfgs, w))
+db["C2"] = Variable.from_data(C2, Layout(cfgs, w))
 
-# Transform one entry: effective mass  m(t) = log(C1(t) / C1(t+1)).
-db.transform("C1", lambda c: np.log(c[:-1] / c[1:]), store_as="m_eff")
+# Transform one variable: effective mass  m(t) = log(C1(t) / C1(t+1)).
+db["m_eff"] = Variable.derive(lambda c: np.log(c[:-1] / c[1:]), db["C1"])
 
-# Combine two entries cfg-wise: the ratio C1 / C2.
-db.combine("C1", "C2", f=lambda a, b: a / b, store_as="ratio")
+# Combine two variables cfg-wise: the ratio C1 / C2.
+db["ratio"] = Variable.derive(lambda a, b: a / b, db["C1"], db["C2"])
 
 # Jackknife errors propagate automatically through both operations.
-err = lambda tag: np.sqrt(db.jackknife_variance(tag))
-print("m_eff:", db.database["m_eff"].central_value[:3].round(3), "+/-", err("m_eff")[:3].round(3))
-print("ratio:", db.database["ratio"].central_value[:3].round(3), "+/-", err("ratio")[:3].round(3))
+err = lambda tag: np.sqrt(db[tag].jackknife_variance())
+print("m_eff:", db["m_eff"].central_value[:3].round(3), "+/-", err("m_eff")[:3].round(3))
+print("ratio:", db["ratio"].central_value[:3].round(3), "+/-", err("ratio")[:3].round(3))
 # m_eff: [0.505 0.5   0.494] +/- [0.005 0.005 0.005]
 # ratio: [1.001 1.225 1.491] +/- [0.005 0.006 0.008]
 ```
