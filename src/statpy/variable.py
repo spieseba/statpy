@@ -119,6 +119,9 @@ class Variable:
         if any(variable.bootstrap_replicates is None for variable in variables):
             return None
         num_bootstraps = variables[0].bootstrap_replicates.shape[0]
+        for index, variable in enumerate(variables):
+            if len(variable.bootstrap_replicates) != num_bootstraps:
+                raise ValueError(f"derive: input {index} has a different number of bootstrap replicates")
         return np.array([f(*[variable.bootstrap_replicates[i] for variable in variables])
                          for i in range(num_bootstraps)])
 

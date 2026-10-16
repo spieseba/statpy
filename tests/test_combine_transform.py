@@ -61,3 +61,10 @@ def test_derive_rejects_differing_configurations():
     other = Variable.from_data(db["b"].observations, Layout(np.arange(50), np.ones(50)))
     with pytest.raises(ValueError, match="input 1 configurations differ"):
         Variable.derive(lambda x, y: x + y, db["a"], other)
+
+
+def test_derive_rejects_differing_bootstrap_counts():
+    a = Variable.from_results(np.zeros(2), bootstrap_replicates=np.zeros((10, 2)))
+    b = Variable.from_results(np.zeros(2), bootstrap_replicates=np.zeros((12, 2)))
+    with pytest.raises(ValueError, match="input 1 has a different number of bootstrap replicates"):
+        Variable.derive(lambda x, y: x + y, a, b)
