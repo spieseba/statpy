@@ -40,10 +40,10 @@ class ErrorAnalysis:
     error_tau_ints: np.ndarray   # all W
 
 
-def error_analysis(fluctuations, replicas, positions, S=1.5):
+def error_analysis(fluctuations, replicas, monte_carlo_times, S=1.5):
     """Gamma-method error analysis of ``fluctuations`` per component (Wolff, S default 1.5)."""
     num_configurations = len(fluctuations)
-    gamma = autocovariance(fluctuations, replicas, positions)
+    gamma = autocovariance(fluctuations, replicas, monte_carlo_times)
     tau_ints = integrated_autocorrelation_times(gamma)
     error_tau_ints = error_integrated_autocorrelation_times(tau_ints, num_configurations)
     W = window(tau_ints, num_configurations, S)
@@ -65,23 +65,23 @@ def error_analysis(fluctuations, replicas, positions, S=1.5):
 # Steps of the analysis, in order
 # ---------------------------------------------------------------------------
 
-def autocovariance(fluctuations, replicas, positions, max_lag=None, fft=True):
+def autocovariance(fluctuations, replicas, monte_carlo_times, max_lag=None, fft=True):
     """Autocovariance of ``fluctuations`` for lags 0 to ``max_lag``, using only
     pairs within the same replica. Default ``max_lag``: half the longest replica span minus 1.
     ``fft=False`` sums the products directly instead of via FFT."""
     if max_lag is None:
-        spans = [np.ptp(positions[replicas == replica]) + 1 for replica in np.unique(replicas)]
+        spans = [np.ptp(monte_carlo_times[replicas == replica]) + 1 for replica in np.unique(replicas)]
         max_lag = max(spans) // 2 - 1
     product_sums = np.zeros((max_lag + 1,) + fluctuations.shape[1:])
     num_pairs = 0
     for replica in np.unique(replicas):
         in_replica = (replicas == replica)
-        replica_fluctuations, measured = _insert_gaps(fluctuations[in_replica], positions[in_replica])
+        replica_fluctuations, measured = _insert_gaps(fluctuations[in_replica], monte_carlo_times[in_replica])
         product_sums += _lag_sum(replica_fluctuations, max_lag, fft)
         num_pairs += np.rint(_lag_sum(measured, max_lag, fft))
     lags_without_pairs = np.flatnonzero(num_pairs == 0)
     if lags_without_pairs.size:
-        raise ValueError(f"No pairs at lag {lags_without_pairs[0]}; check positions or max_lag.")
+        raise ValueError(f"No pairs at lag {lags_without_pairs[0]}; check monte_carlo_times or max_lag.")
     return product_sums / num_pairs.reshape((-1,) + (1,) * (product_sums.ndim - 1))
 
 
@@ -95,10 +95,10 @@ def _lag_sum(values, max_lag, fft=True):
     return irfft(np.abs(transform)**2, padded_length, axis=0)[:max_lag+1]
 
 
-def _insert_gaps(values, positions):
-    """Return ``values`` with zeros inserted at missing positions, and an array
-    that is 1 at measured positions and 0 at missing ones."""
-    indices = positions - positions.min()
+def _insert_gaps(values, monte_carlo_times):
+    """Return ``values`` with zeros inserted at missing Monte Carlo times, and an array
+    that is 1 at measured times and 0 at missing ones."""
+    indices = monte_carlo_times - monte_carlo_times.min()
     values_with_gaps = np.zeros((indices.max() + 1,) + values.shape[1:])
     values_with_gaps[indices] = values
     measured = np.zeros(indices.max() + 1)

@@ -23,18 +23,18 @@ def test_lag_sum_fft_matches_direct_sum():
 
 def test_autocovariance_matches_direct_pair_sum():
     rng = np.random.default_rng(0)
-    # Replica 0 has gaps at 3, 6, 7; replica 1 reuses positions, so pairs across replicas would show.
+    # Replica 0 has gaps at 3, 6, 7; replica 1 reuses Monte Carlo times, so pairs across replicas would show.
     replicas = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1])
-    positions = np.array([0, 1, 2, 4, 5, 8, 3, 4, 6, 7])
+    monte_carlo_times = np.array([0, 1, 2, 4, 5, 8, 3, 4, 6, 7])
     fluctuations = rng.normal(size=(10, 2))
     # Default max_lag: 9 // 2 - 1 = 3; every lag up to it has pairs.
     expected = []
     for lag in range(4):
         pairs = [(i, j) for i in range(10) for j in range(10)
-                 if replicas[i] == replicas[j] and positions[j] - positions[i] == lag]
+                 if replicas[i] == replicas[j] and monte_carlo_times[j] - monte_carlo_times[i] == lag]
         # Mean over pairs = product sum / number of pairs.
         expected.append(np.mean([fluctuations[i] * fluctuations[j] for i, j in pairs], axis=0))
-    np.testing.assert_allclose(gamma.autocovariance(fluctuations, replicas, positions), expected)
+    np.testing.assert_allclose(gamma.autocovariance(fluctuations, replicas, monte_carlo_times), expected)
 
 
 def test_integrated_autocorrelation_times_by_hand():
