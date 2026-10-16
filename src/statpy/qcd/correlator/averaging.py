@@ -1,14 +1,8 @@
-"""Source averaging and folding of correlators (preprocessing, before fitting).
-
-All functions take a database handle as first argument and write their result
-back into it. The OBC/fold routines are valid for mesonic channels only.
-"""
-import re
-import textwrap
+"""Source averaging of meson correlator Variables."""
+from dataclasses import dataclass
 
 import numpy as np
 
-from statpy.log import message
 from statpy.qcd.correlator._masking import (
     _flip_sign_boundary,
     _fold_meson_boundary,
@@ -18,76 +12,35 @@ from statpy.qcd.correlator._masking import (
 )
 from statpy.qcd.correlator.primitives import (
     _validate_time_parity,
-    binned_tag,
     effective_mass,
-    meson_fold_correlator,
 )
 from statpy.statistics import core as statistics
 from statpy.statistics import jackknife
 from statpy.variable import Layout, Variable
 
 
-def pbc_correlator_average(db, corr_tag, store_as):
-    """PBC source-axis average; write to ``store_as``. Any channel (no folding)."""
-    assert isinstance(corr_tag, str)
-    variable = db[corr_tag]
-    new_sample = variable.observations.mean(axis=1)
-    db[store_as] = Variable.from_data(new_sample, variable.layout, metadata=variable.metadata)
-
-
-def obc_meson_correlator_average(db, corr_tags, bulk_range, store_as, tmax_from_tsrc=None, time_parity=1):
-    """OBC source average over tsrcs in bulk_range: per-src fw/bw mask, then fold-and-mean.
-
-    Mesons only: time_parity is +1 (even) or -1 (odd); booleans are rejected.
-    """
+def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range, *, tmax_from_tsrc=None, time_parity=1) -> Variable:
+    """Return the OBC meson source average over sources in bulk_range."""
     time_parity = _validate_time_parity(time_parity)
-    # Get src positions in bulk
-    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in corr_tags]
-    assert len(corr_tags) == len(tsrcs)
-    corr_tags_in_bulk = []
-    tsrcs_in_bulk = []
-    for corr_tag, tsrc in zip(corr_tags, tsrcs):
-        if (tsrc >= bulk_range[0]) and (tsrc <= bulk_range[-1]):
-            corr_tags_in_bulk.append(corr_tag)
-            tsrcs_in_bulk.append(tsrc)
-    message(
-        "OBC source averaging\n"
-        f"  {'Bulk range':<14} [{bulk_range[0]}, {bulk_range[-1]}]\n"
-        f"  {'tmax_from_tsrc':<14} {tmax_from_tsrc}\n"
-        + textwrap.fill(
-            ", ".join(str(t) for t in tsrcs_in_bulk), width=72,
-            initial_indent=f"  {'tsrcs in bulk':<14} ", subsequent_indent=" " * 17,
-        )
-        + "\n  Input tags\n"
-        + "\n".join(f"    {tag}" for tag in corr_tags)
-    )
+    tsrcs_in_bulk = [tsrc for tsrc in correlators if (tsrc >= bulk_range[0]) and (tsrc <= bulk_range[-1])]
     tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, bulk_range)
     if tmax_from_tsrc is not None:
         tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1)
         tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
     masked_samples = []
-    for src_idx, corr_tag in enumerate(corr_tags_in_bulk):
-        variable = db[corr_tag]
+    for src_idx, tsrc in enumerate(tsrcs_in_bulk):
+        variable = correlators[tsrc]
         masked_sample = _get_masked_meson_sample(variable.observations, tmax_fw[src_idx], tmax_bw[src_idx], time_parity)
         masked_samples.append(masked_sample)
-    ref_lf = db[corr_tags_in_bulk[0]]
+    ref_lf = correlators[tsrcs_in_bulk[0]]
     # mask pattern is config-independent, so mean+compress over the whole stack at once
     combined = np.ma.concatenate(masked_samples, axis=1).mean(axis=1)  # (N_cfg, T)
     combined_sample = np.ma.compress_cols(combined)
-    db[store_as] = Variable.from_data(
+    return Variable.from_data(
         combined_sample,
         ref_lf.layout,
         metadata={"tsrcs": tsrcs_in_bulk, "bulk_range": bulk_range, "time_parity": time_parity},
     )
-
-
-def meson_fold_correlator_entry(db, corr_tag, store_as, time_parity=1):
-    """Fold a meson correlator variable around T/2 into ``store_as``."""
-    time_parity = _validate_time_parity(time_parity)
-    message(f"Fold correlator {corr_tag}.")
-    variable = db[corr_tag]
-    folded = np.array([meson_fold_correlator(corr, time_parity) for corr in variable.observations])
-    db[store_as] = Variable.from_data(folded, variable.layout, metadata=variable.metadata)
 
 
 def _boundary_eff_mass(corr, tsrc):
@@ -101,27 +54,21 @@ def _boundary_eff_mass(corr, tsrc):
     )
 
 
-def obc_meson_boundary_average(db, corr_tags, tmin_excited, bin_size, tmax_from_tsrc=None, time_parity=1):
-    """Source-averaged, folded boundary effective mass (excited region masked). Mesons only.
+@dataclass(frozen=True)
+class BoundaryAverage:
+    """Boundary effective mass, folded effective mass, and source counts."""
 
-    Returns the source-averaged tag (``tsrc<None>/am_t``); ``<tag>/folded`` and
-    ``metadata["nsrc_hist"]`` (source positions contributing per time slice) are also written.
-    time_parity is +1 (even) or -1 (odd); booleans are rejected.
-    """
+    effective_mass: Variable
+    folded: Variable
+    nsrc_hist: np.ndarray
+
+
+def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited, bin_size, prefix, *, tmax_from_tsrc=None, time_parity=1) -> BoundaryAverage:
+    """Return source-averaged boundary effective masses and source counts."""
     time_parity = _validate_time_parity(time_parity)
-    message(
-        "OBC boundary averaging\n"
-        f"  {'tmin_excited':<14} {tmin_excited} (excited-state cutoff)\n"
-        f"  {'tmax_from_tsrc':<14} {tmax_from_tsrc}\n"
-        "  Input tags\n"
-        + "\n".join(f"    {tag}" for tag in corr_tags)
-    )
-    tsrcs = [int(re.search(r'tsrc(\d+)', t)[1]) for t in corr_tags]
-    assert len(corr_tags) == len(tsrcs)
 
     am_t_means, am_t_jks, cfgs = [], [], None
-    for corr_tag, tsrc in zip(corr_tags, tsrcs):
-        variable = db[corr_tag]
+    for tsrc, variable in correlators.items():
         masked_excited_state_sample = np.array([
             _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0)
             for corrs in variable.observations
@@ -134,7 +81,7 @@ def obc_meson_boundary_average(db, corr_tags, tmin_excited, bin_size, tmax_from_
         if cfgs is None:
             # binned labels as in Variable.bin
             cfgs = variable.layout.configurations if bin_size == 1 else np.array(
-                [f"{corr_tag.split('/')[0]}/bin_size{bin_size}-{i}" for i in range(len(b_sample))]
+                [f"{prefix}/bin_size{bin_size}-{i}" for i in range(len(b_sample))]
             )
 
     def source_average(stack):
@@ -144,13 +91,10 @@ def obc_meson_boundary_average(db, corr_tags, tmin_excited, bin_size, tmax_from_
     avg_jks = source_average(np.array(am_t_jks))
     nsrc_hist = np.sum(np.array(am_t_means) != 0, axis=0)
 
-    masked_tag = f"{corr_tags[0]}/maskedES"
-    avg_mt_tag = re.sub(r'(tsrc)\d+', r'\1None', f"{binned_tag(masked_tag, bin_size)}/am_t")
-    db[avg_mt_tag] = Variable.from_results(
+    effective_mass = Variable.from_results(
         central_value=avg_mean,
         jackknife_replicates=avg_jks,
-        metadata={"nsrc_hist": nsrc_hist},
         layout=Layout(cfgs),
     )
-    db[f"{avg_mt_tag}/folded"] = Variable.derive(lambda mt: _fold_meson_boundary(mt, time_parity), db[avg_mt_tag])
-    return avg_mt_tag
+    folded = Variable.derive(lambda mt: _fold_meson_boundary(mt, time_parity), effective_mass)
+    return BoundaryAverage(effective_mass, folded, nsrc_hist)

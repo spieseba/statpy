@@ -1,9 +1,8 @@
 """Correlator analysis: primitives, fit models, fits, FitConfig."""
 from statpy.qcd.correlator.averaging import (
-    meson_fold_correlator_entry,
+    BoundaryAverage,
     obc_meson_boundary_average,
     obc_meson_correlator_average,
-    pbc_correlator_average,
 )
 from statpy.qcd.correlator.fits import (
     ExcitedFitResult,
