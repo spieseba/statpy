@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import re
@@ -189,40 +188,3 @@ def _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream
                     samples=sample, weights=weights, configurations=cfg_labels,
                 )
                 loaded_keys.add(key)
-
-
-def decode_v1_ndarray(blob):
-    """Decode a v1 ``{"__ndarray__": <base64>, "dtype":..., "shape":...}`` blob."""
-    buf = base64.b64decode(blob["__ndarray__"])
-    return np.frombuffer(buf, dtype=np.dtype(blob["dtype"])).reshape(blob["shape"])
-
-
-def load_v1_json(fn, silent=False):
-    """Convert a retired v1 (custom-JSON) statpy database into a new ``DB``.
-
-    Samples get uniform weights; ``mean`` and ``jackknife_samples`` are recomputed
-    and ``misc`` is kept as ``metadata``. Raises ``ValueError`` if a leaf's samples cannot be stacked.
-    """
-    if not os.path.isfile(fn):
-        raise FileNotFoundError(f"{fn} not found")
-    message(f"Migrate v1 JSON database from {fn}", silent)
-    with open(fn) as f:
-        raw = json.load(f)
-
-    db = DB()
-    for tag, wrapped in raw.items():
-        leaf = wrapped["__leaf__"]
-        sample_dict = leaf["sample"]
-        cfgs = np.array(list(sample_dict.keys()))
-        rows = [decode_v1_ndarray(sample_dict[c]) for c in cfgs]
-        shapes = {r.shape for r in rows}
-        if len(shapes) > 1:
-            raise ValueError(
-                f"load_v1_json({fn!r}): leaf {tag!r} has ragged per-cfg sample "
-                f"shapes {sorted(shapes)}; cannot stack into a v2 array entry"
-            )
-        sample = np.array(rows)
-        weights = np.ones(len(cfgs))
-        db.add_entry(tag, samples=sample, weights=weights, configurations=cfgs, metadata=leaf.get("misc"))
-    message(f" -- migrated {len(raw)} entries", silent)
-    return db

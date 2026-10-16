@@ -73,5 +73,3 @@ uv run python -c "import statpy; print(statpy.__file__)"
 
 ### Versions
 This is the actively developed version (v2). The original toolkit, written during my PhD, is preserved as the [v1.0 release](https://github.com/spieseba/statpy/releases/tag/v1.0) and on the [`v1-legacy`](https://github.com/spieseba/statpy/tree/v1-legacy) branch, and is no longer maintained.
-
-v2 is a ground-up rewrite and ships a migrator (`statpy.database.io.load_v1_json`) for the retired v1 database format; a round-trip test checks that the migrated v2 entries reproduce the v1 means and jackknife blocks to machine precision.
