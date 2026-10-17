@@ -22,7 +22,11 @@ def _parse_cfg_id(name):
 
 
 def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configurations_to_be_removed=None, meas_group="messpec", reverse=False, silent=False):
-    """Load CLS hdf5 measurements and reweighting factors into a fresh Database."""
+    """Load CLS hdf5 measurements and reweighting factors into a fresh Database.
+
+    The stream is one replica. Monte Carlo times are the cfg ids in units of their smallest
+    common step (missing ids are gaps), increasing in array order also for ``reverse=True``.
+    """
     if not os.path.isfile(fn):
         raise FileNotFoundError(f"hdf5 file {fn!r} not found!")
     if not os.path.isfile(rwf_fn):
@@ -89,10 +93,18 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configuration
         # streams (per-stream or globally) so FP-rounding matches their intent.
         weights = rwf_values[rwf_idx]
         cfg_labels = np.array([f"{stream_tag}-{int(c)}" for c in common_cfgs])
+        layout = Layout(cfg_labels, weights, monte_carlo_times=_monte_carlo_times(common_cfgs, reverse))
 
         db = Database()
-        _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag)
+        _populate_data(db, f, compiled_patterns, h5_idx, layout, stream_tag, run_tag)
     return db
+
+
+def _monte_carlo_times(cfg_ids, reverse):
+    """Monte Carlo times from cfg ids in units of their smallest common step, increasing in array order."""
+    step = np.gcd.reduce(np.diff(np.sort(cfg_ids))) if len(cfg_ids) > 1 else 1
+    offsets = cfg_ids.max() - cfg_ids if reverse else cfg_ids - cfg_ids.min()
+    return offsets // step
 
 
 def _argsort_to(src_cfgs, target_cfgs):
@@ -161,7 +173,7 @@ def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
     return np.sort(rwf_cfgs_filtered)
 
 
-def _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream_tag, run_tag):
+def _populate_data(db, f, compiled_patterns, h5_idx, layout, stream_tag, run_tag):
     data_keys = list(f["data"].keys())
     loaded_keys = set()
     for pattern in compiled_patterns:
@@ -170,5 +182,5 @@ def _populate_data(db, f, compiled_patterns, h5_idx, cfg_labels, weights, stream
                 f_vals = f["data"].get(key)[:]
                 sample = f_vals[h5_idx]
                 f_tag = f"{stream_tag}/{run_tag}/{key}"
-                db[f_tag] = Variable.from_data(sample, Layout(cfg_labels, weights))
+                db[f_tag] = Variable.from_data(sample, layout)
                 loaded_keys.add(key)

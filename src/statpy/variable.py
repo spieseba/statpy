@@ -18,6 +18,8 @@ def _check_unique_cfgs(context, cfgs):
 class Layout:
     """Configuration labels, optional weights, Monte Carlo times and replicas.
 
+    ``configurations`` identify the configurations (labels; unique). ``monte_carlo_times`` and
+    ``replicas`` define the geometry of the Markov chains for the autocorrelation analysis.
     Defaults: ``monte_carlo_times = arange(N)``, ``replicas = zeros(N)`` (one replica).
     ``monte_carlo_times`` must increase strictly in array order within each replica.
     """
