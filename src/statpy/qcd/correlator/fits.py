@@ -23,7 +23,6 @@ from statpy.qcd.correlator.models import (
     sinh_chi2,
 )
 from statpy.qcd.correlator.primitives import effective_mass
-from statpy.statistics import jackknife
 from statpy.variable import Variable
 
 # ---------------------------------------------------------------------------
@@ -376,7 +375,7 @@ def _excited_window_lines(result):
         lines += _labelled("Result", [_format_parameters(parameters.central_value), _format_chi2(result.diagnostics)])
         lines += _labelled("Jackknives", [f"failed: {result.failure_reason}"])
     else:
-        errors = np.sqrt(np.diag(jackknife.covariance(parameters.jackknife_replicates)))
+        errors = np.sqrt(parameters.jackknife_variance())
         lines += _labelled("Result", [_format_parameters(parameters.central_value, errors), _format_chi2(result.diagnostics)])
     correlated_rows = []
     for label, (parameters, misc) in result.correlated.items():
@@ -402,7 +401,7 @@ def _excited_fits_summary(results):
             m0, m1 = (f"{result.parameters.central_value[i]:.6g}" for i in (1, 3))
             suffix = "  (jackknives failed)"
         else:
-            errors = np.sqrt(np.diag(jackknife.covariance(result.parameters.jackknife_replicates)))
+            errors = np.sqrt(result.parameters.jackknife_variance())
             m0, m1 = (format_paren(result.parameters.central_value[i], errors[i]) for i in (1, 3))
             suffix = ""
         rows.append(
@@ -498,10 +497,10 @@ def ground_state_fit(variable, fit_range, p0, fit_model, config: FitConfig, *, N
 def log_ground_state_fit(bin_size, jackknife, bootstrap, silent=False):
     """Log jackknife, correlated and bootstrap fit table rows."""
     parameters = jackknife.parameters
-    rows = _fit_table_rows(bin_size, "jackknife", parameters.central_value, jackknife.diagnostics, np.sqrt(np.diag(parameters.jackknife_covariance())))
+    rows = _fit_table_rows(bin_size, "jackknife", parameters.central_value, jackknife.diagnostics, np.sqrt(parameters.jackknife_variance()))
     for label, (best, misc) in jackknife.correlated.items():
         rows += _fit_table_rows("", f"correlated {label}", best, misc)
     if bootstrap is not None:
         parameters = bootstrap.parameters
-        rows += _fit_table_rows("", "bootstrap", parameters.central_value, bootstrap.diagnostics, np.sqrt(np.diag(parameters.bootstrap_covariance())))
+        rows += _fit_table_rows("", "bootstrap", parameters.central_value, bootstrap.diagnostics, np.sqrt(parameters.bootstrap_variance()))
     message("\n".join(rows), silent, continuation=True)

@@ -166,6 +166,10 @@ class Variable:
         return cls.map_observations(lambda *observations: np.concatenate(observations, axis=observations_axis),
                                     *variables, metadata={"num_inputs": len(variables)})
 
+    def with_metadata(self, metadata):
+        """Return a copy that shares all arrays and has ``metadata`` instead."""
+        return type(self)(**{**vars(self), "metadata": metadata})
+
     def bin(self, bin_size, prefix):
         """Bin data in simulation order, truncating the trailing incomplete bin.
 
