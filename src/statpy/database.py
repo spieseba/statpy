@@ -10,8 +10,8 @@ from statpy.variable import Layout, Variable, _check_unique_cfgs
 
 # Database file: magic number (format version) + u32 CRC32 + pickled {tag: variable state dict}.
 # Change the magic number on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3, v4 SPD4, v5 SPD5,
-# v6 SPD6.
-_MAGIC = b"SPD7"
+# v6 SPD6, v7 SPD7.
+_MAGIC = b"SPD8"
 _commit_logged = False
 
 
@@ -96,6 +96,7 @@ class Database(Mapping):
                 "replicas": variable.layout.replicas if variable.layout is not None else None,
                 "jackknife_replicates": variable.jackknife_replicates,
                 "bootstrap_replicates": variable.bootstrap_replicates,
+                "fluctuations": variable.fluctuations,
                 "metadata": variable.metadata,
             } for t, variable in self._variables.items()},
             protocol=pickle.HIGHEST_PROTOCOL,

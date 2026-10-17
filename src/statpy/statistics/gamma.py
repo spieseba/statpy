@@ -28,7 +28,7 @@ def mean_and_fluctuations(values, weights):
 
 
 @dataclass(frozen=True)
-class ErrorAnalysis:
+class GammaErrorAnalysis:
     """Gamma-method error analysis of one quantity, per component."""
     error: np.ndarray
     error_of_error: np.ndarray
@@ -49,7 +49,7 @@ def error_analysis(fluctuations, monte_carlo_times, replicas, S=1.5):
     W = window(tau_ints, num_configurations, S)
     constant = gamma[0] == 0    # constant: error = 0, tau_int = 1/2, error_tau_int = 0
     error = np.where(constant, 0.0, np.sqrt(variance(gamma, tau_ints, W, num_configurations)))
-    return ErrorAnalysis(
+    return GammaErrorAnalysis(
         error=error,
         error_of_error=error_of_error(error, W, num_configurations),
         tau_int=np.where(constant, 0.5, _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations)),

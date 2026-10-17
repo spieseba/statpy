@@ -1,6 +1,6 @@
 import numpy as np
 
-from statpy.statistics import bootstrap, jackknife
+from statpy.statistics import bootstrap, gamma, jackknife
 from statpy.statistics import core as statistics
 
 
@@ -56,18 +56,19 @@ class Variable:
     """A central value, replicates and optional per-configuration data."""
 
     def __init__(self, *, central_value=None, observations=None, layout=None, jackknife_replicates=None,
-                 bootstrap_replicates=None, metadata=None):
+                 bootstrap_replicates=None, fluctuations=None, metadata=None):
         """Internal constructor; create variables with the classmethods."""
         self.central_value = central_value
         self.observations = observations
         self.layout = layout
         self.jackknife_replicates = jackknife_replicates
         self.bootstrap_replicates = bootstrap_replicates
+        self.fluctuations = fluctuations
         self.metadata = metadata
 
     @classmethod
     def from_data(cls, observations, layout, metadata=None, bootstraps=None):
-        """Compute the weighted mean and jackknife replicates of data."""
+        """Compute the weighted mean, jackknife replicates and gamma-method fluctuations of data."""
         if layout is None:
             raise ValueError("from_data: observations requires layout")
         if layout.weights is None:
@@ -80,10 +81,11 @@ class Variable:
                 f"weights={len(layout.weights)} configurations={len(layout.configurations)}"
             )
         jackknife_replicates = jackknife.mean_replicates(observations, weights=layout.weights)
-        central_value = np.average(observations, axis=0, weights=layout.weights)
         bootstrap_replicates = None if bootstraps is None else bootstrap.mean_replicates(observations, bootstraps, weights=layout.weights)
-        return cls(central_value=central_value, jackknife_replicates=jackknife_replicates,
-                   bootstrap_replicates=bootstrap_replicates, observations=observations, layout=layout, metadata=metadata)
+        mean, fluctuations = gamma.mean_and_fluctuations(observations, layout.weights)
+        return cls(central_value=mean, observations=observations, layout=layout,
+                   jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates,
+                   fluctuations=fluctuations, metadata=metadata)
 
     @classmethod
     def from_results(cls, central_value=None, jackknife_replicates=None, bootstrap_replicates=None,
@@ -183,7 +185,7 @@ class Variable:
 
     def _jackknife_replicates(self, bin_size):
         if self.jackknife_replicates is None:
-            raise ValueError("Missing jackknife_replicates; use from_data or from_results(jackknife_replicates=...)")
+            raise ValueError("jackknife: variable has no jackknife replicates")
         if bin_size == 1:
             return self.jackknife_replicates
         if self.layout is None or self.layout.weights is None:
@@ -203,14 +205,24 @@ class Variable:
     def bootstrap_variance(self):
         """Return the variance of stored bootstrap replicates."""
         if self.bootstrap_replicates is None:
-            raise ValueError("Missing bootstrap_replicates; use from_results(bootstrap_replicates=...)")
+            raise ValueError("bootstrap_variance: variable has no bootstrap replicates")
         return bootstrap.variance(self.bootstrap_replicates)
 
     def bootstrap_covariance(self):
         """Return the covariance of stored bootstrap replicates."""
         if self.bootstrap_replicates is None:
-            raise ValueError("Missing bootstrap_replicates; use from_results(bootstrap_replicates=...)")
+            raise ValueError("bootstrap_covariance: variable has no bootstrap replicates")
         return bootstrap.covariance(self.bootstrap_replicates)
+
+    def gamma_method(self, S=1.5) -> gamma.GammaErrorAnalysis:
+        """Return the gamma-method error analysis per component (Wolff, hep-lat/0306017).
+
+        ``S`` is the factor in Wolff's hypothesis tau ~ S tau_int (sec. 3.3) that sets the
+        automatic window. Fields: see ``GammaErrorAnalysis``. The variable is unchanged.
+        """
+        if self.fluctuations is None:
+            raise ValueError("gamma_method: variable has no fluctuations")
+        return gamma.error_analysis(self.fluctuations, self.layout.monte_carlo_times, self.layout.replicas, S)
 
     def __repr__(self):
         parts = [f"shape={np.shape(self.central_value)}"]
