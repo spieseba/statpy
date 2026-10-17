@@ -40,10 +40,10 @@ class ErrorAnalysis:
     error_tau_ints: np.ndarray   # all W
 
 
-def error_analysis(fluctuations, replicas, monte_carlo_times, S=1.5):
+def error_analysis(fluctuations, monte_carlo_times, replicas, S=1.5):
     """Gamma-method error analysis of ``fluctuations`` per component (Wolff, S default 1.5)."""
     num_configurations = len(fluctuations)
-    gamma = autocovariance(fluctuations, replicas, monte_carlo_times)
+    gamma = autocovariance(fluctuations, monte_carlo_times, replicas)
     tau_ints = integrated_autocorrelation_times(gamma)
     error_tau_ints = error_integrated_autocorrelation_times(tau_ints, num_configurations)
     W = window(tau_ints, num_configurations, S)
@@ -65,7 +65,7 @@ def error_analysis(fluctuations, replicas, monte_carlo_times, S=1.5):
 # Steps of the analysis, in order
 # ---------------------------------------------------------------------------
 
-def autocovariance(fluctuations, replicas, monte_carlo_times, max_lag=None, fft=True):
+def autocovariance(fluctuations, monte_carlo_times, replicas, max_lag=None, fft=True):
     """Autocovariance of ``fluctuations`` for lags 0 to ``max_lag``, using only
     pairs within the same replica. Default ``max_lag``: half the longest replica span minus 1.
     ``fft=False`` sums the products directly instead of via FFT."""

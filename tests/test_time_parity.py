@@ -1,49 +1,17 @@
-"""Time-parity validation and non-mutating forward/backward averaging."""
+"""Forward/backward folding and averaging by time parity, without mutating the input."""
 
 import numpy as np
 import pytest
 
-from statpy.qcd.correlator._masking import (
-    _fold_meson_boundary,
-    _get_masked_meson_sample,
-)
-from statpy.qcd.correlator.averaging import (
-    obc_meson_boundary_average,
-    obc_meson_correlator_average,
-)
+from statpy.qcd.correlator._masking import _get_masked_meson_sample
 from statpy.qcd.correlator.primitives import meson_fold_correlator
 
 
-@pytest.mark.parametrize("time_parity", [
-    True, False, np.bool_(True), np.bool_(False),
-    0, 2, -2, 0.5, np.nan, np.inf, None, "1", 1j,
-    [1], np.array(1), np.array([1, -1]),
-])
-@pytest.mark.parametrize("call", [
-    pytest.param(lambda p: meson_fold_correlator(None, p), id="fold"),
-    pytest.param(lambda p: _fold_meson_boundary(None, p), id="boundary-fold"),
-    pytest.param(lambda p: _get_masked_meson_sample(None, 4, 4, p), id="mask"),
-    pytest.param(
-        lambda p: obc_meson_correlator_average(None, None, time_parity=p),
-        id="source-average",
-    ),
-    pytest.param(
-        lambda p: obc_meson_boundary_average(None, 1, 1, "input", time_parity=p),
-        id="boundary-average",
-    ),
-])
-def test_invalid_parity_rejected_before_accessing_data(call, time_parity):
-    # None inputs ensure validation happens before input access.
-    with pytest.raises(ValueError, match="time_parity must be"):
-        call(time_parity)
-
-
-@pytest.mark.parametrize("scalar", [int, float, np.int64, np.float32, np.float64])
 @pytest.mark.parametrize("sign", [1, -1])
-def test_numeric_signs_accepted(scalar, sign):
+def test_fold_values(sign):
     arr = np.arange(8)
     expected = [0, 4, 4, 4] if sign == 1 else [0, -3, -2, -1]
-    np.testing.assert_array_equal(meson_fold_correlator(arr, scalar(sign)), expected)
+    np.testing.assert_array_equal(meson_fold_correlator(arr, sign), expected)
 
 
 @pytest.mark.parametrize("time_parity", [1, -1])

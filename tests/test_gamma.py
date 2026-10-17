@@ -34,7 +34,7 @@ def test_autocovariance_matches_direct_pair_sum():
                  if replicas[i] == replicas[j] and monte_carlo_times[j] - monte_carlo_times[i] == lag]
         # Mean over pairs = product sum / number of pairs.
         expected.append(np.mean([fluctuations[i] * fluctuations[j] for i, j in pairs], axis=0))
-    np.testing.assert_allclose(gamma.autocovariance(fluctuations, replicas, monte_carlo_times), expected)
+    np.testing.assert_allclose(gamma.autocovariance(fluctuations, monte_carlo_times, replicas), expected)
 
 
 def test_integrated_autocorrelation_times_by_hand():
@@ -76,7 +76,7 @@ def test_error_analysis_matches_exact_ar1():
     for i in range(1, num_configurations):
         values[i] = phis * values[i - 1] + rng.normal(size=2)
     _, fluctuations = gamma.mean_and_fluctuations(values, np.ones(num_configurations))
-    result = gamma.error_analysis(fluctuations, np.zeros(num_configurations, int), np.arange(num_configurations))
+    result = gamma.error_analysis(fluctuations, np.arange(num_configurations), np.zeros(num_configurations, int))
     # exact AR(1): tau_int = (1 + phi) / (2 (1 - phi)), error = 1 / ((1 - phi) sqrt(N))
     tau_int = (1 + phis) / (2 * (1 - phis))
     error = 1 / ((1 - phis) * np.sqrt(num_configurations))
@@ -88,7 +88,7 @@ def test_error_analysis_matches_exact_ar1():
 def test_error_analysis_constant_component():
     rng = np.random.default_rng(0)
     fluctuations = np.stack([rng.normal(size=100), np.zeros(100)], axis=1)   # component 1 constant
-    result = gamma.error_analysis(fluctuations, np.zeros(100, int), np.arange(100))
+    result = gamma.error_analysis(fluctuations, np.arange(100), np.zeros(100, int))
     assert result.window[1] == 0
     np.testing.assert_array_equal([result.error[1], result.error_of_error[1], result.tau_int[1], result.error_tau_int[1]],
                                   [0, 0, 0.5, 0])

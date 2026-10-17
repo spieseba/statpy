@@ -9,8 +9,9 @@ from statpy.log import message
 from statpy.variable import Layout, Variable, _check_unique_cfgs
 
 # Database file: magic number (format version) + u32 CRC32 + pickled {tag: variable state dict}.
-# Change the magic number on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3, v4 SPD4, v5 SPD5.
-_MAGIC = b"SPD6"
+# Change the magic number on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3, v4 SPD4, v5 SPD5,
+# v6 SPD6.
+_MAGIC = b"SPD7"
 _commit_logged = False
 
 
@@ -76,7 +77,10 @@ class Database(Mapping):
             state = state.copy()
             configurations = state.pop("configurations")
             weights = state.pop("weights")
-            layout = Layout(configurations, weights) if configurations is not None else None
+            monte_carlo_times = state.pop("monte_carlo_times")
+            replicas = state.pop("replicas")
+            layout = (Layout(configurations, weights, monte_carlo_times=monte_carlo_times, replicas=replicas)
+                      if configurations is not None else None)
             variables[t] = Variable(layout=layout, **state)
         self._variables.update(variables)
 
@@ -85,10 +89,12 @@ class Database(Mapping):
         payload = pickle.dumps(
             {t: {
                 "central_value": variable.central_value,
-                "jackknife_replicates": variable.jackknife_replicates,
                 "observations": variable.observations,
-                "weights": variable.layout.weights if variable.layout is not None else None,
                 "configurations": variable.layout.configurations if variable.layout is not None else None,
+                "weights": variable.layout.weights if variable.layout is not None else None,
+                "monte_carlo_times": variable.layout.monte_carlo_times if variable.layout is not None else None,
+                "replicas": variable.layout.replicas if variable.layout is not None else None,
+                "jackknife_replicates": variable.jackknife_replicates,
                 "bootstrap_replicates": variable.bootstrap_replicates,
                 "metadata": variable.metadata,
             } for t, variable in self._variables.items()},

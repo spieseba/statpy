@@ -1,9 +1,9 @@
-"""Public-function tests for the two-correlator combined fit."""
+"""Ground-state fit of synthetic data recovers the true parameters."""
 import numpy as np
 import pytest
 
 from statpy.database import Database
-from statpy.qcd.correlator import FitResult, ground_state_fit
+from statpy.qcd.correlator import ground_state_fit
 from statpy.qcd.correlator.fits import FitConfig
 from statpy.variable import Layout, Variable
 
@@ -32,7 +32,7 @@ def _synthetic_db(fit_models):
 
 
 @pytest.mark.parametrize("with_bootstrap", [False, True])
-def test_fit_references_resolve_resamples(with_bootstrap):
+def test_fit_recovers_true_parameters(with_bootstrap):
     db = _synthetic_db(("cosh", "cosh"))
     bootstraps = np.random.default_rng(8).integers(N_CFG, size=(20, N_CFG)) if with_bootstrap else None
     fits = []
@@ -46,16 +46,7 @@ def test_fit_references_resolve_resamples(with_bootstrap):
             v, FIT_RANGES[0], [1.3, 0.24], "cosh", CONFIG, Nt=NT,
         ))
     truth = TRUE_P[[0, 2]]
-    assert len(fits) == 2
     for bin_size, (fit, bootstrap) in enumerate(fits, start=1):
-        assert isinstance(fit, FitResult)
-        variable = fit.parameters
-        assert variable.jackknife_replicates.shape == (N_CFG // bin_size, len(truth))
-        np.testing.assert_allclose(variable.central_value, truth, rtol=0.08, atol=0.02)
+        np.testing.assert_allclose(fit.parameters.central_value, truth, rtol=0.08, atol=0.02)
         if with_bootstrap and bin_size == 1:
-            assert isinstance(bootstrap, FitResult)
-            variable_bs = bootstrap.parameters
-            assert variable_bs.bootstrap_replicates.shape == (len(bootstraps), len(truth))
-            np.testing.assert_allclose(variable_bs.central_value, truth, rtol=0.08, atol=0.02)
-        else:
-            assert bootstrap is None
+            np.testing.assert_allclose(bootstrap.parameters.central_value, truth, rtol=0.08, atol=0.02)

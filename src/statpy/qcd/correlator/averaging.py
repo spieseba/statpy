@@ -14,9 +14,7 @@ from statpy.qcd.correlator.primitives import (
     _validate_time_parity,
     effective_mass,
 )
-from statpy.statistics import core as statistics
-from statpy.statistics import jackknife
-from statpy.variable import Layout, Variable
+from statpy.variable import Variable
 
 
 def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range, *, tmax_from_tsrc=None, time_parity=1) -> Variable:
@@ -27,18 +25,15 @@ def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range, *
     if tmax_from_tsrc is not None:
         tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1)
         tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
-    masked_samples = []
-    for src_idx, tsrc in enumerate(tsrcs_in_bulk):
-        variable = correlators[tsrc]
-        masked_sample = _get_masked_meson_sample(variable.observations, tmax_fw[src_idx], tmax_bw[src_idx], time_parity)
-        masked_samples.append(masked_sample)
-    reference = correlators[tsrcs_in_bulk[0]]
-    # mask pattern is config-independent, so mean+compress over the whole stack at once
-    combined = np.ma.concatenate(masked_samples, axis=1).mean(axis=1)  # (N_cfg, T)
-    combined_sample = np.ma.compress_cols(combined)
-    return Variable.from_data(
-        combined_sample,
-        reference.layout,
+
+    def source_average(*observations):
+        masked = [_get_masked_meson_sample(sample, fw, bw, time_parity)
+                  for sample, fw, bw in zip(observations, tmax_fw, tmax_bw)]
+        # mask pattern is config-independent, so mean+compress over the whole stack at once
+        return np.ma.compress_cols(np.ma.concatenate(masked, axis=1).mean(axis=1))  # (N_cfg, T)
+
+    return Variable.map_observations(
+        source_average, *[correlators[tsrc] for tsrc in tsrcs_in_bulk],
         metadata={"tsrcs": tsrcs_in_bulk, "bulk_range": bulk_range, "time_parity": time_parity},
     )
 
@@ -67,34 +62,19 @@ def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited, b
     """Return source-averaged boundary effective masses and source counts."""
     time_parity = _validate_time_parity(time_parity)
 
-    am_t_means, am_t_jks, cfgs = [], [], None
+    effective_masses = []
     for tsrc, variable in correlators.items():
-        masked_excited_state_sample = np.array([
+        masked = Variable.map_observations(lambda observations, tsrc=tsrc: np.array([
             _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0)
-            for corrs in variable.observations
-        ])
-        b_sample = statistics.bin(masked_excited_state_sample, bin_size, weights=variable.layout.weights)
-        b_weights = statistics.bin(variable.layout.weights, bin_size, weights=np.ones(len(variable.layout.weights)))
-        jks = jackknife.mean_replicates(b_sample, weights=b_weights)
-        am_t_means.append(_boundary_eff_mass(np.average(b_sample, axis=0, weights=b_weights), tsrc))
-        am_t_jks.append(np.array([_boundary_eff_mass(jk, tsrc) for jk in jks]))
-        if cfgs is None:
-            # binned labels as in Variable.bin
-            cfgs = variable.layout.configurations if bin_size == 1 else np.array(
-                [f"{prefix}/bin_size{bin_size}-{i}" for i in range(len(b_sample))]
-            )
+            for corrs in observations
+        ]), variable)
+        binned = masked if bin_size == 1 else masked.bin(bin_size, prefix)
+        effective_masses.append(Variable.derive(lambda corr, tsrc=tsrc: _boundary_eff_mass(corr, tsrc), binned))
 
-    def source_average(stack):
+    def source_average(*masses):
         # masked mean over tsrcs (0 marks a masked time slice)
-        return np.ma.filled(np.ma.masked_equal(stack, 0).mean(axis=0), 0)
-    avg_mean = source_average(np.array(am_t_means))
-    avg_jks = source_average(np.array(am_t_jks))
-    nsrc_hist = np.sum(np.array(am_t_means) != 0, axis=0)
-
-    effective_mass = Variable.from_results(
-        central_value=avg_mean,
-        jackknife_replicates=avg_jks,
-        layout=Layout(cfgs),
-    )
+        return np.ma.filled(np.ma.masked_equal(np.array(masses), 0).mean(axis=0), 0)
+    effective_mass = Variable.derive(source_average, *effective_masses)
+    nsrc_hist = np.sum(np.array([mass.central_value for mass in effective_masses]) != 0, axis=0)
     folded = Variable.derive(lambda mt: _fold_meson_boundary(mt, time_parity), effective_mass)
     return BoundaryAverage(effective_mass, folded, nsrc_hist)

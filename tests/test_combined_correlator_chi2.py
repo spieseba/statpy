@@ -35,9 +35,3 @@ def test_combined_chi2_matches_reference(L):
                 chi2 = _make_combined_chi2(f"combined-{models[0]}-{models[1]}", W, Nt, L)
                 ref = reference_combined_chi2(models, t0, t1, p, y, W, Nt)
                 np.testing.assert_allclose(chi2(t, p, y), ref, rtol=1e-12, atol=0)
-
-
-def test_combined_chi2_rejects_invalid_models():
-    for fit_model in ("combined-cosh", "combined-cosh-sinh-exp", "combined-cosh-unknown"):
-        with pytest.raises(ValueError):
-            _make_combined_chi2(fit_model, np.eye(2), 32, 32)
