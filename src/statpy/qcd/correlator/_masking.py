@@ -3,6 +3,18 @@ import numpy as np
 
 from statpy.qcd.correlator.primitives import _validate_time_parity
 
+# ---------------------------------------------------------------------------
+# Correlator average
+# ---------------------------------------------------------------------------
+
+# get tmax for each src in forward and backward direction
+def _get_tmax_fw_bw(tsrcs, bulk_range):
+    tmin = bulk_range[0]
+    tmax = bulk_range[-1]
+    tmax_fw = tmax + 1 - np.array(tsrcs)
+    tmax_bw = np.array(tsrcs) - tmin + 1
+    return tmax_fw, tmax_bw
+
 
 # Masked sample for OBC averaging (vectorized over configs).
 # sample (N_cfg, num_corrs, T) -> masked (N_cfg, 2*num_corrs, T): forward corrs in the
@@ -23,14 +35,9 @@ def _get_masked_meson_sample(sample, tmax_fw, tmax_bw, time_parity):
     return out
 
 
-# get tmax for each src in forward and backward direction
-def _get_tmax_fw_bw(tsrcs, bulk_range):
-    tmin = bulk_range[0]
-    tmax = bulk_range[-1]
-    tmax_fw = tmax + 1 - np.array(tsrcs)
-    tmax_bw = np.array(tsrcs) - tmin + 1
-    return tmax_fw, tmax_bw
-
+# ---------------------------------------------------------------------------
+# Boundary average
+# ---------------------------------------------------------------------------
 
 # mask excited states and time slices further away than tmax from source position
 def _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc=None):
@@ -51,14 +58,14 @@ def _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc=None):
     return corrs_ma
 
 
+def _flip_sign_boundary(eff_mass, tsrc):
+    eff_mass[:tsrc] = -eff_mass[:tsrc]
+    return eff_mass
+
+
 def _fold_meson_boundary(eff_mass, time_parity):
     time_parity = _validate_time_parity(time_parity)
     half = len(eff_mass) // 2
     first_half = eff_mass[:half]
     second_half = np.flip(eff_mass[half:]) * time_parity
     return np.mean([first_half, second_half], axis=0)
-
-
-def _flip_sign_boundary(eff_mass, tsrc):
-    eff_mass[:tsrc] = -eff_mass[:tsrc]
-    return eff_mass

@@ -62,7 +62,7 @@ def error_analysis(fluctuations, monte_carlo_times, replicas, S):
 
 
 # ---------------------------------------------------------------------------
-# Steps of the analysis, in order
+# Analysis steps
 # ---------------------------------------------------------------------------
 
 def autocovariance(fluctuations, monte_carlo_times, replicas, max_lag=None, fft=True):

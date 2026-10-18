@@ -6,17 +6,9 @@ from scipy.optimize import elementwise
 
 from statpy.log import message
 
-
-def _validate_time_parity(time_parity):
-    """Return the sign for even (+1) or odd (-1) time parity; reject booleans."""
-    if (
-        isinstance(time_parity, (bool, np.bool_))
-        or not isinstance(time_parity, Real)
-        or time_parity not in (-1, 1)
-    ):
-        raise ValueError("time_parity must be +1 (even) or -1 (odd), not a boolean")
-    return int(time_parity)
-
+# ---------------------------------------------------------------------------
+# Effective mass and amplitude
+# ---------------------------------------------------------------------------
 
 @np.errstate(divide='ignore', invalid='ignore')
 def effective_mass(corr, *, estimator, Nt=None):
@@ -119,6 +111,10 @@ def effective_amplitude(corr, mass, *, kernel, Nt=None):
     raise ValueError(f"Unknown effective-amplitude kernel: {kernel}")
 
 
+# ---------------------------------------------------------------------------
+# Folding
+# ---------------------------------------------------------------------------
+
 def meson_fold_correlator(corr, time_parity=1):
     """Fold a meson correlator around T/2; time_parity is +1 (even) or -1 (odd)."""
     time_parity = _validate_time_parity(time_parity)
@@ -128,6 +124,21 @@ def meson_fold_correlator(corr, time_parity=1):
     second_half[0] = first_half[0]
     return np.mean([first_half, second_half], axis=0)
 
+
+def _validate_time_parity(time_parity):
+    """Return the sign for even (+1) or odd (-1) time parity; reject booleans."""
+    if (
+        isinstance(time_parity, (bool, np.bool_))
+        or not isinstance(time_parity, Real)
+        or time_parity not in (-1, 1)
+    ):
+        raise ValueError("time_parity must be +1 (even) or -1 (odd), not a boolean")
+    return int(time_parity)
+
+
+# ---------------------------------------------------------------------------
+# Signal-to-noise cut
+# ---------------------------------------------------------------------------
 
 def get_tmax_signal_to_noise(mean, var, min_signal_to_noise, tmin=None, debug=False):
     """Return the first failing slice (exclusive endpoint), or the data length.

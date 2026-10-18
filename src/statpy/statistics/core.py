@@ -1,13 +1,12 @@
 import numpy as np
 
 
-# binning
 def bin(data, bin_size, weights):
     assert bin_size is not None
     if bin_size == 1:
         return data
     N = len(data)
-    Nb = N // bin_size # cut off data of last incomplete bin
+    Nb = N // bin_size  # cut off data of last incomplete bin
     keep = Nb * bin_size
     bcast = (1,) * (np.ndim(data) - 1)
     d = np.asarray(data)[:keep].reshape((Nb, bin_size) + np.shape(data)[1:])
@@ -23,15 +22,6 @@ def normalize_covariance(cov):
 
 
 def inflated_covariance(jk_cov, bs_std):
-    """Re-scale a (binned) jackknife covariance to match a bootstrap-std scale. 
-
-    Parameters
-    ----------
-    jk_cov : (N, N) array
-        Jackknife covariance.
-    bs_std : (N,) array
-        Per-component bootstrap std dev (e.g. from
-        ``np.sqrt(bootstrap.variance(bootstrap_replicates))``).
-    """
+    """Re-scale a (binned) jackknife covariance to match a bootstrap-std scale."""
     cov_n = normalize_covariance(jk_cov)
-    return np.outer(bs_std, bs_std) * cov_n 
+    return np.outer(bs_std, bs_std) * cov_n

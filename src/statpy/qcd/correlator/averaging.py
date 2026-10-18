@@ -16,6 +16,9 @@ from statpy.qcd.correlator.primitives import (
 )
 from statpy.variable import Variable
 
+# ---------------------------------------------------------------------------
+# Correlator average
+# ---------------------------------------------------------------------------
 
 def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range, *, tmax_from_tsrc=None, time_parity=1) -> Variable:
     """Return the OBC meson source average over sources in bulk_range."""
@@ -35,16 +38,9 @@ def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range, *
     return Variable.map_observations(source_average, *[correlators[tsrc] for tsrc in tsrcs_in_bulk])
 
 
-def _boundary_eff_mass(corr, tsrc):
-    """Boundary effective mass of a (masked) correlator, sign-corrected per tsrc.
-
-    Masked / non-finite time slices collapse to 0 -- the marker the source
-    average reads as "no contribution here".
-    """
-    return np.nan_to_num(
-        _flip_sign_boundary(effective_mass(corr, estimator="log_symmetric"), tsrc), nan=0.0, posinf=0.0, neginf=0.0
-    )
-
+# ---------------------------------------------------------------------------
+# Boundary average
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class BoundaryAverage:
@@ -74,3 +70,14 @@ def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited, *
     nsrc_hist = np.sum(np.array([mass.central_value for mass in effective_masses]) != 0, axis=0)
     folded = Variable.derive(lambda mt: _fold_meson_boundary(mt, time_parity), effective_mass)
     return BoundaryAverage(effective_mass, folded, nsrc_hist)
+
+
+def _boundary_eff_mass(corr, tsrc):
+    """Boundary effective mass of a (masked) correlator, sign-corrected per tsrc.
+
+    Masked / non-finite time slices collapse to 0 -- the marker the source
+    average reads as "no contribution here".
+    """
+    return np.nan_to_num(
+        _flip_sign_boundary(effective_mass(corr, estimator="log_symmetric"), tsrc), nan=0.0, posinf=0.0, neginf=0.0
+    )

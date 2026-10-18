@@ -8,10 +8,12 @@ def mean_replicates(observations, weights):
     w_bcast = weights.reshape((-1,) + (1,) * (observations.ndim - 1))
     return mean + w_bcast * (mean - observations) / (W - w_bcast)
 
+
 def variance(jackknife_replicates):
     mean = np.mean(jackknife_replicates, axis=0)
     N = len(jackknife_replicates)
     return np.sum((jackknife_replicates - mean)**2, axis=0) * (N-1) / N
+
 
 def covariance(jackknife_replicates):
     mean = np.mean(jackknife_replicates, axis=0)

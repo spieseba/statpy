@@ -58,6 +58,10 @@ class Variable:
     ``from_results`` return variables without them.
     """
 
+    # ---------------------------------------------------------------------------
+    # Constructors
+    # ---------------------------------------------------------------------------
+
     def __init__(self, *, central_value=None, observations=None, layout=None, jackknife_replicates=None,
                  bootstrap_replicates=None, fluctuations=None):
         """Internal constructor; create variables with the classmethods."""
@@ -67,6 +71,15 @@ class Variable:
         self.jackknife_replicates = jackknife_replicates
         self.bootstrap_replicates = bootstrap_replicates
         self.fluctuations = fluctuations
+
+    def __repr__(self):
+        parts = [f"shape={np.shape(self.central_value)}"]
+        for name, replicates, count in (("observations", self.observations, "N"),
+                                        ("jackknife", self.jackknife_replicates, "N"),
+                                        ("bootstrap", self.bootstrap_replicates, "B")):
+            if replicates is not None:
+                parts.append(f"{name} {count}={len(replicates)}")
+        return f"Variable({', '.join(parts)})"
 
     @classmethod
     def from_data(cls, observations, layout, bootstrap_indices=None):
@@ -111,6 +124,10 @@ class Variable:
                     raise ValueError(f"from_results: {name} have shape {replicates.shape[1:]}, expected {shape}")
         return cls(central_value=central_value, layout=layout, jackknife_replicates=jackknife_replicates,
                    bootstrap_replicates=bootstrap_replicates)
+
+    # ---------------------------------------------------------------------------
+    # Transformations
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def derive(cls, f, *variables):
@@ -199,14 +216,9 @@ class Variable:
         layout = Layout(self.layout.ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
         return type(self).from_data(observations, layout)
 
-    def _jackknife_replicates(self, bin_size):
-        if self.jackknife_replicates is None:
-            raise ValueError("jackknife: variable has no jackknife replicates")
-        if bin_size == 1:
-            return self.jackknife_replicates
-        if len(np.unique(self.layout.replicas)) > 1:
-            raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
-        return jackknife.delayed_binning(self.jackknife_replicates, bin_size, self.layout.weights)
+    # ---------------------------------------------------------------------------
+    # Error analysis
+    # ---------------------------------------------------------------------------
 
     def jackknife_variance(self, bin_size=1):
         """Return the jackknife variance; delayed binning (one replica only) for ``bin_size > 1``."""
@@ -215,6 +227,15 @@ class Variable:
     def jackknife_covariance(self, bin_size=1):
         """Return the jackknife covariance; delayed binning (one replica only) for ``bin_size > 1``."""
         return jackknife.covariance(self._jackknife_replicates(bin_size))
+
+    def _jackknife_replicates(self, bin_size):
+        if self.jackknife_replicates is None:
+            raise ValueError("jackknife: variable has no jackknife replicates")
+        if bin_size == 1:
+            return self.jackknife_replicates
+        if len(np.unique(self.layout.replicas)) > 1:
+            raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
+        return jackknife.delayed_binning(self.jackknife_replicates, bin_size, self.layout.weights)
 
     def bootstrap_variance(self):
         """Return the bootstrap variance."""
@@ -238,12 +259,3 @@ class Variable:
             raise ValueError("gamma_method: variable has no fluctuations")
         layout = self.layout
         return gamma.error_analysis(self.fluctuations, layout.monte_carlo_times, layout.replicas, S)
-
-    def __repr__(self):
-        parts = [f"shape={np.shape(self.central_value)}"]
-        for name, replicates, count in (("observations", self.observations, "N"),
-                                        ("jackknife", self.jackknife_replicates, "N"),
-                                        ("bootstrap", self.bootstrap_replicates, "B")):
-            if replicates is not None:
-                parts.append(f"{name} {count}={len(replicates)}")
-        return f"Variable({', '.join(parts)})"

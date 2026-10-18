@@ -22,6 +22,10 @@ class DuplicateTagError(ValueError):
 class Database(Mapping):
     """Dict-like store of Variables by tag, saved to and loaded from a database file."""
 
+    # ---------------------------------------------------------------------------
+    # Constructors
+    # ---------------------------------------------------------------------------
+
     def __init__(self, *args):
         """Create a Database from database files (``Path``) or Databases with disjoint tags."""
         global _commit_logged
@@ -39,11 +43,12 @@ class Database(Mapping):
             else:
                 raise TypeError(f"Database: sources must be Path or Database, got {type(src).__name__}")
 
-    def _check_new_tags(self, tags, context):
-        dup = [t for t in tags if t in self._variables]
-        if dup:
-            raise DuplicateTagError(f"{context}: {len(dup)} overlapping tag(s): {dup[:5]}"
-                                    + ("..." if len(dup) > 5 else ""))
+    def __repr__(self):
+        return f"<Database num_variables={len(self._variables)}>"
+
+    # ---------------------------------------------------------------------------
+    # File I/O
+    # ---------------------------------------------------------------------------
 
     def load(self, src):
         """Load the database file ``src`` (``Path``) and add its variables; tags must not overlap."""
@@ -75,6 +80,12 @@ class Database(Mapping):
             variables[t] = Variable(layout=layout, **state)
         self._variables.update(variables)
 
+    def _check_new_tags(self, tags, context):
+        dup = [t for t in tags if t in self._variables]
+        if dup:
+            raise DuplicateTagError(f"{context}: {len(dup)} overlapping tag(s): {dup[:5]}"
+                                    + ("..." if len(dup) > 5 else ""))
+
     def save(self, dst):
         """Write the entire database (all fields, including observations) to ``dst``."""
         payload = pickle.dumps(
@@ -96,6 +107,10 @@ class Database(Mapping):
             f.write(_MAGIC)
             f.write(struct.pack("<I", crc))
             f.write(payload)
+
+    # ---------------------------------------------------------------------------
+    # Mapping interface
+    # ---------------------------------------------------------------------------
 
     def __getitem__(self, tag):
         return self._variables[tag]
@@ -123,6 +138,3 @@ class Database(Mapping):
             raise DuplicateTagError(f"rename({old!r} -> {new!r}): target tag already exists")
         self._variables[new] = variable
         del self._variables[old]
-
-    def __repr__(self):
-        return f"<Database num_variables={len(self._variables)}>"
