@@ -46,7 +46,7 @@ class Layout:
 class Variable:
     """A quantity with its central value and replicates for error estimation.
 
-    Attributes (``None`` if absent):
+    Attributes (``None`` if absent; ``layout`` is always set):
     - ``central_value``: estimate of the quantity.
     - ``observations``: data per configuration (configurations on axis 0).
     - ``layout``: ``Layout`` of the configurations.
@@ -62,7 +62,7 @@ class Variable:
     # Constructors
     # ---------------------------------------------------------------------------
 
-    def __init__(self, *, central_value=None, observations=None, layout=None, jackknife_replicates=None,
+    def __init__(self, *, central_value=None, observations=None, layout, jackknife_replicates=None,
                  bootstrap_replicates=None, fluctuations=None):
         """Internal constructor; create variables with the classmethods."""
         self.central_value = central_value
@@ -88,8 +88,6 @@ class Variable:
         ``observations`` has configurations on axis 0, in ``layout`` order. ``bootstrap_indices`` is an
         optional index matrix (num_bootstraps, N); with it, bootstrap replicates are computed too.
         """
-        if layout is None:
-            raise ValueError("from_data: observations requires layout")
         if not isinstance(observations, np.ndarray):
             raise TypeError(f"from_data: observations must be np.ndarray, got {type(observations).__name__}")
         num_configurations = len(layout.monte_carlo_times)
@@ -107,11 +105,9 @@ class Variable:
                    fluctuations=fluctuations)
 
     @classmethod
-    def from_results(cls, central_value=None, layout=None, jackknife_replicates=None, bootstrap_replicates=None):
+    def from_results(cls, *, central_value=None, layout, jackknife_replicates=None, bootstrap_replicates=None):
         """Return a variable from a computed central value and replicates, stored unchanged."""
         if jackknife_replicates is not None:
-            if layout is None:
-                raise ValueError("from_results: jackknife_replicates requires layout")
             num_configurations = len(layout.monte_carlo_times)
             if len(jackknife_replicates) != num_configurations:
                 raise ValueError(f"from_results: jackknife_replicates have length {len(jackknife_replicates)}, "
@@ -153,16 +149,11 @@ class Variable:
 
     @staticmethod
     def _common_layout(variables, name):
-        layouts = [variable.layout for variable in variables]
-        reference = next((layout for layout in layouts if layout is not None), None)
-        for index, layout in enumerate(layouts):
-            if layout is None:
-                continue
+        reference = variables[0].layout
+        for index, variable in enumerate(variables):
             for field in ("ensemble", "monte_carlo_times", "replicas", "weights"):
-                if not np.array_equal(getattr(layout, field), getattr(reference, field)):
+                if not np.array_equal(getattr(variable.layout, field), getattr(reference, field)):
                     raise ValueError(f"{name}: input {index} {field} differ")
-        if any(layout is None for layout in layouts):
-            return None
         return reference
 
     @staticmethod

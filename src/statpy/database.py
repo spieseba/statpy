@@ -75,8 +75,7 @@ class Database(Mapping):
             monte_carlo_times = state.pop("monte_carlo_times")
             replicas = state.pop("replicas")
             weights = state.pop("weights")
-            layout = (Layout(ensemble, monte_carlo_times, replicas=replicas, weights=weights)
-                      if ensemble is not None else None)
+            layout = Layout(ensemble, monte_carlo_times, replicas=replicas, weights=weights)
             variables[t] = Variable(layout=layout, **state)
         self._variables.update(variables)
 
@@ -92,10 +91,10 @@ class Database(Mapping):
             {t: {
                 "central_value": variable.central_value,
                 "observations": variable.observations,
-                "ensemble": variable.layout.ensemble if variable.layout is not None else None,
-                "monte_carlo_times": variable.layout.monte_carlo_times if variable.layout is not None else None,
-                "replicas": variable.layout.replicas if variable.layout is not None else None,
-                "weights": variable.layout.weights if variable.layout is not None else None,
+                "ensemble": variable.layout.ensemble,
+                "monte_carlo_times": variable.layout.monte_carlo_times,
+                "replicas": variable.layout.replicas,
+                "weights": variable.layout.weights,
                 "jackknife_replicates": variable.jackknife_replicates,
                 "bootstrap_replicates": variable.bootstrap_replicates,
                 "fluctuations": variable.fluctuations,

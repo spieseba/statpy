@@ -127,7 +127,7 @@ def fit_bootstrap(variable, fit_range, p0, chi2_func, config: FitConfig) -> FitR
         raise ValueError("variable has no stored bootstrap_replicates")
     best, misc = fit_mean(variable, fit_range, p0, chi2_func, config)
     best_bss = _fit_resamples(samples, "bootstrap", fit_range, best, chi2_func, config)
-    return FitResult(Variable.from_results(central_value=best, bootstrap_replicates=best_bss), misc)
+    return FitResult(Variable.from_results(central_value=best, layout=variable.layout, bootstrap_replicates=best_bss), misc)
 
 
 def _sort_two_state_params(p):
