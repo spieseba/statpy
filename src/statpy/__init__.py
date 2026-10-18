@@ -2,7 +2,6 @@ import subprocess
 from pathlib import Path
 
 import statpy.database
-import statpy.fitting
 import statpy.log
 import statpy.qcd
 import statpy.statistics
