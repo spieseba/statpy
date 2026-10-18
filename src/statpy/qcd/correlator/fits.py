@@ -80,7 +80,7 @@ def _make_combined_chi2(fit_model, W, Nt, L):
 # ---------------------------------------------------------------------------
 
 def fit_mean(variable, fit_range, p0, chi2_func, config: FitConfig):
-    """Fit the central value over ``fit_range`` and return parameters and metadata."""
+    """Fit the central value over ``fit_range`` and return parameters and diagnostics."""
     p0 = np.asarray(p0, dtype=float)
     if p0.ndim != 1 or p0.size == 0:
         raise ValueError(f"'p0' must be a non-empty 1-D array, got shape {p0.shape}")
@@ -117,7 +117,7 @@ def fit_jackknife(variable, fit_range, p0, chi2_func, config: FitConfig) -> FitR
     """Fit the central value, then each jackknife replicate starting from that fit."""
     best, misc = fit_mean(variable, fit_range, p0, chi2_func, config)
     best_jks = _fit_resamples(variable.jackknife_replicates, "jackknife", fit_range, best, chi2_func, config)
-    return FitResult(Variable.from_results(central_value=best, jackknife_replicates=best_jks, layout=variable.layout), misc)
+    return FitResult(Variable.from_results(central_value=best, layout=variable.layout, jackknife_replicates=best_jks), misc)
 
 
 def fit_bootstrap(variable, fit_range, p0, chi2_func, config: FitConfig) -> FitResult:
@@ -344,7 +344,7 @@ def _fit_one_excited_range(variable, *, fit_range, m0, mass_gaps, fit_model, Nt,
         result.failure_reason = str(exc)
     else:
         sorted_jks = np.array([_sort_two_state_params(jk) for jk in jks])
-    result.parameters = Variable.from_results(central_value=central_value, jackknife_replicates=sorted_jks, layout=variable.layout)
+    result.parameters = Variable.from_results(central_value=central_value, layout=variable.layout, jackknife_replicates=sorted_jks)
     return result
 
 

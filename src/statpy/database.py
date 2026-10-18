@@ -1,17 +1,17 @@
-import os
 import pickle
 import struct
 import zlib
 from collections.abc import Mapping
+from pathlib import Path
 
 import statpy
 from statpy.log import message
-from statpy.variable import Layout, Variable, _check_unique_cfgs
+from statpy.variable import Layout, Variable
 
 # Database file: magic number (format version) + u32 CRC32 + pickled {tag: variable state dict}.
 # Change the magic number on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3, v4 SPD4, v5 SPD5,
-# v6 SPD6, v7 SPD7.
-_MAGIC = b"SPD8"
+# v6 SPD6, v7 SPD7, v8 SPD8.
+_MAGIC = b"SPD9"
 _commit_logged = False
 
 
@@ -23,34 +23,34 @@ class Database(Mapping):
     """Dict-like store of Variables by tag, saved to and loaded from a database file."""
 
     def __init__(self, *args):
-        """Create a Database from database files or Databases with disjoint tags."""
+        """Create a Database from database files (``Path``) or Databases with disjoint tags."""
         global _commit_logged
         self._variables = {}
         if not _commit_logged:
             message(f"Initialized database with statpy commit hash {statpy.__commit__}.")
             _commit_logged = True
         for src in args:
-            if isinstance(src, str):
+            if isinstance(src, Path):
                 self.load(src)
             elif isinstance(src, Database):
-                dup = [t for t in src._variables if t in self._variables]
-                if dup:
-                    raise DuplicateTagError(
-                        f"Database merge: {len(dup)} overlapping tag(s): {dup[:5]}"
-                        + ("..." if len(dup) > 5 else "")
-                    )
-                for t, variable in src._variables.items():
-                    if variable.layout is not None:
-                        _check_unique_cfgs(f"Database merge: variable {t!r}", variable.layout.configurations)
+                self._check_new_tags(src._variables, "Database merge")
                 for t, variable in src._variables.items():
                     self._variables[t] = Variable(**vars(variable))
+            else:
+                raise TypeError(f"Database: sources must be Path or Database, got {type(src).__name__}")
+
+    def _check_new_tags(self, tags, context):
+        dup = [t for t in tags if t in self._variables]
+        if dup:
+            raise DuplicateTagError(f"{context}: {len(dup)} overlapping tag(s): {dup[:5]}"
+                                    + ("..." if len(dup) > 5 else ""))
 
     def load(self, src):
-        """Load a database file and add its variables; tags must not overlap."""
+        """Load the database file ``src`` (``Path``) and add its variables; tags must not overlap."""
         message(f"Load {src}")
-        if not os.path.isfile(src):
+        if not src.is_file():
             raise FileNotFoundError(f"{src} not found")
-        with open(src, "rb") as f:
+        with src.open("rb") as f:
             header = f.read(8)
             if len(header) < 8 or header[:4] != _MAGIC:
                 raise ValueError(
@@ -62,25 +62,16 @@ class Database(Mapping):
         if (zlib.crc32(payload) & 0xFFFFFFFF) != crc_expected:
             raise ValueError(f"{src}: CRC mismatch -- file corrupted")
         src_db = pickle.loads(payload)
-        dup = [t for t in src_db if t in self._variables]
-        if dup:
-            raise DuplicateTagError(
-                f"load({src!r}): {len(dup)} overlapping tag(s): {dup[:5]}"
-                + ("..." if len(dup) > 5 else "")
-            )
-        # Validate every variable before inserting any
-        for t, state in src_db.items():
-            if state.get("configurations") is not None:
-                _check_unique_cfgs(f"load({src!r}): variable {t!r}", state["configurations"])
+        self._check_new_tags(src_db, f"load({src})")
         variables = {}
         for t, state in src_db.items():
             state = state.copy()
-            configurations = state.pop("configurations")
-            weights = state.pop("weights")
+            ensemble = state.pop("ensemble")
             monte_carlo_times = state.pop("monte_carlo_times")
             replicas = state.pop("replicas")
-            layout = (Layout(configurations, weights, monte_carlo_times=monte_carlo_times, replicas=replicas)
-                      if configurations is not None else None)
+            weights = state.pop("weights")
+            layout = (Layout(ensemble, monte_carlo_times, replicas=replicas, weights=weights)
+                      if ensemble is not None else None)
             variables[t] = Variable(layout=layout, **state)
         self._variables.update(variables)
 
@@ -90,14 +81,13 @@ class Database(Mapping):
             {t: {
                 "central_value": variable.central_value,
                 "observations": variable.observations,
-                "configurations": variable.layout.configurations if variable.layout is not None else None,
-                "weights": variable.layout.weights if variable.layout is not None else None,
+                "ensemble": variable.layout.ensemble if variable.layout is not None else None,
                 "monte_carlo_times": variable.layout.monte_carlo_times if variable.layout is not None else None,
                 "replicas": variable.layout.replicas if variable.layout is not None else None,
+                "weights": variable.layout.weights if variable.layout is not None else None,
                 "jackknife_replicates": variable.jackknife_replicates,
                 "bootstrap_replicates": variable.bootstrap_replicates,
                 "fluctuations": variable.fluctuations,
-                "metadata": variable.metadata,
             } for t, variable in self._variables.items()},
             protocol=pickle.HIGHEST_PROTOCOL,
         )
@@ -136,18 +126,3 @@ class Database(Mapping):
 
     def __repr__(self):
         return f"<Database num_variables={len(self._variables)}>"
-
-    def __str__(self):
-        """Multi-line overview: variable counts per category."""
-        counts = {"data": 0, "derived (jackknife)": 0, "result (central/bootstrap)": 0}
-        for variable in self._variables.values():
-            if variable.observations is not None:
-                counts["data"] += 1
-            elif variable.jackknife_replicates is not None:
-                counts["derived (jackknife)"] += 1
-            else:
-                counts["result (central/bootstrap)"] += 1
-        lines = [f"Database with {len(self._variables)} variables:"]
-        for cat, n in counts.items():
-            lines.append(f"  {cat:20s} {n}")
-        return "\n".join(lines)

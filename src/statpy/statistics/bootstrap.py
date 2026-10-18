@@ -1,18 +1,14 @@
 import numpy as np
 
 
-# generate B bootstraps for N samples
-def generate_bootstraps(B, N, seed):
+def generate_bootstrap_indices(num_bootstraps, num_configurations, seed):
+    """Return a (num_bootstraps, num_configurations) bootstrap index matrix."""
     rng = np.random.RandomState(seed)
-    return rng.randint(low=0, high=N, size=(B, N))
+    return rng.randint(low=0, high=num_configurations, size=(num_bootstraps, num_configurations))
 
-def replicates(x, bootstraps, weights, estimator):
-    """``estimator(x[idx], weights[idx])`` for each row ``idx`` of ``bootstraps``."""
-    return np.array([estimator(x[idx], weights[idx]) for idx in bootstraps])
-
-def mean_replicates(x, bootstraps, weights):
-    """Weighted mean of ``x`` over axis 0 for each bootstrap resampling."""
-    return replicates(x, bootstraps, weights, lambda x, w: np.average(x, axis=0, weights=w))
+def mean_replicates(observations, bootstrap_indices, weights):
+    """Weighted mean of ``observations`` over axis 0 for each bootstrap resampling."""
+    return np.array([np.average(observations[idx], axis=0, weights=weights[idx]) for idx in bootstrap_indices])
 
 def variance(bootstrap_replicates):
     return np.var(bootstrap_replicates, ddof=1, axis=0)
@@ -20,8 +16,8 @@ def variance(bootstrap_replicates):
 def covariance(bootstrap_replicates):
     mean = np.mean(bootstrap_replicates, axis=0)
     B = len(bootstrap_replicates)
-    d = (bootstrap_replicates - mean).reshape(B, -1)   # np.outer flattens its inputs
-    return np.sum(d[:, :, None] * d[:, None, :], axis=0) / (B-1)
+    d = (bootstrap_replicates - mean).reshape(B, -1)
+    return d.T @ d / (B-1)
 
 def rescale(bootstrap_replicates, s):
     mean = np.mean(bootstrap_replicates, axis=0)

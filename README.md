@@ -17,8 +17,7 @@ from statpy.variable import Layout, Variable
 
 rng = np.random.default_rng(0)
 num_cfg, num_t = 200, 8
-cfgs = np.array([f"cfg-{i}" for i in range(num_cfg)])
-w = np.ones(num_cfg)
+layout = Layout("A1", np.arange(num_cfg))  # ensemble, Monte Carlo times
 
 # Two measured correlators, one sample per configuration.
 t = np.arange(num_t)
@@ -26,8 +25,8 @@ C1 = np.exp(-0.5 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
 C2 = np.exp(-0.7 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
 
 db = sp.database.Database()
-db["C1"] = Variable.from_data(C1, Layout(cfgs, w))
-db["C2"] = Variable.from_data(C2, Layout(cfgs, w))
+db["C1"] = Variable.from_data(C1, layout)
+db["C2"] = Variable.from_data(C2, layout)
 
 # Transform one variable: effective mass  m(t) = log(C1(t) / C1(t+1)).
 db["m_eff"] = Variable.derive(lambda c: np.log(c[:-1] / c[1:]), db["C1"])

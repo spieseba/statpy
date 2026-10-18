@@ -32,10 +32,7 @@ def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range, *
         # mask pattern is config-independent, so mean+compress over the whole stack at once
         return np.ma.compress_cols(np.ma.concatenate(masked, axis=1).mean(axis=1))  # (N_cfg, T)
 
-    return Variable.map_observations(
-        source_average, *[correlators[tsrc] for tsrc in tsrcs_in_bulk],
-        metadata={"tsrcs": tsrcs_in_bulk, "bulk_range": bulk_range, "time_parity": time_parity},
-    )
+    return Variable.map_observations(source_average, *[correlators[tsrc] for tsrc in tsrcs_in_bulk])
 
 
 def _boundary_eff_mass(corr, tsrc):
@@ -58,7 +55,7 @@ class BoundaryAverage:
     nsrc_hist: np.ndarray
 
 
-def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited, bin_size, prefix, *, tmax_from_tsrc=None, time_parity=1) -> BoundaryAverage:
+def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited, *, tmax_from_tsrc=None, time_parity=1) -> BoundaryAverage:
     """Return source-averaged boundary effective masses and source counts."""
     time_parity = _validate_time_parity(time_parity)
 
@@ -68,8 +65,7 @@ def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited, b
             _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0)
             for corrs in observations
         ]), variable)
-        binned = masked if bin_size == 1 else masked.bin(bin_size, prefix)
-        effective_masses.append(Variable.derive(lambda corr, tsrc=tsrc: _boundary_eff_mass(corr, tsrc), binned))
+        effective_masses.append(Variable.derive(lambda corr, tsrc=tsrc: _boundary_eff_mass(corr, tsrc), masked))
 
     def source_average(*masses):
         # masked mean over tsrcs (0 marks a masked time slice)

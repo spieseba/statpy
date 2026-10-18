@@ -3,9 +3,7 @@
 Delayed binning reconstructs the binned jackknife sample from the unbinned one,
 so an analysis pipeline can be run once on the unbinned sample and only then
 binned for error estimation. We check this against binning the raw data up front,
-for a linear and a non-linear pipeline. Runs under pytest or as a plain script:
-
-    python tests/test_delayed_binning.py
+for a linear and a non-linear pipeline.
 """
 import numpy as np
 
@@ -15,7 +13,7 @@ from statpy.variable import Layout, Variable
 
 
 def _linear(y):     return 2 * y[..., 0] + 3 * y[..., 1]      # linear combination
-def _nonlinear(y):  return y[..., 0] / y[..., 1]              # a ratio, cf. the notebook's Z(t)
+def _nonlinear(y):  return y[..., 0] / y[..., 1]              # a ratio
 
 
 def _data(N, seed=0):
@@ -102,17 +100,9 @@ def test_deviation_decreases_with_sample_size():
 
 def test_derived_delayed_variance_matches_upfront_binning():
     samples = _data(1000)
-    data = Variable.from_data(samples, Layout(np.arange(1000), np.ones(1000)))
+    data = Variable.from_data(samples, Layout("E", np.arange(1000)))
     bin_size = 4
     derived = Variable.derive(_linear, data)
-    upfront = Variable.derive(_linear, data.bin(bin_size, "e"))
+    upfront = Variable.derive(_linear, data.bin(bin_size))
     np.testing.assert_allclose(derived.jackknife_variance(bin_size=bin_size),
                                upfront.jackknife_variance(), rtol=1e-12)
-
-
-if __name__ == "__main__":
-    test_uniform_weights_match_uniform_formula()
-    test_weighted_matches_leave_bin_out_mean()
-    test_exact_when_bin_size_divides()
-    test_deviation_decreases_with_sample_size()
-    print("OK: delayed_binning uniform formula + weighted + exact-when-divides + convergence with N")

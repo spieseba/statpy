@@ -50,7 +50,7 @@ def test_window():
                          [0.5] + [1.0] * 9,         # g(7) > 0 > g(8)
                          [0.5] + [50.0] * 9]).T     # no sign change: largest W = 9
     with pytest.warns(UserWarning, match="No window found"):
-        np.testing.assert_array_equal(gamma.window(tau_ints, 10_000), [1, 8, 9])
+        np.testing.assert_array_equal(gamma.window(tau_ints, 10_000, 1.5), [1, 8, 9])
 
 
 def test_variance_and_errors_by_hand():
@@ -76,7 +76,7 @@ def test_error_analysis_matches_exact_ar1():
     for i in range(1, num_configurations):
         values[i] = phis * values[i - 1] + rng.normal(size=2)
     _, fluctuations = gamma.mean_and_fluctuations(values, np.ones(num_configurations))
-    result = gamma.error_analysis(fluctuations, np.arange(num_configurations), np.zeros(num_configurations, int))
+    result = gamma.error_analysis(fluctuations, np.arange(num_configurations), np.zeros(num_configurations, int), 1.5)
     # exact AR(1): tau_int = (1 + phi) / (2 (1 - phi)), error = 1 / ((1 - phi) sqrt(N))
     tau_int = (1 + phis) / (2 * (1 - phis))
     error = 1 / ((1 - phis) * np.sqrt(num_configurations))
@@ -88,7 +88,16 @@ def test_error_analysis_matches_exact_ar1():
 def test_error_analysis_constant_component():
     rng = np.random.default_rng(0)
     fluctuations = np.stack([rng.normal(size=100), np.zeros(100)], axis=1)   # component 1 constant
-    result = gamma.error_analysis(fluctuations, np.arange(100), np.zeros(100, int))
+    result = gamma.error_analysis(fluctuations, np.arange(100), np.zeros(100, int), 1.5)
     assert result.window[1] == 0
     np.testing.assert_array_equal([result.error[1], result.error_of_error[1], result.tau_int[1], result.error_tau_int[1]],
                                   [0, 0, 0.5, 0])
+
+
+def test_autocovariance_independent_of_monte_carlo_time_step():
+    fluctuations = np.random.default_rng(3).normal(size=(40, 2))
+    replicas = np.repeat([0, 1], 20)
+    times = np.concatenate([np.arange(20), np.arange(20)])
+    times[25:] += 3  # gap in replica 1
+    np.testing.assert_array_equal(gamma.autocovariance(fluctuations, 4 * times + 7, replicas),
+                                  gamma.autocovariance(fluctuations, times, replicas))

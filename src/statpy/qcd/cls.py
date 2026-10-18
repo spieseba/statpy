@@ -11,6 +11,7 @@ from statpy.log import message
 from statpy.variable import Layout, Variable
 
 _CFG_ID_RE = re.compile(r"n(\d+)$")
+_STREAM_TAG_RE = re.compile(r"^(.+)r(\d+)$")
 
 
 def _parse_cfg_id(name):
@@ -24,9 +25,14 @@ def _parse_cfg_id(name):
 def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configurations_to_be_removed=None, meas_group="messpec", reverse=False, silent=False):
     """Load CLS hdf5 measurements and reweighting factors into a fresh Database.
 
-    The stream is one replica. Monte Carlo times are the cfg ids in units of their smallest
-    common step (missing ids are gaps), increasing in array order also for ``reverse=True``.
+    ``stream_tag`` is ``<ensemble>r<stream number>`` (e.g. ``U101r001``); the stream is one replica,
+    numbered by its stream number. Monte Carlo times are the cfg ids, negated for ``reverse=True`` so
+    that they increase in array order; missing ids are gaps.
+    Returns ``(db, cfg_ids)`` with the cfg ids in array order.
     """
+    stream = _STREAM_TAG_RE.match(stream_tag)
+    if stream is None:
+        raise ValueError(f"stream_tag {stream_tag!r} is not <ensemble>r<stream number>")
     if not os.path.isfile(fn):
         raise FileNotFoundError(f"hdf5 file {fn!r} not found!")
     if not os.path.isfile(rwf_fn):
@@ -92,19 +98,12 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configuration
         # Raw rwf stored un-normalised; callers normalise after combining
         # streams (per-stream or globally) so FP-rounding matches their intent.
         weights = rwf_values[rwf_idx]
-        cfg_labels = np.array([f"{stream_tag}-{int(c)}" for c in common_cfgs])
-        layout = Layout(cfg_labels, weights, monte_carlo_times=_monte_carlo_times(common_cfgs, reverse))
+        layout = Layout(stream[1], -common_cfgs if reverse else common_cfgs,
+                        replicas=np.full(len(common_cfgs), int(stream[2])), weights=weights)
 
         db = Database()
         _populate_data(db, f, compiled_patterns, h5_idx, layout, stream_tag, run_tag)
-    return db
-
-
-def _monte_carlo_times(cfg_ids, reverse):
-    """Monte Carlo times from cfg ids in units of their smallest common step, increasing in array order."""
-    step = np.gcd.reduce(np.diff(np.sort(cfg_ids))) if len(cfg_ids) > 1 else 1
-    offsets = cfg_ids.max() - cfg_ids if reverse else cfg_ids - cfg_ids.min()
-    return offsets // step
+    return db, common_cfgs
 
 
 def _argsort_to(src_cfgs, target_cfgs):
@@ -156,11 +155,11 @@ def _load_rwms(fn):
 
 
 def parse_bootstrap_file(fn):
-    """Parse a CLS ``.boot.txt`` → ``(bootstraps, configlist)``."""
-    bootstraps = np.loadtxt(fn, dtype=int)
+    """Parse a CLS ``.boot.txt`` → ``(bootstrap_indices, configlist)``, with CLS cfg names (``<stream>n<cfg id>``)."""
+    bootstrap_indices = np.loadtxt(fn, dtype=int)
     with open(fn) as f:
-        configlist = f.readlines()[3][:-1].replace("n", "-").split(" ")[1:]
-    return bootstraps, configlist
+        configlist = f.readlines()[3][:-1].split(" ")[1:]
+    return bootstrap_indices, configlist
 
 
 def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
@@ -180,7 +179,7 @@ def _populate_data(db, f, compiled_patterns, h5_idx, layout, stream_tag, run_tag
         for key in data_keys:
             if key not in loaded_keys and pattern.search(key):
                 f_vals = f["data"].get(key)[:]
-                sample = f_vals[h5_idx]
+                observations = f_vals[h5_idx]
                 f_tag = f"{stream_tag}/{run_tag}/{key}"
-                db[f_tag] = Variable.from_data(sample, layout)
+                db[f_tag] = Variable.from_data(observations, layout)
                 loaded_keys.add(key)

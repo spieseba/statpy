@@ -1,12 +1,12 @@
 import numpy as np
 
 
-def mean_replicates(x, weights):
-    """Weighted mean of ``x`` over axis 0 with each configuration left out in turn."""
-    mean = np.average(x, axis=0, weights=weights)
+def mean_replicates(observations, weights):
+    """Weighted mean of ``observations`` over axis 0 with each configuration left out in turn."""
+    mean = np.average(observations, axis=0, weights=weights)
     W = np.sum(weights)
-    w_bcast = weights.reshape((-1,) + (1,) * (x.ndim - 1))
-    return mean + w_bcast * (mean - x) / (W - w_bcast)
+    w_bcast = weights.reshape((-1,) + (1,) * (observations.ndim - 1))
+    return mean + w_bcast * (mean - observations) / (W - w_bcast)
 
 def variance(jackknife_replicates):
     mean = np.mean(jackknife_replicates, axis=0)
@@ -16,8 +16,8 @@ def variance(jackknife_replicates):
 def covariance(jackknife_replicates):
     mean = np.mean(jackknife_replicates, axis=0)
     N = len(jackknife_replicates)
-    d = (jackknife_replicates - mean).reshape(N, -1)   # np.outer flattens its inputs
-    return np.sum(d[:, :, None] * d[:, None, :], axis=0) * (N-1) / N
+    d = (jackknife_replicates - mean).reshape(N, -1)
+    return d.T @ d * (N-1) / N
 
 
 def delayed_binning(jackknife_replicates, bin_size, weights):

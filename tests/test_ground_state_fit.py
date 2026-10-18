@@ -9,8 +9,8 @@ from statpy.variable import Layout, Variable
 
 NT = 32
 N_CFG = 50
-TRUE_P = np.array([1.4, 0.8, 0.25])
-FIT_RANGES = (np.arange(4, 10), np.arange(4, 10))
+TRUE_P = np.array([1.4, 0.25])
+FIT_RANGE = np.arange(4, 10)
 CONFIG = FitConfig()
 
 
@@ -19,34 +19,28 @@ def _model(name, t, amplitude, mass, Nt):
     return amplitude * (np.exp(-mass * t) + sign * np.exp(-mass * (Nt - t)))
 
 
-def _synthetic_db(fit_models):
+def _synthetic_db():
     rng = np.random.default_rng(4)
-    cfgs = np.array([f"c{i}" for i in range(N_CFG)])
-    weights = np.ones(N_CFG)
     t = np.arange(NT)
     db = Database()
-    for tag, model, amplitude in zip(("smsm", "smloc"), fit_models, TRUE_P[:2]):
-        sample = _model(model, t, amplitude, TRUE_P[2], NT) + rng.normal(scale=0.003, size=(N_CFG, NT))
-        db[tag] = Variable.from_data(sample, Layout(cfgs, weights))
+    sample = _model("cosh", t, TRUE_P[0], TRUE_P[1], NT) + rng.normal(scale=0.003, size=(N_CFG, NT))
+    db["smsm"] = Variable.from_data(sample, Layout("E", np.arange(N_CFG)))
     return db
 
 
 @pytest.mark.parametrize("with_bootstrap", [False, True])
 def test_fit_recovers_true_parameters(with_bootstrap):
-    db = _synthetic_db(("cosh", "cosh"))
-    bootstraps = np.random.default_rng(8).integers(N_CFG, size=(20, N_CFG)) if with_bootstrap else None
-    fits = []
+    db = _synthetic_db()
+    bootstrap_indices = np.random.default_rng(8).integers(N_CFG, size=(20, N_CFG)) if with_bootstrap else None
     for bin_size in (1, 2):
         v = db["smsm"]
         if bin_size == 1:
-            v = Variable.from_data(v.observations, v.layout, bootstraps=bootstraps)
+            v = Variable.from_data(v.observations, v.layout, bootstrap_indices=bootstrap_indices)
         else:
-            v = v.bin(bin_size, "smsm")
-        fits.append(ground_state_fit(
-            v, FIT_RANGES[0], [1.3, 0.24], "cosh", CONFIG, Nt=NT,
-        ))
-    truth = TRUE_P[[0, 2]]
-    for bin_size, (fit, bootstrap) in enumerate(fits, start=1):
-        np.testing.assert_allclose(fit.parameters.central_value, truth, rtol=0.08, atol=0.02)
+            v = v.bin(bin_size)
+        fit, bootstrap = ground_state_fit(
+            v, FIT_RANGE, [1.3, 0.24], "cosh", CONFIG, Nt=NT,
+        )
+        np.testing.assert_allclose(fit.parameters.central_value, TRUE_P, rtol=0.08, atol=0.02)
         if with_bootstrap and bin_size == 1:
-            np.testing.assert_allclose(bootstrap.parameters.central_value, truth, rtol=0.08, atol=0.02)
+            np.testing.assert_allclose(bootstrap.parameters.central_value, TRUE_P, rtol=0.08, atol=0.02)

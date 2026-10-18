@@ -9,10 +9,9 @@ from statpy.variable import Layout, Variable
 def test_from_data_uses_full_weighted_sample_mean():
     sample = np.array([[0.0, 2.0], [10.0, 6.0], [4.0, 8.0]])
     weights = np.array([1.0, 3.0, 2.0])
-    cfgs = np.array(["c0", "c1", "c2"])
 
     db = Database()
-    db["weighted"] = Variable.from_data(sample, Layout(cfgs, weights))
+    db["weighted"] = Variable.from_data(sample, Layout("E", np.arange(3), weights=weights))
 
     # (1*[0,2] + 3*[10,6] + 2*[4,8]) / 6
     expected = np.array([19 / 3, 6.0])

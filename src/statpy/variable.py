@@ -4,61 +4,62 @@ from statpy.statistics import bootstrap, gamma, jackknife
 from statpy.statistics import core as statistics
 
 
-def _check_unique_cfgs(context, cfgs):
-    """Raise ValueError if ``cfgs`` contains duplicate labels."""
-    uniq, counts = np.unique(cfgs, return_counts=True)
-    dup = uniq[counts > 1].tolist()
-    if dup:
-        raise ValueError(
-            f"{context}: duplicate cfg label(s): {dup[:5]}"
-            + ("..." if len(dup) > 5 else "")
-        )
-
-
 class Layout:
-    """Configuration labels, optional weights, Monte Carlo times and replicas.
+    """Ensemble, Monte Carlo times, replicas and weights of the configurations.
 
-    ``configurations`` identify the configurations (labels; unique). ``monte_carlo_times`` and
-    ``replicas`` define the geometry of the Markov chains for the autocorrelation analysis.
-    Defaults: ``monte_carlo_times = arange(N)``, ``replicas = zeros(N)`` (one replica).
-    ``monte_carlo_times`` must increase strictly in array order within each replica.
+    Required: ``ensemble`` (name) and ``monte_carlo_times`` (one integer per configuration,
+    strictly increasing in array order within each replica). Optional: ``replicas`` (one integer
+    per configuration; default ``zeros(N)``, one replica) and ``weights`` (reweighting factors;
+    default ``ones(N)``). A configuration is identified by (ensemble, replica, Monte Carlo time).
     """
 
-    def __init__(self, configurations, weights=None, *, monte_carlo_times=None, replicas=None):
-        if not isinstance(configurations, np.ndarray):
-            raise TypeError(f"Layout: configurations must be np.ndarray, got {type(configurations).__name__}")
-        if weights is not None:
-            if not isinstance(weights, np.ndarray):
-                raise TypeError(f"Layout: weights must be np.ndarray, got {type(weights).__name__}")
-            if len(weights) != len(configurations):
-                raise ValueError("Layout: weights/configurations length mismatch")
-        _check_unique_cfgs("Layout", configurations)
-        num_configurations = len(configurations)
-        if monte_carlo_times is None:
-            monte_carlo_times = np.arange(num_configurations)
+    def __init__(self, ensemble, monte_carlo_times, *, replicas=None, weights=None):
+        num_configurations = len(monte_carlo_times)
         if replicas is None:
             replicas = np.zeros(num_configurations, dtype=int)
-        for name, values in (("monte_carlo_times", monte_carlo_times), ("replicas", replicas)):
+        if weights is None:
+            weights = np.ones(num_configurations)
+
+        if not isinstance(ensemble, str):
+            raise TypeError(f"Layout: ensemble must be str, got {type(ensemble).__name__}")
+        arrays = {"monte_carlo_times": monte_carlo_times, "replicas": replicas, "weights": weights}
+        for name, values in arrays.items():
             if not isinstance(values, np.ndarray):
                 raise TypeError(f"Layout: {name} must be np.ndarray, got {type(values).__name__}")
-            if values.ndim != 1 or not np.issubdtype(values.dtype, np.integer):
-                raise ValueError(f"Layout: {name} must be a 1-D integer array, got {values.ndim}-D {values.dtype}")
+            if values.ndim != 1:
+                raise ValueError(f"Layout: {name} must be 1-D, got {values.ndim}-D")
             if len(values) != num_configurations:
-                raise ValueError(f"Layout: {name}/configurations length mismatch")
+                raise ValueError(f"Layout: {name} has length {len(values)}, expected {num_configurations}")
+        for name in ("monte_carlo_times", "replicas"):
+            if not np.issubdtype(arrays[name].dtype, np.integer):
+                raise ValueError(f"Layout: {name} must be integer, got {arrays[name].dtype}")
         for replica in np.unique(replicas):
             if np.any(np.diff(monte_carlo_times[replicas == replica]) <= 0):
                 raise ValueError(f"Layout: monte_carlo_times not strictly increasing in replica {replica}")
-        self.configurations = configurations
-        self.weights = weights
+
+        self.ensemble = ensemble
         self.monte_carlo_times = monte_carlo_times
         self.replicas = replicas
+        self.weights = weights
 
 
 class Variable:
-    """A central value, replicates and optional per-configuration data."""
+    """A quantity with its central value and replicates for error estimation.
+
+    Attributes (``None`` if absent):
+    - ``central_value``: estimate of the quantity.
+    - ``observations``: data per configuration (configurations on axis 0).
+    - ``layout``: ``Layout`` of the configurations.
+    - ``jackknife_replicates``: delete-one replicates, one per configuration.
+    - ``bootstrap_replicates``: one replicate per bootstrap sample.
+    - ``fluctuations``: per-configuration fluctuations for the gamma method.
+
+    A data variable (made by ``from_data``) has observations and fluctuations; ``derive`` and
+    ``from_results`` return variables without them.
+    """
 
     def __init__(self, *, central_value=None, observations=None, layout=None, jackknife_replicates=None,
-                 bootstrap_replicates=None, fluctuations=None, metadata=None):
+                 bootstrap_replicates=None, fluctuations=None):
         """Internal constructor; create variables with the classmethods."""
         self.central_value = central_value
         self.observations = observations
@@ -66,93 +67,100 @@ class Variable:
         self.jackknife_replicates = jackknife_replicates
         self.bootstrap_replicates = bootstrap_replicates
         self.fluctuations = fluctuations
-        self.metadata = metadata
 
     @classmethod
-    def from_data(cls, observations, layout, metadata=None, bootstraps=None):
-        """Compute the weighted mean, jackknife replicates and gamma-method fluctuations of data."""
+    def from_data(cls, observations, layout, bootstrap_indices=None):
+        """Return a data variable: weighted mean, jackknife replicates and gamma-method fluctuations.
+
+        ``observations`` has configurations on axis 0, in ``layout`` order. ``bootstrap_indices`` is an
+        optional index matrix (num_bootstraps, N); with it, bootstrap replicates are computed too.
+        """
         if layout is None:
             raise ValueError("from_data: observations requires layout")
-        if layout.weights is None:
-            raise ValueError("from_data: observations requires weights")
         if not isinstance(observations, np.ndarray):
             raise TypeError(f"from_data: observations must be np.ndarray, got {type(observations).__name__}")
-        if not (len(observations) == len(layout.weights) == len(layout.configurations)):
-            raise ValueError(
-                f"from_data: length mismatch observations={len(observations)} "
-                f"weights={len(layout.weights)} configurations={len(layout.configurations)}"
-            )
-        jackknife_replicates = jackknife.mean_replicates(observations, weights=layout.weights)
-        bootstrap_replicates = None if bootstraps is None else bootstrap.mean_replicates(observations, bootstraps, weights=layout.weights)
-        mean, fluctuations = gamma.mean_and_fluctuations(observations, layout.weights)
+        num_configurations = len(layout.monte_carlo_times)
+        if len(observations) != num_configurations:
+            raise ValueError(f"from_data: observations have length {len(observations)}, expected {num_configurations}")
+
+        weights = layout.weights
+        jackknife_replicates = jackknife.mean_replicates(observations, weights=weights)
+        bootstrap_replicates = None
+        if bootstrap_indices is not None:
+            bootstrap_replicates = bootstrap.mean_replicates(observations, bootstrap_indices, weights=weights)
+        mean, fluctuations = gamma.mean_and_fluctuations(observations, weights)
         return cls(central_value=mean, observations=observations, layout=layout,
                    jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates,
-                   fluctuations=fluctuations, metadata=metadata)
+                   fluctuations=fluctuations)
 
     @classmethod
-    def from_results(cls, central_value=None, jackknife_replicates=None, bootstrap_replicates=None,
-                     layout=None, metadata=None):
-        """Store computed values and replicates unchanged."""
-        if jackknife_replicates is not None and layout is None:
-            raise ValueError("from_results: jackknife_replicates requires layout")
-        if jackknife_replicates is not None and len(jackknife_replicates) != len(layout.configurations):
-            raise ValueError(
-                "from_results: jackknife_replicates/configurations length mismatch "
-                f"jackknife_replicates={len(jackknife_replicates)} configurations={len(layout.configurations)}"
-            )
-        for name, replicates in (("jackknife_replicates", jackknife_replicates),
-                                 ("bootstrap_replicates", bootstrap_replicates)):
-            if central_value is not None and replicates is not None and replicates.shape[1:] != np.shape(central_value):
-                raise ValueError(f"from_results: {name}/central_value shape mismatch")
-        return cls(central_value=central_value, jackknife_replicates=jackknife_replicates,
-                   bootstrap_replicates=bootstrap_replicates, layout=layout, metadata=metadata)
+    def from_results(cls, central_value=None, layout=None, jackknife_replicates=None, bootstrap_replicates=None):
+        """Return a variable from a computed central value and replicates, stored unchanged."""
+        if jackknife_replicates is not None:
+            if layout is None:
+                raise ValueError("from_results: jackknife_replicates requires layout")
+            num_configurations = len(layout.monte_carlo_times)
+            if len(jackknife_replicates) != num_configurations:
+                raise ValueError(f"from_results: jackknife_replicates have length {len(jackknife_replicates)}, "
+                                 f"expected {num_configurations}")
+        if central_value is not None:
+            shape = np.shape(central_value)
+            for name, replicates in (("jackknife_replicates", jackknife_replicates),
+                                     ("bootstrap_replicates", bootstrap_replicates)):
+                if replicates is not None and replicates.shape[1:] != shape:
+                    raise ValueError(f"from_results: {name} have shape {replicates.shape[1:]}, expected {shape}")
+        return cls(central_value=central_value, layout=layout, jackknife_replicates=jackknife_replicates,
+                   bootstrap_replicates=bootstrap_replicates)
 
     @classmethod
     def derive(cls, f, *variables):
-        """Apply f to central values and matching replicates."""
+        """Apply f to the central values and to the replicates present in all inputs; layouts must be equal."""
         layout = cls._common_layout(variables, "derive")
         central_value = f(*[variable.central_value for variable in variables])
         jackknife_replicates = cls._derive_jackknife(f, variables)
         bootstrap_replicates = cls._derive_bootstrap(f, variables)
-        return cls.from_results(central_value, jackknife_replicates, bootstrap_replicates, layout)
+        return cls.from_results(central_value=central_value, layout=layout,
+                                jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates)
 
     @classmethod
-    def map_observations(cls, f, *variables, metadata=None):
-        """Apply f to the observations of data variables with a common layout; return a data variable.
+    def map_observations(cls, f, *variables):
+        """Apply f to the observations of data variables; layouts must be equal. Return a data variable.
 
         f takes the observation arrays (configurations on axis 0) and must act on each configuration separately.
         """
         if any(variable.observations is None for variable in variables):
             raise ValueError("map_observations: input has no observations")
         layout = cls._common_layout(variables, "map_observations")
-        return cls.from_data(f(*[variable.observations for variable in variables]), layout, metadata)
+        observations = f(*[variable.observations for variable in variables])
+        return cls.from_data(observations, layout)
 
     @staticmethod
     def _common_layout(variables, name):
-        layout = None
-        for index, variable in enumerate(variables):
-            if variable.layout is None:
-                continue
+        layouts = [variable.layout for variable in variables]
+        reference = next((layout for layout in layouts if layout is not None), None)
+        for index, layout in enumerate(layouts):
             if layout is None:
-                layout = variable.layout
-            for field in ("configurations", "weights", "monte_carlo_times", "replicas"):
-                if not np.array_equal(getattr(variable.layout, field), getattr(layout, field)):
+                continue
+            for field in ("ensemble", "monte_carlo_times", "replicas", "weights"):
+                if not np.array_equal(getattr(layout, field), getattr(reference, field)):
                     raise ValueError(f"{name}: input {index} {field} differ")
-        return layout if all(variable.layout is not None for variable in variables) else None
+        if any(layout is None for layout in layouts):
+            return None
+        return reference
 
     @staticmethod
     def _derive_jackknife(f, variables):
         if any(variable.jackknife_replicates is None for variable in variables):
             return None
-        num = len(variables[0].jackknife_replicates)
+        num_configurations = len(variables[0].jackknife_replicates)
         return np.array([f(*[variable.jackknife_replicates[i] for variable in variables])
-                         for i in range(num)])
+                         for i in range(num_configurations)])
 
     @staticmethod
     def _derive_bootstrap(f, variables):
         if any(variable.bootstrap_replicates is None for variable in variables):
             return None
-        num_bootstraps = variables[0].bootstrap_replicates.shape[0]
+        num_bootstraps = len(variables[0].bootstrap_replicates)
         for index, variable in enumerate(variables):
             if len(variable.bootstrap_replicates) != num_bootstraps:
                 raise ValueError(f"derive: input {index} has a different number of bootstrap replicates")
@@ -164,38 +172,38 @@ class Variable:
         """Join data variables along component ``axis``; layouts must be equal."""
         observations_axis = axis + 1 if axis >= 0 else axis
         return cls.map_observations(lambda *observations: np.concatenate(observations, axis=observations_axis),
-                                    *variables, metadata={"num_inputs": len(variables)})
+                                    *variables)
 
-    def with_metadata(self, metadata):
-        """Return a copy that shares all arrays and has ``metadata`` instead."""
-        return type(self)(**{**vars(self), "metadata": metadata})
-
-    def bin(self, bin_size, prefix):
-        """Bin data in simulation order, truncating the trailing incomplete bin.
+    def bin(self, bin_size):
+        """Return the data variable binned in array order, truncating the trailing incomplete bin.
 
         A bin holds ``bin_size`` measured configurations; with gaps it spans more Monte Carlo time.
-        Requires one replica. The result has bins as configurations, one replica and Monte Carlo
-        times ``0, ..., num_bins - 1``.
+        Requires one replica. The result keeps the ensemble and the replica and has Monte Carlo
+        times ``0, ..., num_bins - 1``. Binned layouts identify ensemble, replica and number of bins only.
+        ``bin_size == 1`` returns the variable itself.
         """
-        if bin_size <= 1:
-            raise ValueError(f"bin: bin_size must be > 1, got {bin_size}")
-        if self.observations is None or self.layout is None or self.layout.weights is None:
-            raise ValueError("bin: variable has no observations or weights")
+        if bin_size < 1:
+            raise ValueError(f"bin: bin_size must be >= 1, got {bin_size}")
+        if self.observations is None:
+            raise ValueError("bin: variable has no observations")
+        if bin_size == 1:
+            return self
         if len(np.unique(self.layout.replicas)) > 1:
             raise ValueError("bin: more than one replica; binning across replicas is not supported")
+
+        weights = self.layout.weights
         num_bins = len(self.observations) // bin_size
-        observations = statistics.bin(self.observations, bin_size, weights=self.layout.weights)
-        weights = statistics.bin(self.layout.weights, bin_size, weights=np.ones(len(self.layout.weights)))
-        configurations = np.array([f"{prefix}/bin_size{bin_size}-{i}" for i in range(num_bins)])
-        return type(self).from_data(observations, Layout(configurations, weights), self.metadata)
+        observations = statistics.bin(self.observations, bin_size, weights=weights)
+        bin_weights = statistics.bin(weights, bin_size, weights=np.ones(len(weights)))
+        replicas = np.full(num_bins, self.layout.replicas[0])
+        layout = Layout(self.layout.ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
+        return type(self).from_data(observations, layout)
 
     def _jackknife_replicates(self, bin_size):
         if self.jackknife_replicates is None:
             raise ValueError("jackknife: variable has no jackknife replicates")
         if bin_size == 1:
             return self.jackknife_replicates
-        if self.layout is None or self.layout.weights is None:
-            raise ValueError("Delayed binning requires weights")
         if len(np.unique(self.layout.replicas)) > 1:
             raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
         return jackknife.delayed_binning(self.jackknife_replicates, bin_size, self.layout.weights)
@@ -209,13 +217,13 @@ class Variable:
         return jackknife.covariance(self._jackknife_replicates(bin_size))
 
     def bootstrap_variance(self):
-        """Return the variance of stored bootstrap replicates."""
+        """Return the bootstrap variance."""
         if self.bootstrap_replicates is None:
             raise ValueError("bootstrap_variance: variable has no bootstrap replicates")
         return bootstrap.variance(self.bootstrap_replicates)
 
     def bootstrap_covariance(self):
-        """Return the covariance of stored bootstrap replicates."""
+        """Return the bootstrap covariance."""
         if self.bootstrap_replicates is None:
             raise ValueError("bootstrap_covariance: variable has no bootstrap replicates")
         return bootstrap.covariance(self.bootstrap_replicates)
@@ -228,7 +236,8 @@ class Variable:
         """
         if self.fluctuations is None:
             raise ValueError("gamma_method: variable has no fluctuations")
-        return gamma.error_analysis(self.fluctuations, self.layout.monte_carlo_times, self.layout.replicas, S)
+        layout = self.layout
+        return gamma.error_analysis(self.fluctuations, layout.monte_carlo_times, layout.replicas, S)
 
     def __repr__(self):
         parts = [f"shape={np.shape(self.central_value)}"]

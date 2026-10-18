@@ -14,16 +14,16 @@ from scipy.fft import irfft, next_fast_len, rfft
 # Entry points
 # ---------------------------------------------------------------------------
 
-def mean_and_fluctuations(values, weights):
-    """Weighted mean of primary data ``values`` over axis 0 and its fluctuations per configuration.
+def mean_and_fluctuations(observations, weights):
+    """Weighted mean of primary ``observations`` over axis 0 and their fluctuations per configuration.
 
-    ``delta_i = weights_i (values_i - mean) / mean(weights)``: the fluctuations
-    of ``weights * values`` and ``weights`` projected with the gradient of
-    their ratio of means. Uniform weights give ``values_i - mean``.
+    ``delta_i = weights_i (observations_i - mean) / mean(weights)``: the fluctuations
+    of ``weights * observations`` and ``weights`` projected with the gradient of
+    their ratio of means. Uniform weights give ``observations_i - mean``.
     """
-    mean = np.average(values, axis=0, weights=weights)
-    w_bcast = weights.reshape((-1,) + (1,) * (values.ndim - 1))
-    delta = w_bcast * (values - mean) / np.mean(weights)
+    mean = np.average(observations, axis=0, weights=weights)
+    w_bcast = weights.reshape((-1,) + (1,) * (observations.ndim - 1))
+    delta = w_bcast * (observations - mean) / np.mean(weights)
     return mean, delta
 
 
@@ -35,13 +35,13 @@ class GammaErrorAnalysis:
     tau_int: np.ndarray          # bias-corrected, at chosen W
     error_tau_int: np.ndarray    # at chosen W
     window: np.ndarray           # chosen W
-    gamma: np.ndarray            # all lags, for autocorrelation plot
+    autocovariance: np.ndarray   # all lags, for autocorrelation plot
     tau_ints: np.ndarray         # all W, for plateau plot
     error_tau_ints: np.ndarray   # all W
 
 
-def error_analysis(fluctuations, monte_carlo_times, replicas, S=1.5):
-    """Gamma-method error analysis of ``fluctuations`` per component (Wolff, S default 1.5)."""
+def error_analysis(fluctuations, monte_carlo_times, replicas, S):
+    """Gamma-method error analysis of ``fluctuations`` per component (Wolff)."""
     num_configurations = len(fluctuations)
     gamma = autocovariance(fluctuations, monte_carlo_times, replicas)
     tau_ints = integrated_autocorrelation_times(gamma)
@@ -55,7 +55,7 @@ def error_analysis(fluctuations, monte_carlo_times, replicas, S=1.5):
         tau_int=np.where(constant, 0.5, _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations)),
         error_tau_int=np.where(constant, 0.0, _at_window(error_tau_ints, W)),
         window=W,
-        gamma=gamma,
+        autocovariance=gamma,
         tau_ints=tau_ints,
         error_tau_ints=error_tau_ints,
     )
@@ -67,8 +67,11 @@ def error_analysis(fluctuations, monte_carlo_times, replicas, S=1.5):
 
 def autocovariance(fluctuations, monte_carlo_times, replicas, max_lag=None, fft=True):
     """Autocovariance of ``fluctuations`` for lags 0 to ``max_lag``, using only
-    pairs within the same replica. Default ``max_lag``: half the longest replica span minus 1.
+    pairs within the same replica. Lags are in units of the greatest common divisor of the Monte Carlo
+    time differences. Default ``max_lag``: half the longest replica span minus 1.
     ``fft=False`` sums the products directly instead of via FFT."""
+    differences = [np.diff(monte_carlo_times[replicas == replica]) for replica in np.unique(replicas)]
+    monte_carlo_times = monte_carlo_times // (np.gcd.reduce(np.concatenate(differences)) or 1)
     if max_lag is None:
         spans = [np.ptp(monte_carlo_times[replicas == replica]) + 1 for replica in np.unique(replicas)]
         max_lag = max(spans) // 2 - 1
@@ -124,7 +127,7 @@ def error_integrated_autocorrelation_times(tau_ints, num_configurations):
     return 2 * tau_ints * (np.abs(Ws + 0.5 - tau_ints) / num_configurations)**.5  # abs: noise can make tau_int > W + 1/2 (as pyerrors)
 
 
-def window(tau_ints, num_configurations, S=1.5):
+def window(tau_ints, num_configurations, S):
     """Summation window W per component, with ``tau_ints`` from ``integrated_autocorrelation_times``."""
     components = tau_ints.reshape(len(tau_ints), -1).T
     windows = np.array([_window_1d(component, num_configurations, S) for component in components])
