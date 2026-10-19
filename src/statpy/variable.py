@@ -2,7 +2,6 @@ from collections.abc import Callable
 from typing import Self
 
 import numpy as np
-from numba.core.dispatcher import Dispatcher
 from numpy.typing import ArrayLike, NDArray
 
 from statpy.statistics import bootstrap, gamma, jackknife, least_squares
@@ -217,40 +216,43 @@ class Variable:
         layout = Layout(self.layout.ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
         return type(self).from_data(observations, layout)
 
-    def least_squares_fit(self, model: Dispatcher, t: ArrayLike, p0: ArrayLike, *, W: np.ndarray | None = None,
-                          tol: float | None = None, max_calls: int | None = None) -> least_squares.LeastSquaresFit:
-        """Least-squares fit of the numba function ``model(t, p)`` (e.g. from ``statpy.qcd.correlator.models``)
-        to the central value; refit each jackknife and bootstrap replicate present, starting from the
-        central parameters, with the same ``W``.
+    def least_squares_fit(self, model: least_squares.Model, x: ArrayLike, initial_parameters: ArrayLike, *,
+                          weight_matrix: np.ndarray | None = None, tolerance: float | None = None,
+                          max_calls: int | None = None) -> least_squares.LeastSquaresFit:
+        """Least-squares fit of the function ``model(x, parameters)``, e.g. a numba model from
+        ``statpy.qcd.correlator.models``, to the central value at the component indices ``x``; refit each
+        jackknife and bootstrap replicate present, starting from the central parameters, with the same
+        ``weight_matrix``.
 
-        ``W`` defaults to the inverse jackknife variance on ``t``. Observations and fluctuations are not used.
-        Returns a ``LeastSquaresFit``; its parameters have this variable's layout.
+        ``weight_matrix`` defaults to the inverse jackknife variance on ``x``. Observations and fluctuations
+        are not used. Returns a ``LeastSquaresFit``; its parameters have this variable's layout.
         """
-        t = np.asarray(t)
-        p0 = np.asarray(p0, dtype=float)
-        dof = len(t) - len(p0)
+        x = np.asarray(x)
+        initial_parameters = np.asarray(initial_parameters, dtype=float)
+        dof = len(x) - len(initial_parameters)
         if dof <= 0:
-            raise ValueError(f"least_squares_fit: {len(t)} points for {len(p0)} parameters, dof = {dof}")
-        if W is None:
-            W = np.diag(1.0 / self.jackknife_variance()[t])
+            raise ValueError(f"least_squares_fit: {len(x)} points for {len(initial_parameters)} parameters, dof = {dof}")
+        if weight_matrix is None:
+            weight_matrix = np.diag(1.0 / self.jackknife_variance()[x])
 
         chi2_function = least_squares.chi2(model)
 
-        def objective(p: np.ndarray, y: np.ndarray) -> float:
-            return chi2_function(t, p, y, W)
+        def objective(y: np.ndarray, parameters: np.ndarray) -> float:
+            return chi2_function(x, y, parameters, weight_matrix)
 
-        y = self.central_value[t]
-        parameters = least_squares.minimize(objective, y, p0, tol=tol, max_calls=max_calls)
-        chi2_value = objective(parameters, y)
+        y = self.central_value[x]
+        parameters = least_squares.minimize(objective, y, initial_parameters, tolerance=tolerance,
+                                            max_calls=max_calls)
+        chi2_value = objective(y, parameters)
         if not np.isfinite(chi2_value):
             raise least_squares.ConvergenceError(f"least_squares_fit: non-finite chi^2 = {chi2_value}")
         jackknife_replicates = bootstrap_replicates = None
         if self.jackknife_replicates is not None:
             jackknife_replicates = least_squares.fit_replicates(
-                objective, self.jackknife_replicates[:, t], parameters, tol=tol, max_calls=max_calls)
+                objective, self.jackknife_replicates[:, x], parameters, tolerance=tolerance, max_calls=max_calls)
         if self.bootstrap_replicates is not None:
             bootstrap_replicates = least_squares.fit_replicates(
-                objective, self.bootstrap_replicates[:, t], parameters, tol=tol, max_calls=max_calls)
+                objective, self.bootstrap_replicates[:, x], parameters, tolerance=tolerance, max_calls=max_calls)
         fitted = Variable.from_results(central_value=parameters, layout=self.layout,
                                        jackknife_replicates=jackknife_replicates,
                                        bootstrap_replicates=bootstrap_replicates)

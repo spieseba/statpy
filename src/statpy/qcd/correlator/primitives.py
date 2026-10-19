@@ -11,7 +11,7 @@ from statpy.log import message
 # ---------------------------------------------------------------------------
 
 @np.errstate(divide='ignore', invalid='ignore')
-def effective_mass(corr, *, estimator, Nt=None):
+def effective_mass(corr: np.ndarray, *, estimator: str, Nt: int | None = None) -> np.ndarray:
     """Return effective masses of a 1D correlator.
 
     estimator selects the formula:
@@ -49,7 +49,7 @@ def effective_mass(corr, *, estimator, Nt=None):
     raise ValueError(f"Unknown effective-mass estimator: {estimator}")
 
 
-def _solve_effective_mass(corr, *, kernel, Nt):
+def _solve_effective_mass(corr: np.ndarray, *, kernel: str, Nt: int) -> np.ndarray:
     """Solve kernel(m|t-Nt/2|)/kernel(m|t+1-Nt/2|) = C(t)/C(t+1) per t; kernel is "cosh" or "sinh"."""
     t = np.arange(len(corr))
     a = np.abs(t - Nt / 2)
@@ -57,7 +57,7 @@ def _solve_effective_mass(corr, *, kernel, Nt):
     log_ratio = np.log(corr / np.roll(corr, -1))
     if kernel == "cosh":
         # log(cosh[m(t - Nt/2)] / cosh[m(t + 1 - Nt/2)]) - log(C(t) / C(t+1))
-        def objective_function(m, a, b, log_ratio):
+        def objective_function(m: np.ndarray, a: np.ndarray, b: np.ndarray, log_ratio: np.ndarray) -> np.ndarray:
             return (
                 m * (a - b)
                 + np.log1p(np.exp(-2 * m * a))
@@ -69,7 +69,7 @@ def _solve_effective_mass(corr, *, kernel, Nt):
         valid = a != b
     else:
         # log(sinh[m(t - Nt/2)] / sinh[m(t + 1 - Nt/2)]) - log(C(t)/C(t+1))
-        def objective_function(m, a, b, log_ratio):
+        def objective_function(m: np.ndarray, a: np.ndarray, b: np.ndarray, log_ratio: np.ndarray) -> np.ndarray:
             return (
                 m * (a - b)
                 + np.log(-np.expm1(-2 * m * a))
@@ -88,7 +88,7 @@ def _solve_effective_mass(corr, *, kernel, Nt):
     return mass
 
 
-def effective_amplitude(corr, mass, *, kernel, Nt=None):
+def effective_amplitude(corr: np.ndarray, mass: float, *, kernel: str, Nt: int | None = None) -> np.ndarray:
     """Divide a 1D correlator by a single-state kernel, preserving its sign.
 
     kernel selects the time dependence:
@@ -98,24 +98,23 @@ def effective_amplitude(corr, mass, *, kernel, Nt=None):
     Times start at zero; exponential sums set the normalization.
     """
     corr = np.asarray(corr)
-    if kernel in ("cosh", "sinh") and Nt is None:
-        raise ValueError(f"{kernel} kernel needs Nt")
     t = np.arange(len(corr))
     forward = np.exp(-mass * t)
     if kernel == "exp":
         return corr / forward
-    if kernel == "cosh":
-        return corr / (forward + np.exp(-mass * (Nt - t)))
-    if kernel == "sinh":
-        return corr / (forward - np.exp(-mass * (Nt - t)))
-    raise ValueError(f"Unknown effective-amplitude kernel: {kernel}")
+    if kernel not in ("cosh", "sinh"):
+        raise ValueError(f"Unknown effective-amplitude kernel: {kernel}")
+    if Nt is None:
+        raise ValueError(f"{kernel} kernel needs Nt")
+    backward = np.exp(-mass * (Nt - t))
+    return corr / (forward + backward) if kernel == "cosh" else corr / (forward - backward)
 
 
 # ---------------------------------------------------------------------------
 # Folding
 # ---------------------------------------------------------------------------
 
-def meson_fold_correlator(corr, time_parity=1):
+def meson_fold_correlator(corr: np.ndarray, time_parity: int = 1) -> np.ndarray:
     """Fold a meson correlator around T/2; time_parity is +1 (even) or -1 (odd)."""
     time_parity = _validate_time_parity(time_parity)
     half = len(corr) // 2
@@ -125,7 +124,7 @@ def meson_fold_correlator(corr, time_parity=1):
     return np.mean([first_half, second_half], axis=0)
 
 
-def _validate_time_parity(time_parity):
+def _validate_time_parity(time_parity: int) -> int:
     """Return the sign for even (+1) or odd (-1) time parity; reject booleans."""
     if (
         isinstance(time_parity, (bool, np.bool_))
@@ -140,7 +139,8 @@ def _validate_time_parity(time_parity):
 # Signal-to-noise cut
 # ---------------------------------------------------------------------------
 
-def get_tmax_signal_to_noise(mean, var, min_signal_to_noise, tmin=None, debug=False):
+def get_tmax_signal_to_noise(mean: np.ndarray, var: np.ndarray, min_signal_to_noise: float, tmin: int | None = None,
+                             debug: bool = False) -> int:
     """Return the first failing slice (exclusive endpoint), or the data length.
 
     A failure is S/N below the required threshold or NaN. Search all slices

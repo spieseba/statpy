@@ -20,6 +20,7 @@ dev = [
     "pyrefly>=1.4.0",
     "pytest>=9.0.3",
     "ruff>=0.16",
+    "scipy-stubs>=1.18.1.1",
 ]
 
 [tool.pytest.ini_options]

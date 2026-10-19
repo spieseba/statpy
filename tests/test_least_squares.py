@@ -24,7 +24,7 @@ def test_fit_recovers_parameters_of_central_value_and_replicates():
         jackknife_replicates=np.array([_model(T, p) for p in jackknife_p]),
         bootstrap_replicates=np.array([_model(T, p) for p in bootstrap_p]),
     )
-    fit = v.least_squares_fit(_model, T, [1.0, 0.2], tol=1e-8)
+    fit = v.least_squares_fit(_model, T, [1.0, 0.2], tolerance=1e-8)
     np.testing.assert_allclose(fit.parameters.central_value, TRUE_P, rtol=1e-5)
     assert fit.parameters.jackknife_replicates is not None and fit.parameters.bootstrap_replicates is not None
     np.testing.assert_allclose(fit.parameters.jackknife_replicates, jackknife_p, rtol=1e-5)

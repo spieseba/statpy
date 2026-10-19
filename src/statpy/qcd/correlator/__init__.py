@@ -12,6 +12,6 @@ from statpy.qcd.correlator.primitives import (
 )
 from statpy.qcd.correlator.two_state import (
     default_mass_guess,
-    get_p0_guesses,
+    initial_parameter_guesses,
     propose_ground_state_range,
 )

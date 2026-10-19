@@ -8,13 +8,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 from iminuit import Minuit
 from numba import njit
-from numba.core.dispatcher import Dispatcher
 from numba.core.registry import CPUDispatcher
 from scipy import stats
 from scipy.linalg import cho_factor, cho_solve
 
 if TYPE_CHECKING:
     from statpy.variable import Variable
+
+
+Model = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 
 class ConvergenceError(Exception):
@@ -31,23 +33,21 @@ class LeastSquaresFit:
 
 
 @functools.cache
-def chi2(model: Dispatcher) -> Dispatcher:
-    """Return the numba function ``chi2(t, p, y, W) = r @ W @ r`` with ``r = model(t, p) - y``."""
-    if not isinstance(model, CPUDispatcher):
-        raise TypeError(f"chi2: model must be a numba function, got {type(model).__name__}")
-
-    @njit
-    def model_chi2(t: np.ndarray, p: np.ndarray, y: np.ndarray, W: np.ndarray) -> float:
-        residuals = model(t, p) - y
-        return residuals @ W @ residuals
-    return model_chi2
+def chi2(model: Model) -> Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], float]:
+    """Return ``chi2(x, y, parameters, weight_matrix) = r @ weight_matrix @ r`` with
+    ``r = model(x, parameters) - y``; compiled with numba if ``model`` is a numba function."""
+    def model_chi2(x: np.ndarray, y: np.ndarray, parameters: np.ndarray, weight_matrix: np.ndarray) -> float:
+        residuals = model(x, parameters) - y
+        return float(residuals @ weight_matrix @ residuals)
+    return njit(model_chi2) if isinstance(model, CPUDispatcher) else model_chi2
 
 
-def minimize(objective: Callable[[np.ndarray, np.ndarray], float], y: np.ndarray, p0: np.ndarray, *,
-             tol: float | None, max_calls: int | None) -> np.ndarray:
-    """Return the parameters minimizing ``objective(p, y)`` with Migrad, starting from ``p0``."""
-    minuit = Minuit(lambda p: objective(p, y), p0)  # pyrefly: ignore[bad-argument-type]  # iminuit types fcn with float arguments only
-    minuit.tol = tol
+def minimize(objective: Callable[[np.ndarray, np.ndarray], float], y: np.ndarray, initial_parameters: np.ndarray, *,
+             tolerance: float | None, max_calls: int | None) -> np.ndarray:
+    """Return the parameters minimizing ``objective(y, parameters)`` with Migrad, starting from
+    ``initial_parameters``."""
+    minuit = Minuit(lambda parameters: objective(y, parameters), initial_parameters)  # pyrefly: ignore[bad-argument-type]  # iminuit types fcn with float arguments only
+    minuit.tol = tolerance
     minuit.migrad(ncall=max_calls)
     if not minuit.valid:
         raise ConvergenceError("Migrad did not converge")
@@ -57,10 +57,11 @@ def minimize(objective: Callable[[np.ndarray, np.ndarray], float], y: np.ndarray
     return parameters
 
 
-def fit_replicates(objective: Callable[[np.ndarray, np.ndarray], float], replicates: np.ndarray, p0: np.ndarray, *,
-                   tol: float | None, max_calls: int | None) -> np.ndarray:
-    """Return the parameters minimizing ``objective`` for each replicate, each fit starting from ``p0``."""
-    return np.array([minimize(objective, y, p0, tol=tol, max_calls=max_calls) for y in replicates])
+def fit_replicates(objective: Callable[[np.ndarray, np.ndarray], float], replicates: np.ndarray,
+                   initial_parameters: np.ndarray, *, tolerance: float | None, max_calls: int | None) -> np.ndarray:
+    """Return the parameters minimizing ``objective`` for each replicate, each fit starting from ``initial_parameters``."""
+    return np.array([minimize(objective, y, initial_parameters, tolerance=tolerance, max_calls=max_calls)
+                     for y in replicates])
 
 
 def p_value(chi2_value: float, dof: int) -> float:
