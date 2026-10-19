@@ -19,4 +19,5 @@ def test_from_data_uses_full_weighted_sample_mean():
 
     # For unequal weights, averaging the delete-one estimates is not the
     # full-sample estimator. This guards against reintroducing that shortcut.
+    assert db["weighted"].jackknife_replicates is not None
     assert not np.allclose(expected, np.mean(db["weighted"].jackknife_replicates, axis=0))

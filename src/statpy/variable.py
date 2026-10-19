@@ -1,4 +1,9 @@
+from collections.abc import Callable
+from typing import Self
+
 import numpy as np
+from numba.core.dispatcher import Dispatcher
+from numpy.typing import ArrayLike, NDArray
 
 from statpy.statistics import bootstrap, gamma, jackknife, least_squares
 from statpy.statistics import core as statistics
@@ -13,7 +18,8 @@ class Layout:
     default ``ones(N)``). A configuration is identified by (ensemble, replica, Monte Carlo time).
     """
 
-    def __init__(self, ensemble, monte_carlo_times, *, replicas=None, weights=None):
+    def __init__(self, ensemble: str, monte_carlo_times: NDArray[np.integer], *,
+                 replicas: NDArray[np.integer] | None = None, weights: np.ndarray | None = None) -> None:
         num_configurations = len(monte_carlo_times)
         if replicas is None:
             replicas = np.zeros(num_configurations, dtype=int)
@@ -46,7 +52,7 @@ class Layout:
 class Variable:
     """A quantity with its central value and replicates for error estimation.
 
-    Attributes (``None`` if absent; ``layout`` is always set):
+    Attributes (``None`` if absent; ``central_value`` and ``layout`` are always set):
     - ``central_value``: estimate of the quantity.
     - ``observations``: data per configuration (configurations on axis 0).
     - ``layout``: ``Layout`` of the configurations.
@@ -62,8 +68,9 @@ class Variable:
     # Constructors
     # ---------------------------------------------------------------------------
 
-    def __init__(self, *, central_value=None, observations=None, layout, jackknife_replicates=None,
-                 bootstrap_replicates=None, fluctuations=None):
+    def __init__(self, *, central_value: np.ndarray, observations: np.ndarray | None = None,
+                 layout: Layout, jackknife_replicates: np.ndarray | None = None,
+                 bootstrap_replicates: np.ndarray | None = None, fluctuations: np.ndarray | None = None) -> None:
         """Internal constructor; create variables with the classmethods."""
         self.central_value = central_value
         self.observations = observations
@@ -72,7 +79,7 @@ class Variable:
         self.bootstrap_replicates = bootstrap_replicates
         self.fluctuations = fluctuations
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = [f"shape={np.shape(self.central_value)}"]
         for name, replicates, count in (("observations", self.observations, "N"),
                                         ("jackknife", self.jackknife_replicates, "N"),
@@ -82,7 +89,8 @@ class Variable:
         return f"Variable({', '.join(parts)})"
 
     @classmethod
-    def from_data(cls, observations, layout, bootstrap_indices=None):
+    def from_data(cls, observations: np.ndarray, layout: Layout,
+                  bootstrap_indices: NDArray[np.integer] | None = None) -> Self:
         """Return a data variable: weighted mean, jackknife replicates and gamma-method fluctuations.
 
         ``observations`` has configurations on axis 0, in ``layout`` order. ``bootstrap_indices`` is an
@@ -105,19 +113,20 @@ class Variable:
                    fluctuations=fluctuations)
 
     @classmethod
-    def from_results(cls, *, central_value=None, layout, jackknife_replicates=None, bootstrap_replicates=None):
+    def from_results(cls, *, central_value: np.ndarray, layout: Layout,
+                     jackknife_replicates: np.ndarray | None = None,
+                     bootstrap_replicates: np.ndarray | None = None) -> Self:
         """Return a variable from a computed central value and replicates, stored unchanged."""
         if jackknife_replicates is not None:
             num_configurations = len(layout.monte_carlo_times)
             if len(jackknife_replicates) != num_configurations:
                 raise ValueError(f"from_results: jackknife_replicates have length {len(jackknife_replicates)}, "
                                  f"expected {num_configurations}")
-        if central_value is not None:
-            shape = np.shape(central_value)
-            for name, replicates in (("jackknife_replicates", jackknife_replicates),
-                                     ("bootstrap_replicates", bootstrap_replicates)):
-                if replicates is not None and replicates.shape[1:] != shape:
-                    raise ValueError(f"from_results: {name} have shape {replicates.shape[1:]}, expected {shape}")
+        shape = np.shape(central_value)
+        for name, replicates in (("jackknife_replicates", jackknife_replicates),
+                                 ("bootstrap_replicates", bootstrap_replicates)):
+            if replicates is not None and replicates.shape[1:] != shape:
+                raise ValueError(f"from_results: {name} have shape {replicates.shape[1:]}, expected {shape}")
         return cls(central_value=central_value, layout=layout, jackknife_replicates=jackknife_replicates,
                    bootstrap_replicates=bootstrap_replicates)
 
@@ -126,7 +135,7 @@ class Variable:
     # ---------------------------------------------------------------------------
 
     @classmethod
-    def derive(cls, f, *variables):
+    def derive(cls, f: Callable[..., np.ndarray], *variables: "Variable") -> Self:
         """Apply f to the central values and to the replicates present in all inputs; layouts must be equal."""
         layout = cls._common_layout(variables, "derive")
         central_value = f(*[variable.central_value for variable in variables])
@@ -136,7 +145,7 @@ class Variable:
                                 jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates)
 
     @classmethod
-    def map_observations(cls, f, *variables):
+    def map_observations(cls, f: Callable[..., np.ndarray], *variables: "Variable") -> Self:
         """Apply f to the observations of data variables; layouts must be equal. Return a data variable.
 
         f takes the observation arrays (configurations on axis 0) and must act on each configuration separately.
@@ -148,7 +157,7 @@ class Variable:
         return cls.from_data(observations, layout)
 
     @staticmethod
-    def _common_layout(variables, name):
+    def _common_layout(variables: tuple["Variable", ...], name: str) -> Layout:
         reference = variables[0].layout
         for index, variable in enumerate(variables):
             for field in ("ensemble", "monte_carlo_times", "replicas", "weights"):
@@ -157,32 +166,33 @@ class Variable:
         return reference
 
     @staticmethod
-    def _derive_jackknife(f, variables):
-        if any(variable.jackknife_replicates is None for variable in variables):
+    def _derive_jackknife(f: Callable[..., np.ndarray], variables: tuple["Variable", ...]) -> np.ndarray | None:
+        replicates = [variable.jackknife_replicates for variable in variables
+                      if variable.jackknife_replicates is not None]
+        if len(replicates) < len(variables):
             return None
-        num_configurations = len(variables[0].jackknife_replicates)
-        return np.array([f(*[variable.jackknife_replicates[i] for variable in variables])
-                         for i in range(num_configurations)])
+        return np.array([f(*row) for row in zip(*replicates)])
 
     @staticmethod
-    def _derive_bootstrap(f, variables):
-        if any(variable.bootstrap_replicates is None for variable in variables):
+    def _derive_bootstrap(f: Callable[..., np.ndarray], variables: tuple["Variable", ...]) -> np.ndarray | None:
+        replicates = [variable.bootstrap_replicates for variable in variables
+                      if variable.bootstrap_replicates is not None]
+        if len(replicates) < len(variables):
             return None
-        num_bootstraps = len(variables[0].bootstrap_replicates)
-        for index, variable in enumerate(variables):
-            if len(variable.bootstrap_replicates) != num_bootstraps:
+        num_bootstraps = len(replicates[0])
+        for index, variable_replicates in enumerate(replicates):
+            if len(variable_replicates) != num_bootstraps:
                 raise ValueError(f"derive: input {index} has a different number of bootstrap replicates")
-        return np.array([f(*[variable.bootstrap_replicates[i] for variable in variables])
-                         for i in range(num_bootstraps)])
+        return np.array([f(*row) for row in zip(*replicates)])
 
     @classmethod
-    def concatenate_components(cls, *variables, axis=0):
+    def concatenate_components(cls, *variables: "Variable", axis: int = 0) -> Self:
         """Join data variables along component ``axis``; layouts must be equal."""
         observations_axis = axis + 1 if axis >= 0 else axis
         return cls.map_observations(lambda *observations: np.concatenate(observations, axis=observations_axis),
                                     *variables)
 
-    def bin(self, bin_size):
+    def bin(self, bin_size: int) -> Self:
         """Return the data variable binned in array order, truncating the trailing incomplete bin.
 
         A bin holds ``bin_size`` measured configurations; with gaps it spans more Monte Carlo time.
@@ -207,7 +217,8 @@ class Variable:
         layout = Layout(self.layout.ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
         return type(self).from_data(observations, layout)
 
-    def least_squares_fit(self, model, t, p0, *, W=None, tol=None, max_calls=None):
+    def least_squares_fit(self, model: Dispatcher, t: ArrayLike, p0: ArrayLike, *, W: np.ndarray | None = None,
+                          tol: float | None = None, max_calls: int | None = None) -> least_squares.LeastSquaresFit:
         """Least-squares fit of the numba function ``model(t, p)`` (e.g. from ``statpy.qcd.correlator.models``)
         to the central value; refit each jackknife and bootstrap replicate present, starting from the
         central parameters, with the same ``W``.
@@ -225,7 +236,7 @@ class Variable:
 
         chi2_function = least_squares.chi2(model)
 
-        def objective(p, y):
+        def objective(p: np.ndarray, y: np.ndarray) -> float:
             return chi2_function(t, p, y, W)
 
         y = self.central_value[t]
@@ -249,15 +260,15 @@ class Variable:
     # Error analysis
     # ---------------------------------------------------------------------------
 
-    def jackknife_variance(self, bin_size=1):
+    def jackknife_variance(self, bin_size: int = 1) -> np.ndarray:
         """Return the jackknife variance; delayed binning (one replica only) for ``bin_size > 1``."""
         return jackknife.variance(self._jackknife_replicates(bin_size))
 
-    def jackknife_covariance(self, bin_size=1):
+    def jackknife_covariance(self, bin_size: int = 1) -> np.ndarray:
         """Return the jackknife covariance; delayed binning (one replica only) for ``bin_size > 1``."""
         return jackknife.covariance(self._jackknife_replicates(bin_size))
 
-    def _jackknife_replicates(self, bin_size):
+    def _jackknife_replicates(self, bin_size: int) -> np.ndarray:
         if self.jackknife_replicates is None:
             raise ValueError("jackknife: variable has no jackknife replicates")
         if bin_size == 1:
@@ -266,19 +277,19 @@ class Variable:
             raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
         return jackknife.delayed_binning(self.jackknife_replicates, bin_size, self.layout.weights)
 
-    def bootstrap_variance(self):
+    def bootstrap_variance(self) -> np.ndarray:
         """Return the bootstrap variance."""
         if self.bootstrap_replicates is None:
             raise ValueError("bootstrap_variance: variable has no bootstrap replicates")
         return bootstrap.variance(self.bootstrap_replicates)
 
-    def bootstrap_covariance(self):
+    def bootstrap_covariance(self) -> np.ndarray:
         """Return the bootstrap covariance."""
         if self.bootstrap_replicates is None:
             raise ValueError("bootstrap_covariance: variable has no bootstrap replicates")
         return bootstrap.covariance(self.bootstrap_replicates)
 
-    def gamma_method(self, S=1.5) -> gamma.GammaErrorAnalysis:
+    def gamma_method(self, S: float = 1.5) -> gamma.GammaErrorAnalysis:
         """Return the gamma-method error analysis per component (Wolff, hep-lat/0306017).
 
         ``S`` is the factor in Wolff's hypothesis tau ~ S tau_int (sec. 3.3) that sets the

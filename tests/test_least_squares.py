@@ -26,6 +26,7 @@ def test_fit_recovers_parameters_of_central_value_and_replicates():
     )
     fit = v.least_squares_fit(_model, T, [1.0, 0.2], tol=1e-8)
     np.testing.assert_allclose(fit.parameters.central_value, TRUE_P, rtol=1e-5)
+    assert fit.parameters.jackknife_replicates is not None and fit.parameters.bootstrap_replicates is not None
     np.testing.assert_allclose(fit.parameters.jackknife_replicates, jackknife_p, rtol=1e-5)
     np.testing.assert_allclose(fit.parameters.bootstrap_replicates, bootstrap_p, rtol=1e-5)
     assert fit.chi2 < 1e-8

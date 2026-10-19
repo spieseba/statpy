@@ -1,12 +1,14 @@
 """Least-squares fits minimized with Migrad (iminuit)."""
 
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 from iminuit import Minuit
 from numba import njit
+from numba.core.dispatcher import Dispatcher
 from numba.core.registry import CPUDispatcher
 from scipy import stats
 from scipy.linalg import cho_factor, cho_solve
@@ -29,21 +31,22 @@ class LeastSquaresFit:
 
 
 @functools.cache
-def chi2(model):
+def chi2(model: Dispatcher) -> Dispatcher:
     """Return the numba function ``chi2(t, p, y, W) = r @ W @ r`` with ``r = model(t, p) - y``."""
     if not isinstance(model, CPUDispatcher):
         raise TypeError(f"chi2: model must be a numba function, got {type(model).__name__}")
 
     @njit
-    def model_chi2(t, p, y, W):
+    def model_chi2(t: np.ndarray, p: np.ndarray, y: np.ndarray, W: np.ndarray) -> float:
         residuals = model(t, p) - y
         return residuals @ W @ residuals
     return model_chi2
 
 
-def minimize(objective, y, p0, *, tol, max_calls):
+def minimize(objective: Callable[[np.ndarray, np.ndarray], float], y: np.ndarray, p0: np.ndarray, *,
+             tol: float | None, max_calls: int | None) -> np.ndarray:
     """Return the parameters minimizing ``objective(p, y)`` with Migrad, starting from ``p0``."""
-    minuit = Minuit(lambda p: objective(p, y), p0)
+    minuit = Minuit(lambda p: objective(p, y), p0)  # pyrefly: ignore[bad-argument-type]  # iminuit types fcn with float arguments only
     minuit.tol = tol
     minuit.migrad(ncall=max_calls)
     if not minuit.valid:
@@ -54,17 +57,18 @@ def minimize(objective, y, p0, *, tol, max_calls):
     return parameters
 
 
-def fit_replicates(objective, replicates, p0, *, tol, max_calls):
+def fit_replicates(objective: Callable[[np.ndarray, np.ndarray], float], replicates: np.ndarray, p0: np.ndarray, *,
+                   tol: float | None, max_calls: int | None) -> np.ndarray:
     """Return the parameters minimizing ``objective`` for each replicate, each fit starting from ``p0``."""
     return np.array([minimize(objective, y, p0, tol=tol, max_calls=max_calls) for y in replicates])
 
 
-def p_value(chi2_value, dof):
+def p_value(chi2_value: float, dof: int) -> float:
     """Return the probability of a chi^2 of at least ``chi2_value`` with ``dof`` degrees of freedom."""
-    return stats.chi2.sf(chi2_value, dof)
+    return float(stats.chi2.sf(chi2_value, dof))
 
 
-def inverse_covariance(cov, num_samples):
+def inverse_covariance(cov: np.ndarray, num_samples: int) -> tuple[np.ndarray | None, str | None]:
     """Return ``(inverse, None)``, or ``(None, reason)`` if ``cov`` is not invertible."""
     if len(cov) >= num_samples:
         return None, f"singular: {len(cov)} points from {num_samples} samples"
@@ -79,12 +83,13 @@ def inverse_covariance(cov, num_samples):
     return cho_solve(factor, np.eye(len(cov))) / scale, None
 
 
-def aic(chi2, dof, num_parameters):
+def aic(chi2: float, dof: int, num_parameters: int) -> float:
     """Return chi2 - dof + num_parameters, following arXiv:2211.03744."""
     return chi2 - dof + num_parameters
 
 
-def model_prediction_variance(t, parameters, covariance, gradient):
+def model_prediction_variance(t: float, parameters: np.ndarray, covariance: np.ndarray,
+                              gradient: Callable[[float, np.ndarray], np.ndarray]) -> float:
     """Return the model prediction variance from its parameter gradient and covariance."""
     g = gradient(t, parameters)
-    return g @ covariance @ g
+    return float(g @ covariance @ g)

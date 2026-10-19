@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def bin(data, bin_size, weights):
+def bin(data: np.ndarray, bin_size: int, weights: np.ndarray) -> np.ndarray:
     assert bin_size is not None
     if bin_size == 1:
         return data
@@ -14,14 +14,14 @@ def bin(data, bin_size, weights):
     return (d * wb.reshape((Nb, bin_size) + bcast)).sum(axis=1) / wb.sum(axis=1).reshape((-1,) + bcast)
 
 
-def normalize_covariance(cov):
+def normalize_covariance(cov: np.ndarray) -> np.ndarray:
     """Divide a covariance matrix by the outer product of its diagonal stds,
     yielding a correlation matrix with ones on the diagonal."""
     stds = np.sqrt(np.diag(cov))
     return cov / np.outer(stds, stds)
 
 
-def inflated_covariance(jk_cov, bs_std):
+def inflated_covariance(jk_cov: np.ndarray, bs_std: np.ndarray) -> np.ndarray:
     """Re-scale a (binned) jackknife covariance to match a bootstrap-std scale."""
     cov_n = normalize_covariance(jk_cov)
     return np.outer(bs_std, bs_std) * cov_n

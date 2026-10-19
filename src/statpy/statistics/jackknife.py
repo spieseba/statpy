@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def mean_replicates(observations, weights):
+def mean_replicates(observations: np.ndarray, weights: np.ndarray) -> np.ndarray:
     """Weighted mean of ``observations`` over axis 0 with each configuration left out in turn."""
     mean = np.average(observations, axis=0, weights=weights)
     W = np.sum(weights)
@@ -9,20 +9,20 @@ def mean_replicates(observations, weights):
     return mean + w_bcast * (mean - observations) / (W - w_bcast)
 
 
-def variance(jackknife_replicates):
+def variance(jackknife_replicates: np.ndarray) -> np.ndarray:
     mean = np.mean(jackknife_replicates, axis=0)
     N = len(jackknife_replicates)
     return np.sum((jackknife_replicates - mean)**2, axis=0) * (N-1) / N
 
 
-def covariance(jackknife_replicates):
+def covariance(jackknife_replicates: np.ndarray) -> np.ndarray:
     mean = np.mean(jackknife_replicates, axis=0)
     N = len(jackknife_replicates)
     d = (jackknife_replicates - mean).reshape(N, -1)
     return d.T @ d * (N-1) / N
 
 
-def delayed_binning(jackknife_replicates, bin_size, weights):
+def delayed_binning(jackknife_replicates: np.ndarray, bin_size: int, weights: np.ndarray) -> np.ndarray:
     """Return delayed-binned jackknife replicates, truncating the trailing incomplete bin."""
     if bin_size <= 1:
         raise ValueError(f"bin_size must be > 1, got {bin_size}")

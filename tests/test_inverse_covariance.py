@@ -22,7 +22,7 @@ def test_large_dynamic_range_is_accepted_and_inverted():
 def test_indefinite_matrix_is_rejected():
     corr = np.array([[1.0, 0.9, 0.9], [0.9, 1.0, -0.9], [0.9, -0.9, 1.0]])
     inverse, reason = inverse_covariance(corr, num_samples=100)
-    assert inverse is None and reason.startswith("not positive definite")
+    assert inverse is None and reason is not None and reason.startswith("not positive definite")
 
 
 def test_too_few_samples_is_rejected():

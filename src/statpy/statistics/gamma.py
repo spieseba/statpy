@@ -8,13 +8,14 @@ import warnings
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy.fft import irfft, next_fast_len, rfft
 
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
 
-def mean_and_fluctuations(observations, weights):
+def mean_and_fluctuations(observations: np.ndarray, weights: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Weighted mean of primary ``observations`` over axis 0 and their fluctuations per configuration.
 
     ``delta_i = weights_i (observations_i - mean) / mean(weights)``: the fluctuations
@@ -40,7 +41,7 @@ class GammaErrorAnalysis:
     error_tau_ints: np.ndarray   # all W
 
 
-def error_analysis(fluctuations, monte_carlo_times, replicas, S):
+def error_analysis(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integer], replicas: NDArray[np.integer], S: float) -> GammaErrorAnalysis:
     """Gamma-method error analysis of ``fluctuations`` per component (Wolff)."""
     num_configurations = len(fluctuations)
     gamma = autocovariance(fluctuations, monte_carlo_times, replicas)
@@ -65,7 +66,7 @@ def error_analysis(fluctuations, monte_carlo_times, replicas, S):
 # Analysis steps
 # ---------------------------------------------------------------------------
 
-def autocovariance(fluctuations, monte_carlo_times, replicas, max_lag=None, fft=True):
+def autocovariance(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integer], replicas: NDArray[np.integer], max_lag: int | None = None, fft: bool = True) -> np.ndarray:
     """Autocovariance of ``fluctuations`` for lags 0 to ``max_lag``, using only
     pairs within the same replica. Lags are in units of the greatest common divisor of the Monte Carlo
     time differences. Default ``max_lag``: half the longest replica span minus 1.
@@ -76,7 +77,7 @@ def autocovariance(fluctuations, monte_carlo_times, replicas, max_lag=None, fft=
         spans = [np.ptp(monte_carlo_times[replicas == replica]) + 1 for replica in np.unique(replicas)]
         max_lag = max(spans) // 2 - 1
     product_sums = np.zeros((max_lag + 1,) + fluctuations.shape[1:])
-    num_pairs = 0
+    num_pairs = np.zeros(max_lag + 1)
     for replica in np.unique(replicas):
         in_replica = (replicas == replica)
         replica_fluctuations, measured = _insert_gaps(fluctuations[in_replica], monte_carlo_times[in_replica])
@@ -88,7 +89,7 @@ def autocovariance(fluctuations, monte_carlo_times, replicas, max_lag=None, fft=
     return product_sums / num_pairs.reshape((-1,) + (1,) * (product_sums.ndim - 1))
 
 
-def _lag_sum(values, max_lag, fft=True):
+def _lag_sum(values: np.ndarray, max_lag: int, fft: bool = True) -> np.ndarray:
     """Sums of ``values[i] * values[i + t]`` over i for lags t = 0, ..., ``max_lag``."""
     length = len(values)
     if not fft:
@@ -98,7 +99,7 @@ def _lag_sum(values, max_lag, fft=True):
     return irfft(np.abs(transform)**2, padded_length, axis=0)[:max_lag+1]
 
 
-def _insert_gaps(values, monte_carlo_times):
+def _insert_gaps(values: np.ndarray, monte_carlo_times: NDArray[np.integer]) -> tuple[np.ndarray, np.ndarray]:
     """Return ``values`` with zeros inserted at missing Monte Carlo times, and an array
     that is 1 at measured times and 0 at missing ones."""
     indices = monte_carlo_times - monte_carlo_times.min()
@@ -109,32 +110,32 @@ def _insert_gaps(values, monte_carlo_times):
     return values_with_gaps, measured
 
 
-def autocorrelation(gamma):
+def autocorrelation(gamma: np.ndarray) -> np.ndarray:
     """Autocorrelation ``gamma / gamma[0]``, with ``gamma`` from ``autocovariance``; NaN for a constant component."""
     constant = gamma[0] == 0
     return np.divide(gamma, gamma[0], out=np.full(gamma.shape, np.nan), where=~constant)
 
 
-def integrated_autocorrelation_times(gamma):
+def integrated_autocorrelation_times(gamma: np.ndarray) -> np.ndarray:
     """Integrated autocorrelation times ``0.5 + sum(gamma[1:W+1]) / gamma[0]`` for
     windows W = 0, ..., len(gamma) - 1, with ``gamma`` from ``autocovariance``."""
     return np.cumsum(autocorrelation(gamma), axis=0) - 0.5
 
 
-def error_integrated_autocorrelation_times(tau_ints, num_configurations):
+def error_integrated_autocorrelation_times(tau_ints: np.ndarray, num_configurations: int) -> np.ndarray:
     """Errors of ``tau_ints`` for every W per component (Wolff eq. 42)."""
     Ws = np.arange(len(tau_ints)).reshape((-1,) + (1,) * (tau_ints.ndim - 1))
     return 2 * tau_ints * (np.abs(Ws + 0.5 - tau_ints) / num_configurations)**.5  # abs: noise can make tau_int > W + 1/2 (as pyerrors)
 
 
-def window(tau_ints, num_configurations, S):
+def window(tau_ints: np.ndarray, num_configurations: int, S: float) -> NDArray[np.integer]:
     """Summation window W per component, with ``tau_ints`` from ``integrated_autocorrelation_times``."""
     components = tau_ints.reshape(len(tau_ints), -1).T
     windows = np.array([_window_1d(component, num_configurations, S) for component in components])
     return windows.reshape(tau_ints.shape[1:])
 
 
-def _window_1d(tau_ints, num_configurations, S):
+def _window_1d(tau_ints: np.ndarray, num_configurations: int, S: float) -> int:
     """First W >= 1 with g(W) < 0 or ``tau_int <= 1/2`` (Wolff eq. 52); the largest W with a warning if none; 0 for a constant component."""
     if np.isnan(tau_ints[0]):   # constant component
         return 0
@@ -149,27 +150,27 @@ def _window_1d(tau_ints, num_configurations, S):
     return Ws[np.argmax(accepted)]
 
 
-def _g(W, tau, num_configurations):
+def _g(Ws: NDArray[np.integer], taus: np.ndarray, num_configurations: int) -> np.ndarray:
     """Wolff's window criterion g(W) (eq. 52)."""
-    return np.exp(- W / tau) - tau / np.sqrt(W * num_configurations)
+    return np.exp(- Ws / taus) - taus / np.sqrt(Ws * num_configurations)
 
 
-def variance(gamma, tau_ints, W, num_configurations):
+def variance(gamma: np.ndarray, tau_ints: np.ndarray, W: NDArray[np.integer], num_configurations: int) -> np.ndarray:
     """Variance of the estimate, ``2 tau_int(W) gamma[0] / N`` per component, bias-corrected (Wolff eqs. 44, 49)."""
     tau_int = _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations)
     return 2 * tau_int * gamma[0] / num_configurations
 
 
-def _at_window(values, W):
+def _at_window(values: np.ndarray, W: NDArray[np.integer]) -> np.ndarray:
     """``values`` at the chosen W per component."""
     return np.take_along_axis(values, W[np.newaxis], axis=0)[0]
 
 
-def _tau_int_bias_correction(W, num_configurations):
+def _tau_int_bias_correction(W: NDArray[np.integer], num_configurations: int) -> np.ndarray:
     """Factor ``1 + (2W+1)/N`` correcting the bias of ``tau_int(W)``, i.e. of ``C_F(W)`` (Wolff eq. 49)."""
     return 1 + (2 * W + 1) / num_configurations
 
 
-def error_of_error(error, W, num_configurations):
+def error_of_error(error: np.ndarray, W: NDArray[np.integer], num_configurations: int) -> np.ndarray:
     """Error of ``error = sqrt(variance)`` per component (Wolff eq. 40)."""
     return error * ((W + 0.5) / num_configurations)**.5
