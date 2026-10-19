@@ -17,6 +17,7 @@ dependencies=["numpy", "scipy>=1.15", "iminuit", "numba", "h5py"]
 
 [dependency-groups]
 dev = [
+    "pyrefly>=1.4.0",
     "pytest>=9.0.3",
     "ruff>=0.16",
 ]
@@ -26,3 +27,10 @@ testpaths = ["tests"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]
+
+[tool.pyrefly]
+preset = "default"
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
