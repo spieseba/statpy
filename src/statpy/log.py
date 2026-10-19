@@ -2,10 +2,10 @@ from time import perf_counter
 
 import numpy as np
 
-_t0 = None
+_t0: float | None = None
 
 
-def message(s="", silent=False, *, continuation=False):
+def message(s: str = "", silent: bool = False, *, continuation: bool = False) -> None:
     """Print elapsed seconds with a statpy prefix and aligned continuations.
 
     The timer starts at the first visible message; silent calls do not start it.
@@ -19,10 +19,10 @@ def message(s="", silent=False, *, continuation=False):
         _t0 = now
     prefix = f"statpy {now - _t0:9.3f} s: "
     indent = " " * len(prefix)
-    print((indent if continuation else prefix) + str(s).replace("\n", "\n" + indent))
+    print((indent if continuation else prefix) + s.replace("\n", "\n" + indent))
 
 
-def format_paren(val, err, sig=2):
+def format_paren(val: float, err: float, sig: int = 2) -> str:
     """Format ``val(err)`` with ``sig`` significant digits on ``err``, e.g. ``0.1234(56)``.
 
     Values with magnitude below 1e-3 or from 1e4 on get an exponent, e.g. ``3.548(48)e-07``.
@@ -35,7 +35,7 @@ def format_paren(val, err, sig=2):
     return _paren(val, err, sig)
 
 
-def _paren(val, err, sig):
+def _paren(val: float, err: float, sig: int) -> str:
     """Format ``val(err)`` in fixed-point notation."""
     k = int(np.floor(np.log10(abs(err))))
     decimals = max(0, -(k - (sig - 1)))

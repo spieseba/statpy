@@ -5,6 +5,7 @@ import textwrap
 
 import h5py
 import numpy as np
+from numpy.typing import NDArray
 
 from statpy.database import Database
 from statpy.log import message
@@ -14,7 +15,9 @@ from statpy.variable import Layout, Variable
 # Entry points
 # ---------------------------------------------------------------------------
 
-def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configurations_to_be_removed=None, meas_group="messpec", reverse=False, silent=False):
+def load_CLS(fn: str, rwf_fn: str, correlator_patterns: list[str], stream_tag: str, run_tag: str,
+             configurations_to_be_removed: list[int] | NDArray[np.integer] | None = None, meas_group: str = "messpec",
+             reverse: bool = False, silent: bool = False) -> tuple[Database, NDArray[np.integer]]:
     """Load CLS hdf5 measurements and reweighting factors into a fresh Database.
 
     ``stream_tag`` is ``<ensemble>r<stream number>`` (e.g. ``U101r001``); the stream is one replica,
@@ -98,7 +101,7 @@ def load_CLS(fn, rwf_fn, correlator_patterns, stream_tag, run_tag, configuration
     return db, common_cfgs
 
 
-def parse_bootstrap_file(fn):
+def parse_bootstrap_file(fn: str) -> tuple[NDArray[np.integer], list[str]]:
     """Parse a CLS ``.boot.txt`` → ``(bootstrap_indices, configlist)``, with CLS cfg names (``<stream>n<cfg id>``)."""
     bootstrap_indices = np.loadtxt(fn, dtype=int)
     with open(fn) as f:
@@ -110,7 +113,7 @@ def parse_bootstrap_file(fn):
 # Configuration ids
 # ---------------------------------------------------------------------------
 
-def _parse_cfg_id(name):
+def _parse_cfg_id(name: str) -> int:
     """Parse the trailing ``n<digits>`` block of a CLS configlist entry."""
     m = re.search(r"n(\d+)$", name)
     if m is None:
@@ -118,7 +121,8 @@ def _parse_cfg_id(name):
     return int(m.group(1))
 
 
-def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
+def _resolve_common_cfgs(h5_cfgs_filtered: NDArray[np.integer], rwf_cfgs_filtered: NDArray[np.integer],
+                         stream_tag: str) -> NDArray[np.integer]:
     """Assert hdf5 and rwf cfg sets match; return cfg ids sorted ascending."""
     if set(h5_cfgs_filtered.tolist()) != set(rwf_cfgs_filtered.tolist()):
         non_common = np.setxor1d(h5_cfgs_filtered, rwf_cfgs_filtered)
@@ -128,7 +132,7 @@ def _resolve_common_cfgs(h5_cfgs_filtered, rwf_cfgs_filtered, stream_tag):
     return np.sort(rwf_cfgs_filtered)
 
 
-def _argsort_to(src_cfgs, target_cfgs):
+def _argsort_to(src_cfgs: NDArray[np.integer], target_cfgs: NDArray[np.integer]) -> NDArray[np.integer]:
     """Return ``idx`` such that ``src_cfgs[idx] == target_cfgs``."""
     pos = {int(c): i for i, c in enumerate(src_cfgs)}
     return np.array([pos[int(c)] for c in target_cfgs])
@@ -138,7 +142,7 @@ def _argsort_to(src_cfgs, target_cfgs):
 # File reading
 # ---------------------------------------------------------------------------
 
-def _load_rwf_dispatch(rwf_fn):
+def _load_rwf_dispatch(rwf_fn: str) -> tuple[NDArray[np.integer], np.ndarray]:
     if rwf_fn.endswith(".rwf"):
         return _load_rwf(rwf_fn)
     if rwf_fn.endswith(".rwms.txt"):
@@ -146,19 +150,20 @@ def _load_rwf_dispatch(rwf_fn):
     raise ValueError(f"Unknown rwf file format: {rwf_fn}")
 
 
-def _load_rwf(fn):
+def _load_rwf(fn: str) -> tuple[NDArray[np.integer], np.ndarray]:
     """Two-column ``.rwf`` → ``(cfg_ids, rwf_values)``."""
     data = np.loadtxt(fn)
     return data[:, 0].astype(int), data[:, 1]
 
 
-def _load_rwms(fn):
+def _load_rwms(fn: str) -> tuple[NDArray[np.integer], np.ndarray]:
     """Multi-column ``.rwms.txt`` → ``(cfg_ids, prod_of_rwf_columns)``."""
     data = np.loadtxt(fn)
     return data[:, 0].astype(int), np.prod(data[:, 1:], axis=1)
 
 
-def _populate_data(db, f, compiled_patterns, h5_idx, layout, stream_tag, run_tag):
+def _populate_data(db: Database, f: h5py.Group, compiled_patterns: list[re.Pattern[str]], h5_idx: NDArray[np.integer],
+                   layout: Layout, stream_tag: str, run_tag: str) -> None:
     data_keys = list(f["data"].keys())
     loaded_keys = set()
     for pattern in compiled_patterns:
@@ -175,7 +180,7 @@ def _populate_data(db, f, compiled_patterns, h5_idx, layout, stream_tag, run_tag
 # Git metadata
 # ---------------------------------------------------------------------------
 
-def _log_h5_git(f, silent):
+def _log_h5_git(f: h5py.Group, silent: bool) -> None:
     git_dict = f["description"].get("git")
     if git_dict is None:
         message("\n  HDF5 Git metadata: unavailable", silent, continuation=True)
@@ -185,7 +190,7 @@ def _log_h5_git(f, silent):
     ), silent, continuation=True)
 
 
-def _log_rwf_git(rwf_fn, silent):
+def _log_rwf_git(rwf_fn: str, silent: bool) -> None:
     rwf_fn_git = rwf_fn + ".git"
     if not os.path.isfile(rwf_fn_git):
         message("\n  Reweighting Git metadata: unavailable", silent, continuation=True)

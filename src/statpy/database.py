@@ -1,7 +1,7 @@
 import pickle
 import struct
 import zlib
-from collections.abc import Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
 import statpy
@@ -19,17 +19,17 @@ class DuplicateTagError(ValueError):
     """An operation would write a tag that already exists in the Database."""
 
 
-class Database(Mapping):
+class Database(Mapping[str, Variable]):
     """Dict-like store of Variables by tag, saved to and loaded from a database file."""
 
     # ---------------------------------------------------------------------------
     # Constructors
     # ---------------------------------------------------------------------------
 
-    def __init__(self, *args):
+    def __init__(self, *args: "Path | Database") -> None:
         """Create a Database from database files (``Path``) or Databases with disjoint tags."""
         global _commit_logged
-        self._variables = {}
+        self._variables: dict[str, Variable] = {}
         if not _commit_logged:
             message(f"Initialized database with statpy commit hash {statpy.__commit__}.")
             _commit_logged = True
@@ -43,14 +43,14 @@ class Database(Mapping):
             else:
                 raise TypeError(f"Database: sources must be Path or Database, got {type(src).__name__}")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Database num_variables={len(self._variables)}>"
 
     # ---------------------------------------------------------------------------
     # File I/O
     # ---------------------------------------------------------------------------
 
-    def load(self, src):
+    def load(self, src: Path) -> None:
         """Load the database file ``src`` (``Path``) and add its variables; tags must not overlap."""
         message(f"Load {src}")
         if not src.is_file():
@@ -79,13 +79,13 @@ class Database(Mapping):
             variables[t] = Variable(layout=layout, **state)
         self._variables.update(variables)
 
-    def _check_new_tags(self, tags, context):
+    def _check_new_tags(self, tags: Iterable[str], context: str) -> None:
         dup = [t for t in tags if t in self._variables]
         if dup:
             raise DuplicateTagError(f"{context}: {len(dup)} overlapping tag(s): {dup[:5]}"
                                     + ("..." if len(dup) > 5 else ""))
 
-    def save(self, dst):
+    def save(self, dst: Path) -> None:
         """Write the entire database (all fields, including observations) to ``dst``."""
         payload = pickle.dumps(
             {t: {
@@ -102,7 +102,7 @@ class Database(Mapping):
             protocol=pickle.HIGHEST_PROTOCOL,
         )
         crc = zlib.crc32(payload) & 0xFFFFFFFF
-        with open(dst, "wb") as f:
+        with dst.open("wb") as f:
             f.write(_MAGIC)
             f.write(struct.pack("<I", crc))
             f.write(payload)
@@ -111,26 +111,26 @@ class Database(Mapping):
     # Mapping interface
     # ---------------------------------------------------------------------------
 
-    def __getitem__(self, tag):
+    def __getitem__(self, tag: str) -> Variable:
         return self._variables[tag]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self._variables)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._variables)
 
-    def __setitem__(self, tag, variable):
+    def __setitem__(self, tag: str, variable: Variable) -> None:
         if tag in self._variables:
             raise DuplicateTagError(f"Database[{tag!r}]: tag already exists")
         if not isinstance(variable, Variable):
             raise TypeError("Database values must be Variable instances")
         self._variables[tag] = variable
 
-    def __delitem__(self, tag):
+    def __delitem__(self, tag: str) -> None:
         del self._variables[tag]
 
-    def rename(self, old, new):
+    def rename(self, old: str, new: str) -> None:
         """Move a variable to an unused tag."""
         variable = self._variables[old]
         if new in self._variables:

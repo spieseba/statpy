@@ -8,7 +8,7 @@ import statpy.statistics
 import statpy.variable
 
 
-def _commit_hash():
+def _commit_hash() -> str | None:
     """Best-effort git commit hash of the statpy checkout this module lives in.
 
     ``-dirty`` is appended if tracked files differ from the commit. Returns ``None`` for non-git
