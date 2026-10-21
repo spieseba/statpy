@@ -23,14 +23,15 @@ from statpy.variable import Variable
 # ---------------------------------------------------------------------------
 
 def obc_meson_correlator_average(correlators: dict[int, Variable], bulk_range: Sequence[int] | NDArray[np.integer], *,
-                                 tmax_from_tsrc: int | None = None, time_parity: int = 1) -> Variable:
+                                 max_source_distance: int | None = None, time_parity: int = 1) -> Variable:
     """Return the OBC meson source average over sources in bulk_range."""
     time_parity = _validate_time_parity(time_parity)
     tsrcs_in_bulk = [tsrc for tsrc in correlators if (tsrc >= bulk_range[0]) and (tsrc <= bulk_range[-1])]
     tmax_fw, tmax_bw = _get_tmax_fw_bw(tsrcs_in_bulk, bulk_range)
-    if tmax_from_tsrc is not None:
-        tmax_fw = np.minimum(tmax_fw, tmax_from_tsrc+1)
-        tmax_bw = np.minimum(tmax_bw, tmax_from_tsrc+1)
+    # max_source_distance is inclusive: keep |t - tsrc| <= max_source_distance
+    if max_source_distance is not None:
+        tmax_fw = np.minimum(tmax_fw, max_source_distance+1)
+        tmax_bw = np.minimum(tmax_bw, max_source_distance+1)
 
     def source_average(*observations: np.ndarray) -> np.ndarray:
         masked = [_get_masked_meson_sample(sample, fw, bw, time_parity)
@@ -54,7 +55,7 @@ class BoundaryAverage:
     nsrc_hist: np.ndarray
 
 
-def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited: int, *, tmax_from_tsrc: int | None = None,
+def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited: int, *, max_source_distance: int | None = None,
                                time_parity: int = 1) -> BoundaryAverage:
     """Return source-averaged boundary effective masses and source counts."""
     time_parity = _validate_time_parity(time_parity)
@@ -62,7 +63,7 @@ def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited: i
     effective_masses = []
     for tsrc, variable in correlators.items():
         masked = Variable.map_observations(lambda observations, tsrc=tsrc: np.array([
-            _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, tmax_from_tsrc).mean(axis=0)
+            _get_masked_corrs_boundary(corrs, tsrc, tmin_excited, max_source_distance).mean(axis=0)
             for corrs in observations
         ]), variable)
         effective_masses.append(Variable.derive(lambda corr, tsrc=tsrc: _boundary_eff_mass(corr, tsrc), masked))

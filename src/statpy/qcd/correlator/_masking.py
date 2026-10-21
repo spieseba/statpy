@@ -43,7 +43,7 @@ def _get_masked_meson_sample(sample: np.ndarray, tmax_fw: int, tmax_bw: int, tim
 
 # mask excited states and time slices further away than tmax from source position
 def _get_masked_corrs_boundary(corrs: np.ndarray, tsrc: int, tmin_excited: int,
-                               tmax_from_tsrc: int | None = None) -> np.ma.MaskedArray:
+                               max_source_distance: int | None = None) -> np.ma.MaskedArray:
     # get corrs in terms of original lattice
     corrs_aligned = np.roll(corrs, tsrc, axis=1)
     num_corrs = corrs.shape[0]
@@ -53,10 +53,10 @@ def _get_masked_corrs_boundary(corrs: np.ndarray, tsrc: int, tmin_excited: int,
     # 2: fill in all elements that are not excited states
     corrs_ma[:,:tsrc-(tmin_excited-1)] = corrs_aligned[:,:tsrc-(tmin_excited-1)]
     corrs_ma[:,tsrc+tmin_excited:] = corrs_aligned[:,tsrc+tmin_excited:]
-    # 3: make sure all time slices that are further away than tmax from source position are masked
-    if tmax_from_tsrc is not None:
+    # 3: mask time slices with |t - tsrc| > max_source_distance (inclusive distance)
+    if max_source_distance is not None:
         times = np.arange(corrs.shape[1])
-        tmax_mask = np.abs(times - tsrc) > tmax_from_tsrc
+        tmax_mask = np.abs(times - tsrc) > max_source_distance
         corrs_ma.mask = np.logical_or(corrs_ma.mask, tmax_mask[np.newaxis,:])
     return corrs_ma
 
