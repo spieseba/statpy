@@ -5,8 +5,10 @@ remaining axes, e.g. a time slice, is a component and is analysed independently.
 """
 
 import warnings
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+import jax
 import numpy as np
 from numpy.typing import NDArray
 from scipy.fft import irfft, next_fast_len, rfft
@@ -61,6 +63,43 @@ def error_analysis(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integ
         error_tau_ints=error_tau_ints,
     )
 
+# ---------------------------------------------------------------------------
+# Error propagation
+# ---------------------------------------------------------------------------
+
+def value_and_jacobians(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray]) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Value of ``func`` and its Jacobian with respect to each input, at ``central_values``.
+
+    Jacobian k has the output's shape followed by input k's shape: entry
+    ``[o..., i...]`` is ``d func[o...] / d input_k[i...]``. Reverse mode if the
+    inputs have more components than the output, else forward mode.
+    """
+    input_size = sum(np.size(value) for value in central_values)
+    output_size = jax.eval_shape(func, *central_values).size
+
+    def value_twice(*args):
+        value = func(*args)
+        return value, value
+
+    jacobian_function = jax.jacrev if input_size > output_size else jax.jacfwd
+    jacobians, value = jacobian_function(value_twice, argnums=tuple(range(len(central_values))), has_aux=True)(*central_values)
+    return np.asarray(value), [np.asarray(jacobian) for jacobian in jacobians]
+
+
+def project_fluctuations(jacobians: Sequence[np.ndarray], fluctuations: Sequence[np.ndarray]) -> np.ndarray:
+    """Fluctuations of the derived quantity: sum over inputs k of ``jacobians[k]`` applied to ``fluctuations[k]``.
+
+    ``jacobians[k]`` has shape ``output_shape + input_shape_k`` (as from
+    ``value_and_jacobians``), ``fluctuations[k]`` has shape
+    ``(num_configurations,) + input_shape_k``. Returns shape
+    ``(num_configurations,) + output_shape``.
+    """
+    projections = []
+    for jacobian, fluctuation in zip(jacobians, fluctuations, strict=True):
+        fluctuation_input_axes = range(1, fluctuation.ndim)
+        jacobian_input_axes = range(jacobian.ndim - len(fluctuation_input_axes), jacobian.ndim)
+        projections.append(np.tensordot(fluctuation, jacobian, axes=(fluctuation_input_axes, jacobian_input_axes)))
+    return np.sum(projections, axis=0)
 
 # ---------------------------------------------------------------------------
 # Analysis steps
