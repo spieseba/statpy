@@ -1,8 +1,11 @@
+import os
 import subprocess
 from pathlib import Path
 
 import jax
 
+if "JAX_PLATFORMS" not in os.environ:
+    jax.config.update("jax_platforms", "cpu")  # default to cpu unless JAX_PLATFORMS is set
 jax.config.update('jax_enable_x64', True)  # enable 64-bit mode
 
 import statpy.database
