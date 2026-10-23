@@ -11,6 +11,7 @@ jax.config.update('jax_enable_x64', True)  # enable 64-bit mode
 import statpy.database
 import statpy.log
 import statpy.qcd
+import statpy.simulation
 import statpy.statistics
 import statpy.variable
 

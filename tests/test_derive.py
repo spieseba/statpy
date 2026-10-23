@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from statpy.simulation import ar1
 from statpy.statistics import gamma
 from statpy.variable import Layout, Variable
 
@@ -107,3 +108,28 @@ def test_chained_derive_matches_single_derive():
 
     np.testing.assert_allclose(two_step.central_value, one_step.central_value, rtol=1e-12)
     np.testing.assert_allclose(two_step.fluctuations, one_step.fluctuations, rtol=1e-12, atol=1e-14)
+
+
+def test_effective_mass_matches_wolff_exact_values():
+    # Wolff App. C.2, eq. 71: a_1 = G(0) + q (nu_1 + nu_2), a_2 = G(1) + q (nu_1 + nu_3), G(z) = exp(-m z)
+    m, q, taus = 0.2, 0.2, np.array([4.0, 8.0, 8.0])
+    num_replicas, num_per_replica = 8, 1000
+    rng = np.random.default_rng(0)
+    nu = np.concatenate([ar1.generate_chains(taus, num_per_replica, rng) for _ in range(num_replicas)])
+    layout = Layout("E", np.tile(np.arange(num_per_replica), num_replicas),
+                    replicas=np.repeat(np.arange(num_replicas), num_per_replica))
+    a1 = Variable.from_data(1 + q * (nu[:, 0] + nu[:, 1]), layout)
+    a2 = Variable.from_data(np.exp(-m) + q * (nu[:, 0] + nu[:, 2]), layout)
+    effective_mass = Variable.derive(lambda x, y: jnp.log(x / y), a1, a2)
+
+    # exact values, Wolff eqs. 72-75
+    m_hat = 2 * np.sinh(m / 2)
+    v_a, tau_int_a = 2 * q**2, (taus[0] + taus[1]) / 2
+    v_f = 2 * q**2 * (1 + np.exp(2 * m) - np.exp(m))
+    tau_int_f = (m_hat**2 / 2) / (m_hat**2 + 1) * taus[0] + (m_hat**2 / 2 + 1) / (m_hat**2 + 1) * taus[1]
+    # 3 sigma, with the gamma method's own error estimates; error^2 = 2 tau_int v / N
+    assert abs(effective_mass.central_value - m) < 3 * np.sqrt(2 * tau_int_f * v_f / len(nu))
+    for variable, v, tau_int in [(a1, v_a, tau_int_a), (a2, v_a, tau_int_a), (effective_mass, v_f, tau_int_f)]:
+        result = variable.gamma_method()
+        assert abs(result.tau_int - tau_int) < 3 * result.error_tau_int
+        assert abs(result.error - np.sqrt(2 * tau_int * v / len(nu))) < 3 * result.error_of_error

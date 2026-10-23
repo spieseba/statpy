@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from statpy.simulation import ar1
 from statpy.statistics import gamma
 
 
@@ -68,19 +69,15 @@ def test_variance_and_errors_by_hand():
 
 
 def test_error_analysis_matches_exact_ar1():
-    phis = np.array([0.0, 0.8])                     # one AR(1) chain per component
+    taus = np.array([0.5, 4.5])                     # one AR(1) chain per component
     num_configurations = 100_000
-    rng = np.random.default_rng(0)
-    values = np.zeros((num_configurations, 2))
-    values[0] = rng.normal(size=2) / np.sqrt(1 - phis**2)   # start with the settled variance 1 / (1 - phi^2)
-    for i in range(1, num_configurations):
-        values[i] = phis * values[i - 1] + rng.normal(size=2)
+    values = ar1.generate_chains(taus, num_configurations, np.random.default_rng(0))
     _, fluctuations = gamma.mean_and_fluctuations(values, np.ones(num_configurations))
     result = gamma.error_analysis(fluctuations, np.arange(num_configurations), np.zeros(num_configurations, int), 1.5)
-    # exact AR(1): tau_int = (1 + phi) / (2 (1 - phi)), error = 1 / ((1 - phi) sqrt(N))
-    tau_int = (1 + phis) / (2 * (1 - phis))
-    error = 1 / ((1 - phis) * np.sqrt(num_configurations))
-    assert np.all(np.abs(result.tau_int - tau_int) < 3 * result.error_tau_int)
+    # Wolff eq. 70: tau_int = tau; unit variance, so error = sqrt(2 tau / N)
+    error = np.sqrt(2 * taus / num_configurations)
+    # 3 sigma, with the gamma method's own error estimates
+    assert np.all(np.abs(result.tau_int - taus) < 3 * result.error_tau_int)
     assert np.all(np.abs(result.error - error) < 3 * result.error_of_error)
 
 
