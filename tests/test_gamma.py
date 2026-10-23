@@ -98,3 +98,18 @@ def test_autocovariance_independent_of_monte_carlo_time_step():
     times[25:] += 3  # gap in replica 1
     np.testing.assert_array_equal(gamma.autocovariance(fluctuations, 4 * times + 7, replicas),
                                   gamma.autocovariance(fluctuations, times, replicas))
+
+
+def test_autocovariance_and_autocorrelation_errors_match_spread_over_chains():
+    num_chains, num_configurations = 200, 1000
+    chains = ar1.generate_chains(np.full(num_chains, 4.0), num_configurations, np.random.default_rng(0))
+    _, fluctuations = gamma.mean_and_fluctuations(chains, np.ones(num_configurations))
+    result = gamma.error_analysis(fluctuations, np.arange(num_configurations), np.zeros(num_configurations, int), 1.5)
+    rho = gamma.autocorrelation(result.autocovariance)
+    lags = [1, 4, 10, 20]
+    error_gamma = gamma.error_autocovariance(result.autocovariance, result.window, num_configurations, max(lags))
+    error_rho = gamma.error_autocorrelation(rho, result.window, num_configurations, max(lags))
+    # each chain is one estimate; 3 sigma of the spread over chains, relative error 1 / sqrt(2 num_chains) (standard error of the standard deviation)
+    rtol = 3 / np.sqrt(2 * num_chains)
+    np.testing.assert_allclose(error_gamma[lags].mean(axis=1), result.autocovariance[lags].std(axis=1), rtol=rtol)
+    np.testing.assert_allclose(error_rho[lags].mean(axis=1), rho[lags].std(axis=1), rtol=rtol)

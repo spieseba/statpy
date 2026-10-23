@@ -213,3 +213,43 @@ def _tau_int_bias_correction(W: NDArray[np.integer], num_configurations: int) ->
 def error_of_error(error: np.ndarray, W: NDArray[np.integer], num_configurations: int) -> np.ndarray:
     """Error of ``error = sqrt(variance)`` per component (Wolff eq. 40)."""
     return error * ((W + 0.5) / num_configurations)**.5
+
+# ---------------------------------------------------------------------------
+# Errors for autocorrelation plots
+# ---------------------------------------------------------------------------
+
+def error_autocovariance(gamma: np.ndarray, W: NDArray[np.integer], num_configurations: int, max_lag: int) -> np.ndarray:
+    """Errors of ``gamma`` from ``autocovariance`` for lags 0 to ``max_lag`` per component
+    (Lüscher hep-lat/0409106 eq. E.9 with s = t); the sum over k stops at t + W, NaN where
+    that needs lags beyond ``len(gamma) - 1``."""
+    components = gamma.reshape(len(gamma), -1).T
+    errors = [_error_autocovariance_1d(component, int(w), num_configurations, max_lag) for component, w in zip(components, W.ravel(), strict=True)]
+    return np.stack(errors, axis=1).reshape((max_lag + 1,) + gamma.shape[1:])
+
+
+def _error_autocovariance_1d(gamma: np.ndarray, W: int, num_configurations: int, max_lag: int) -> np.ndarray:
+    """``error_autocovariance`` for one component."""
+    errors = np.full(max_lag + 1, np.nan)
+    for t in range(min(max_lag, (len(gamma) - 1 - W) // 2) + 1):
+        k = np.arange(1, t + W + 1)
+        variance = gamma[0]**2 + gamma[t]**2 + 2 * np.sum(gamma[k]**2 + gamma[k + t] * gamma[np.abs(k - t)])
+        errors[t] = np.sqrt(variance / num_configurations)
+    return errors
+
+
+def error_autocorrelation(rho: np.ndarray, W: NDArray[np.integer], num_configurations: int, max_lag: int) -> np.ndarray:
+    """Errors of ``rho`` from ``autocorrelation`` for lags 0 to ``max_lag`` per component
+    (Lüscher hep-lat/0409106 eq. E.11); the sum over k stops at t + W, NaN where that
+    needs lags beyond ``len(rho) - 1``."""
+    components = rho.reshape(len(rho), -1).T
+    errors = [_error_autocorrelation_1d(component, int(w), num_configurations, max_lag) for component, w in zip(components, W.ravel(), strict=True)]
+    return np.stack(errors, axis=1).reshape((max_lag + 1,) + rho.shape[1:])
+
+
+def _error_autocorrelation_1d(rho: np.ndarray, W: int, num_configurations: int, max_lag: int) -> np.ndarray:
+    """``error_autocorrelation`` for one component."""
+    errors = np.full(max_lag + 1, np.nan)
+    for t in range(min(max_lag, (len(rho) - 1 - W) // 2) + 1):
+        k = np.arange(1, t + W + 1)
+        errors[t] = np.sqrt(np.sum((rho[k + t] + rho[np.abs(k - t)] - 2 * rho[k] * rho[t])**2) / num_configurations)
+    return errors
