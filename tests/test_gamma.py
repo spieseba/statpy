@@ -61,9 +61,11 @@ def test_variance_and_errors_by_hand():
     W = np.array([1, 2])                            # tau_int(W) = 1.0 and 4.5
     # 2 tau_int gamma[0] (1 + (2W+1)/N) / N with N = 200
     np.testing.assert_allclose(gamma.variance(gamma_values, tau_ints, W, 200), [0.0203, 0.1845])
-    # 2 tau_int sqrt(|W + 1/2 - tau_int| / N); component 1 needs the abs
+    # 2 |tau_int| sqrt((W + 1/2 - tau_int) / N) at W = 1; component 1 needs the abs
+    tau_ints = np.array([[0.5, 1.0],
+                         [0.5, -0.5]]).T
     errors = gamma.error_integrated_autocorrelation_times(tau_ints, 200)
-    np.testing.assert_allclose(errors[W, [0, 1]], [0.1, 0.9])
+    np.testing.assert_allclose(errors[1], [0.1, 0.1])
     # error sqrt((W + 1/2) / N) with N = 150
     np.testing.assert_allclose(gamma.error_of_error(np.array([2.0, 3.0]), np.array([1, 13]), 150), [0.2, 0.9])
 

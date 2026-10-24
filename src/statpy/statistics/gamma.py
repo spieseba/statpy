@@ -163,9 +163,15 @@ def integrated_autocorrelation_times(gamma: np.ndarray) -> np.ndarray:
 
 
 def error_integrated_autocorrelation_times(tau_ints: np.ndarray, num_configurations: int) -> np.ndarray:
-    """Errors of ``tau_ints`` for every W per component (Wolff eq. 42)."""
+    """Errors of ``tau_ints`` for every W per component (Wolff eq. 42); NaN with a warning where
+    tau_int(W) > W + 1/2."""
     Ws = np.arange(len(tau_ints)).reshape((-1,) + (1,) * (tau_ints.ndim - 1))
-    return 2 * tau_ints * (np.abs(Ws + 0.5 - tau_ints) / num_configurations)**.5  # abs: noise can make tau_int > W + 1/2 (as pyerrors)
+    above = Ws + 0.5 - tau_ints < 0    # an estimated autocorrelation above 1, e.g. from few pairs at a lag
+    if np.any(above):
+        warnings.warn(f"tau_int(W) > W + 1/2 for {np.count_nonzero(above)} windows, first at W = "
+                      f"{np.argwhere(above)[0, 0]}; their errors of tau_int are NaN.")
+    # abs: far beyond the window, noise can make tau_int < 0
+    return 2 * np.abs(tau_ints) * (np.where(above, np.nan, Ws + 0.5 - tau_ints) / num_configurations)**.5
 
 
 def window(tau_ints: np.ndarray, num_configurations: int, S: float) -> NDArray[np.integer]:
