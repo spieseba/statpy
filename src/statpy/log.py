@@ -25,11 +25,12 @@ def message(s: str = "", silent: bool = False, *, continuation: bool = False) ->
 def format_paren(val: float, err: float, sig: int = 2) -> str:
     """Format ``val(err)`` with ``sig`` significant digits on ``err``, e.g. ``0.1234(56)``.
 
-    Values with magnitude below 1e-3 or from 1e4 on get an exponent, e.g. ``3.548(48)e-07``.
+    If the larger of ``|val|`` and ``err`` is below 1e-3 or from 1e4 on, it sets an exponent, e.g.
+    ``3.548(48)e-07``.
     """
     if not np.isfinite(err) or err == 0:
         return f"{val}"
-    exponent = int(np.floor(np.log10(abs(val)))) if val != 0 else 0
+    exponent = int(np.floor(np.log10(max(abs(val), err))))
     if exponent < -3 or exponent >= 4:
         return f"{_paren(val / 10**exponent, err / 10**exponent, sig)}e{exponent:+03d}"
     return _paren(val, err, sig)
