@@ -82,6 +82,15 @@ def test_error_analysis_matches_exact_ar1():
 
 
 @pytest.mark.filterwarnings("error")
+def test_replica_q_value_by_hand():
+    # replica means of the fluctuations 1 and -1, N_r = 2, N = 4, error 1: chi^2 = (2 + 2) / 4 = 1 with 1 dof,
+    # Q = erfc(1 / sqrt(2)); component 1 constant (error 0): NaN
+    fluctuations = np.array([[1.0, 0.0], [1.0, 0.0], [-1.0, 0.0], [-1.0, 0.0]])
+    q_value = gamma.replica_q_value(fluctuations, np.array([0, 0, 1, 1]), np.array([1.0, 0.0]))
+    np.testing.assert_allclose(q_value, [0.31731050786291404, np.nan])
+
+
+@pytest.mark.filterwarnings("error")
 def test_error_analysis_constant_component():
     rng = np.random.default_rng(0)
     fluctuations = np.stack([rng.normal(size=100), np.zeros(100)], axis=1)   # component 1 constant

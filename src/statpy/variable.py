@@ -1,11 +1,12 @@
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Self
 
 import jax
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from statpy import log
 from statpy.statistics import bootstrap, gamma, jackknife, least_squares
 from statpy.statistics import core as statistics
 
@@ -326,6 +327,40 @@ class Variable:
             raise ValueError("gamma_method: variable has no fluctuations")
         layout = self.layout
         return gamma.error_analysis(self.fluctuations, layout.monte_carlo_times, layout.replicas, S)
+
+    def summarize(self, S: float = 1.5, components: Iterable[int | tuple[int, ...]] | None = None) -> None:
+        """Print ensemble, configurations and replicas, then per component the central value and its errors
+        (gamma method at ``S`` with tau_int, window W and replica Q-value; jackknife; bootstrap), ``-`` if absent.
+        ``components`` lists the rows to show (ints or index tuples), default all."""
+        layout = self.layout
+        replicas, sizes = np.unique(layout.replicas, return_counts=True)
+        shape = np.shape(self.central_value)
+        replica_sizes = f" = {' + '.join(map(str, sizes))}" if len(sizes) > 1 else ""
+        S_text = "" if self.fluctuations is None else f", S = {S}"
+        print(f"{layout.ensemble}: N = {len(layout.replicas)}{replica_sizes}, shape {shape}{S_text}")
+        result = q_value = None
+        if self.fluctuations is not None:
+            result = self.gamma_method(S)
+            if len(replicas) > 1:
+                q_value = gamma.replica_q_value(self.fluctuations, layout.replicas, result.error)
+        errors = {"gamma": None if result is None else result.error,
+                  "jackknife": None if self.jackknife_replicates is None else np.sqrt(self.jackknife_variance()),
+                  "bootstrap": None if self.bootstrap_replicates is None else np.sqrt(self.bootstrap_variance())}
+        available = [error for error in errors.values() if error is not None]
+        rows = [["component", "value", *errors, "tau_int", "W", "replica Q"]]
+        indices = np.ndindex(shape) if components is None else [np.index_exp[component] for component in components]
+        for index in indices:
+            value = self.central_value[index].item()
+            rows.append([", ".join(map(str, index)),
+                         log.format_paren(value, available[0][index].item()) if available else f"{value:.6g}",
+                         *("-" if error is None else f"{error[index]:.2g}" for error in errors.values()),
+                         "-" if result is None else log.format_paren(result.tau_int[index].item(),
+                                                                     result.error_tau_int[index].item()),
+                         "-" if result is None else str(result.window[index]),
+                         "-" if q_value is None else f"{q_value[index]:.2f}"])
+        widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+        for row in rows:
+            print("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
 
     # ---------------------------------------------------------------------------
     # Plots
