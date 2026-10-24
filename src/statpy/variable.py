@@ -1,6 +1,6 @@
 import warnings
 from collections.abc import Callable
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 import jax
 import numpy as np
@@ -8,6 +8,9 @@ from numpy.typing import ArrayLike, NDArray
 
 from statpy.statistics import bootstrap, gamma, jackknife, least_squares
 from statpy.statistics import core as statistics
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 
 class Layout:
@@ -323,3 +326,64 @@ class Variable:
             raise ValueError("gamma_method: variable has no fluctuations")
         layout = self.layout
         return gamma.error_analysis(self.fluctuations, layout.monte_carlo_times, layout.replicas, S)
+
+    # ---------------------------------------------------------------------------
+    # Plots
+    # ---------------------------------------------------------------------------
+
+    def plot_observations(self, ax: "Axes", component: int | tuple[int, ...] = (), weighted: bool = False) -> "Axes":
+        """Plot the observations of one ``component`` into ``ax`` against Monte Carlo time with their mean;
+        ``weighted=True`` plots ``w a / mean(w)`` with their weighted mean."""
+        if self.observations is None:
+            raise ValueError("plot_observations: variable has no observations")
+        observations = _component(self.observations, component)
+        if not weighted:
+            return _monte_carlo_history(ax, observations, self.layout, np.mean(observations), "mean", "observation")
+        weights = self.layout.weights
+        return _monte_carlo_history(ax, weights * observations / np.mean(weights), self.layout,
+                                    self.central_value[np.index_exp[component]].item(), "weighted mean",
+                                    "weighted observation")
+
+    def plot_fluctuations(self, ax: "Axes", component: int | tuple[int, ...] = ()) -> "Axes":
+        """Plot the fluctuations of one ``component`` into ``ax`` against Monte Carlo time."""
+        if self.fluctuations is None:
+            raise ValueError("plot_fluctuations: variable has no fluctuations")
+        central_value = self.central_value[np.index_exp[component]].item()
+        return _monte_carlo_history(ax, _component(self.fluctuations, component), self.layout, 0.0,
+                                    f"0.0 (central value {central_value:.4g})", "fluctuation")
+
+    def plot_weights(self, ax: "Axes") -> "Axes":
+        """Plot the weights into ``ax`` against Monte Carlo time with their mean."""
+        weights = self.layout.weights
+        return _monte_carlo_history(ax, weights, self.layout, np.mean(weights), "mean", "weight")
+
+
+def _component(values: np.ndarray, component: int | tuple[int, ...]) -> np.ndarray:
+    """``values[:, *component]`` as one value per configuration; raises unless ``component`` selects one component."""
+    selected = values[(slice(None),) + np.index_exp[component]]
+    if selected[0].size != 1:
+        raise ValueError(f"component {component} leaves shape {selected.shape[1:]}; give one index per axis")
+    return selected.reshape(len(selected))
+
+
+def _monte_carlo_history(ax: "Axes", values: np.ndarray, layout: Layout, reference: float, reference_label: str,
+                         ylabel: str) -> "Axes":
+    """Plot ``values`` into ``ax`` against Monte Carlo time, replicas one after another, with a line at ``reference``."""
+    offset = 0
+    for replica in np.unique(layout.replicas):
+        in_replica = layout.replicas == replica
+        times = layout.monte_carlo_times[in_replica] - layout.monte_carlo_times[in_replica][0]
+        if offset:
+            ax.axvline(offset - 0.5, color="0.5", linewidth=1, linestyle="--")
+        # NaN at gaps, so the line breaks there
+        gaps = np.flatnonzero(np.diff(times) > np.diff(times).min()) + 1
+        ax.plot(np.insert((times + offset).astype(float), gaps, np.nan), np.insert(values[in_replica], gaps, np.nan),
+                linewidth=0.7, label=f"replica {replica}")
+        offset += times[-1] + 1
+    ax.axhline(reference, color="0.15", linewidth=1, label=reference_label)
+    ax.set(xlabel="Monte Carlo time", ylabel=ylabel)
+    ax.grid(color="0.9", linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1), ncols=3, frameon=False, fontsize="small")
+    return ax
