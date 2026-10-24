@@ -7,12 +7,19 @@ remaining axes, e.g. a time slice, is a component and is analysed independently.
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
 from numpy.typing import NDArray
 from scipy import stats
 from scipy.fft import irfft, next_fast_len, rfft
+
+from statpy.log import format_paren
+from statpy.plot import label_top, legend_above, select_component, style_axes
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 # ---------------------------------------------------------------------------
 # Entry points
@@ -42,6 +49,39 @@ class GammaErrorAnalysis:
     autocovariance: np.ndarray   # all lags, for autocorrelation plot
     tau_ints: np.ndarray         # all W, for plateau plot
     error_tau_ints: np.ndarray   # all W
+    num_configurations: int      # N, for the errors of the autocorrelation
+
+    def plot_autocorrelation(self, ax: "Axes", component: int | tuple[int, ...] = (), max_lag: int | None = None) -> "Axes":
+        """Plot the autocorrelation rho(t) of one ``component`` into ``ax`` with its errors for lags 0 to ``max_lag``
+        (default max(10, 2W)), shading lags 0 to the chosen window W."""
+        rho = autocorrelation(select_component(self.autocovariance, component))
+        W = int(self.window[np.index_exp[component]])
+        max_lag = _plot_range(W, len(rho), max_lag)
+        errors = error_autocorrelation(rho, np.array(W), self.num_configurations, max_lag)
+        _window_axes(ax, W, max_lag)
+        ax.axhline(0, color="0.35", linewidth=0.8, zorder=1)
+        _errorbars(ax, np.arange(max_lag + 1), rho[:max_lag + 1], errors)
+        ax.set(xlabel="lag $t$", ylabel=r"autocorrelation $\rho(t)$")
+        return ax
+
+    def plot_integrated_autocorrelation_time(self, ax: "Axes", component: int | tuple[int, ...] = (),
+                                             max_window: int | None = None) -> "Axes":
+        """Plot tau_int(W) of one ``component`` into ``ax`` with its errors for windows 0 to ``max_window``
+        (default max(10, 2W)), shading windows 0 to the chosen W, and the reported bias-corrected tau_int with its
+        error as a band; the curve is not bias-corrected."""
+        tau_ints = select_component(self.tau_ints, component)
+        errors = select_component(self.error_tau_ints, component)
+        index = np.index_exp[component]
+        W = int(self.window[index])
+        windows = np.arange(_plot_range(W, len(tau_ints), max_window) + 1)
+        _window_axes(ax, W, windows[-1])
+        tau_int, error = self.tau_int[index].item(), self.error_tau_int[index].item()
+        band = ax.axhspan(tau_int - error, tau_int + error, color="C1", alpha=0.15, linewidth=0, zorder=1)
+        line = ax.axhline(tau_int, color="C1", linewidth=1.2, zorder=2)
+        _errorbars(ax, windows, tau_ints[windows], errors[windows])
+        legend_above(ax, [(band, line)], [rf"$\tau_\mathrm{{int}} = {format_paren(tau_int, error)}$"])
+        ax.set(xlabel="window $W$", ylabel=r"$\tau_\mathrm{int}(W)$")
+        return ax
 
 
 def error_analysis(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integer], replicas: NDArray[np.integer], S: float) -> GammaErrorAnalysis:
@@ -62,7 +102,29 @@ def error_analysis(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integ
         autocovariance=gamma,
         tau_ints=tau_ints,
         error_tau_ints=error_tau_ints,
+        num_configurations=num_configurations,
     )
+
+
+def _plot_range(W: int, length: int, requested: int | None) -> int:
+    """Last lag or window to plot: ``requested`` or max(10, 2W), at most ``length - 1``."""
+    return min(max(10, 2 * W) if requested is None else requested, length - 1)
+
+
+def _window_axes(ax: "Axes", W: int, last: int) -> None:
+    """Shade 0 to ``W`` with a direct label, show 0 to ``last`` with integer ticks, common style."""
+    from matplotlib.ticker import MaxNLocator
+    ax.axvspan(-0.5, W + 0.5, color="0.95", linewidth=0, zorder=0)
+    label_top(ax, W + 0.5, f"$W = {W}$")
+    ax.set_xlim(-0.5, last + 0.5)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True, steps=[1, 2, 5, 10]))
+    style_axes(ax)
+
+
+def _errorbars(ax: "Axes", x: np.ndarray, y: np.ndarray, errors: np.ndarray) -> None:
+    """Points with error bars in the first cycle color, ringed in white so overlapping bars stay readable."""
+    ax.errorbar(x, y, errors, fmt="o", color="C0", markersize=4, markeredgecolor="white", markeredgewidth=0.6,
+                elinewidth=1, capsize=2, zorder=3)
 
 # ---------------------------------------------------------------------------
 # Error propagation

@@ -7,6 +7,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from statpy import log
+from statpy.plot import legend_above, select_component, style_axes
 from statpy.statistics import bootstrap, gamma, jackknife, least_squares
 from statpy.statistics import core as statistics
 
@@ -415,54 +416,49 @@ class Variable:
         ``weighted=True`` plots ``w a / mean(w)`` with their weighted mean."""
         if self.observations is None:
             raise ValueError("plot_observations: variable has no observations")
-        observations = _component(self.observations, component)
+        observations = select_component(self.observations, component)
         if not weighted:
-            return _monte_carlo_history(ax, observations, self.layout, np.mean(observations), "mean", "observation")
+            mean = np.mean(observations)
+            return _monte_carlo_history(ax, observations, self.layout, mean, rf"$\bar a = {mean:.4g}$",
+                                        r"observation $a_i$")
         weights = self.layout.weights
-        return _monte_carlo_history(ax, weights * observations / np.mean(weights), self.layout,
-                                    self.central_value[np.index_exp[component]].item(), "weighted mean",
-                                    "weighted observation")
+        central_value = self.central_value[np.index_exp[component]].item()
+        return _monte_carlo_history(ax, weights * observations / np.mean(weights), self.layout, central_value,
+                                    rf"$\bar F = {central_value:.4g}$", r"weighted observation $w_i a_i / \bar w$")
 
     def plot_fluctuations(self, ax: "Axes", component: int | tuple[int, ...] = ()) -> "Axes":
         """Plot the fluctuations of one ``component`` into ``ax`` against Monte Carlo time."""
         if self.fluctuations is None:
             raise ValueError("plot_fluctuations: variable has no fluctuations")
         central_value = self.central_value[np.index_exp[component]].item()
-        return _monte_carlo_history(ax, _component(self.fluctuations, component), self.layout, 0.0,
-                                    f"0.0 (central value {central_value:.4g})", "fluctuation")
+        return _monte_carlo_history(ax, select_component(self.fluctuations, component), self.layout, 0.0,
+                                    rf"$0.0$ $(\bar F = {central_value:.4g})$", r"fluctuation $\delta_i$")
 
     def plot_weights(self, ax: "Axes") -> "Axes":
         """Plot the weights into ``ax`` against Monte Carlo time with their mean."""
         weights = self.layout.weights
-        return _monte_carlo_history(ax, weights, self.layout, np.mean(weights), "mean", "weight")
-
-
-def _component(values: np.ndarray, component: int | tuple[int, ...]) -> np.ndarray:
-    """``values[:, *component]`` as one value per configuration; raises unless ``component`` selects one component."""
-    selected = values[(slice(None),) + np.index_exp[component]]
-    if selected[0].size != 1:
-        raise ValueError(f"component {component} leaves shape {selected.shape[1:]}; give one index per axis")
-    return selected.reshape(len(selected))
+        mean = np.mean(weights)
+        return _monte_carlo_history(ax, weights, self.layout, mean, rf"$\bar w = {mean:.4g}$", r"weight $w_i$")
 
 
 def _monte_carlo_history(ax: "Axes", values: np.ndarray, layout: Layout, reference: float, reference_label: str,
                          ylabel: str) -> "Axes":
-    """Plot ``values`` into ``ax`` against Monte Carlo time, replicas one after another, with a line at ``reference``."""
+    """Plot ``values`` into ``ax`` against Monte Carlo time, replicas one after another, with a line at ``reference``;
+    legend of the replicas (if more than one) and the reference line."""
     offset = 0
+    several_replicas = len(np.unique(layout.replicas)) > 1
     for replica in np.unique(layout.replicas):
         in_replica = layout.replicas == replica
         times = layout.monte_carlo_times[in_replica] - layout.monte_carlo_times[in_replica][0]
         if offset:
-            ax.axvline(offset - 0.5, color="0.5", linewidth=1, linestyle="--")
+            ax.axvline(offset - 0.5, color="0.6", linewidth=0.8)
         # NaN at gaps, so the line breaks there
         gaps = np.flatnonzero(np.diff(times) > np.diff(times).min()) + 1
         ax.plot(np.insert((times + offset).astype(float), gaps, np.nan), np.insert(values[in_replica], gaps, np.nan),
-                linewidth=0.7, label=f"replica {replica}")
+                linewidth=0.7, label=f"replica {replica}" if several_replicas else None)
         offset += times[-1] + 1
     ax.axhline(reference, color="0.15", linewidth=1, label=reference_label)
+    legend_above(ax, *ax.get_legend_handles_labels())
     ax.set(xlabel="Monte Carlo time", ylabel=ylabel)
-    ax.grid(color="0.9", linewidth=0.8)
-    ax.set_axisbelow(True)
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(loc="lower left", bbox_to_anchor=(0, 1), ncols=3, frameon=False, fontsize="small")
+    style_axes(ax)
     return ax
