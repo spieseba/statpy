@@ -133,3 +133,18 @@ def test_effective_mass_matches_wolff_exact_values():
         result = variable.gamma_method()
         assert abs(result.tau_int - tau_int) < 3 * result.error_tau_int
         assert abs(result.error - np.sqrt(2 * tau_int * v / len(nu))) < 3 * result.error_of_error
+
+
+def test_bias_correction_removes_bias_of_nonlinear_function():
+    # 2000 independent experiments as components, each 4 replicas of 100 independent normal values (mean 0, unit
+    # variance): exp(5 abar) has bias exp(25 / (2 N)) - 1 = 0.032 for N = 400; Wolff eq. 20 cancels it up to O(1/N^2)
+    num_experiments, num_replicas, num_per_replica = 2000, 4, 100
+    rng = np.random.default_rng(0)
+    observations = rng.standard_normal((num_replicas * num_per_replica, num_experiments))
+    layout = Layout("E", np.tile(np.arange(num_per_replica), num_replicas),
+                    replicas=np.repeat(np.arange(num_replicas), num_per_replica))
+    derived = Variable.derive(lambda x: jnp.exp(5 * x), Variable.from_data(observations, layout))
+    corrected = derived.bias_corrected_value()
+    # 3 sigma of the mean over experiments; the uncorrected mean must miss the exact value 1
+    assert abs(corrected.mean() - 1) < 3 * corrected.std() / np.sqrt(num_experiments)
+    assert derived.central_value.mean() - 1 > 3 * derived.central_value.std() / np.sqrt(num_experiments)

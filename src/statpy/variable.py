@@ -353,31 +353,50 @@ class Variable:
         layout = self.layout
         return gamma.error_analysis(self.fluctuations, layout.monte_carlo_times, layout.replicas, S)
 
+    def bias_corrected_value(self) -> np.ndarray:
+        """Return the central value with Wolff's replica bias correction (eq. 20), which cancels the leading
+        O(1/N) bias of nonlinear derived quantities. Needs replica central values of at least two replicas;
+        the variable is unchanged."""
+        _, sizes = np.unique(self.layout.replicas, return_counts=True)
+        if self.replica_central_values is None or len(sizes) < 2:
+            raise ValueError("bias_corrected_value: needs replica central values of at least two replicas")
+        return gamma.bias_corrected_value(self.central_value, self.replica_central_values, sizes)
+
     def summarize(self, S: float = 1.5, components: Iterable[int | tuple[int, ...]] | None = None) -> None:
-        """Print ensemble, configurations and replicas, then per component the central value and its errors
-        (gamma method at ``S`` with tau_int, window W and replica Q-value; jackknife; bootstrap), ``-`` if absent.
-        ``components`` lists the rows to show (ints or index tuples), default all."""
+        """Print ensemble, configurations and replicas, then per component the central value, its bias-corrected
+        value and the correction in units of the gamma error, the errors (gamma method at ``S``, jackknife,
+        bootstrap), tau_int, window W and replica Q-value; ``-`` if absent. ``components`` lists the rows to show
+        (ints or index tuples), default all."""
         layout = self.layout
-        replicas, sizes = np.unique(layout.replicas, return_counts=True)
+        _, sizes = np.unique(layout.replicas, return_counts=True)
         shape = np.shape(self.central_value)
         replica_sizes = f" = {' + '.join(map(str, sizes))}" if len(sizes) > 1 else ""
         S_text = "" if self.fluctuations is None else f", S = {S}"
         print(f"{layout.ensemble}: N = {len(layout.replicas)}{replica_sizes}, shape {shape}{S_text}")
-        result = q_value = None
-        if self.fluctuations is not None:
-            result = self.gamma_method(S)
-            if len(replicas) > 1:
-                q_value = gamma.replica_q_value(self.fluctuations, layout.replicas, result.error)
+        result = None if self.fluctuations is None else self.gamma_method(S)
+        corrected = bias_over_error = q_value = None
+        if self.replica_central_values is not None and len(sizes) > 1:
+            corrected = self.bias_corrected_value()
+            if result is not None:
+                # constant component (error 0): NaN
+                bias_over_error = (self.central_value - corrected) / np.where(result.error == 0, np.nan, result.error)
+                q_value = gamma.replica_q_value(self.replica_central_values, sizes, result.error)
         errors = {"gamma": None if result is None else result.error,
                   "jackknife": None if self.jackknife_replicates is None else np.sqrt(self.jackknife_variance()),
                   "bootstrap": None if self.bootstrap_replicates is None else np.sqrt(self.bootstrap_variance())}
         available = [error for error in errors.values() if error is not None]
-        rows = [["component", "value", *errors, "tau_int", "W", "replica Q"]]
+
+        def with_error(value: float, error: float | None) -> str:
+            return f"{value:.6g}" if error is None else log.format_paren(value, error)
+
+        rows = [["component", "value", "corrected", "bias/σ", *errors, "tau_int", "W", "replica Q"]]
         indices = np.ndindex(shape) if components is None else [np.index_exp[component] for component in components]
         for index in indices:
-            value = self.central_value[index].item()
+            value_error = available[0][index].item() if available else None
             rows.append([", ".join(map(str, index)),
-                         log.format_paren(value, available[0][index].item()) if available else f"{value:.6g}",
+                         with_error(self.central_value[index].item(), value_error),
+                         "-" if corrected is None else with_error(corrected[index].item(), value_error),
+                         "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
                          *("-" if error is None else f"{error[index]:.2g}" for error in errors.values()),
                          "-" if result is None else log.format_paren(result.tau_int[index].item(),
                                                                      result.error_tau_int[index].item()),

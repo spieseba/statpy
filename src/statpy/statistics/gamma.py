@@ -216,15 +216,27 @@ def error_of_error(error: np.ndarray, W: NDArray[np.integer], num_configurations
     return error * ((W + 0.5) / num_configurations)**.5
 
 
-def replica_q_value(fluctuations: np.ndarray, replicas: NDArray[np.integer], error: np.ndarray) -> np.ndarray:
-    """Wolff eqs. 27-28 per component: probability of a chi^2 of the replica estimates around the overall
-    estimate at least as large as observed; replica minus overall estimate from the fluctuations (first order).
-    NaN for a constant component (error 0)."""
-    labels, sizes = np.unique(replicas, return_counts=True)
-    deviations = np.stack([np.mean(fluctuations[replicas == label], axis=0) for label in labels])
+def bias_corrected_value(central_value: np.ndarray, replica_central_values: np.ndarray,
+                         sizes: NDArray[np.integer]) -> np.ndarray:
+    """Wolff eq. 20: ``(R F - Fbar) / (R - 1)`` with ``Fbar`` from ``_replica_mean``; cancels the leading
+    O(1/N) bias of a nonlinear derived quantity. ``sizes``: configurations per replica; needs R >= 2."""
+    num_replicas = len(sizes)
+    return (num_replicas * central_value - _replica_mean(replica_central_values, sizes)) / (num_replicas - 1)
+
+
+def replica_q_value(replica_central_values: np.ndarray, sizes: NDArray[np.integer], error: np.ndarray) -> np.ndarray:
+    """Wolff eqs. 27-28 per component: probability of a chi^2 of the replica estimates around their mean
+    ``Fbar`` at least as large as observed, ``chi^2 = sum_r N_r (F_r - Fbar)^2 / (N error^2)``. NaN for a
+    constant component (error 0)."""
+    deviations = replica_central_values - _replica_mean(replica_central_values, sizes)
     constant = error == 0    # constant: no fluctuations, Q undefined
-    chi2 = np.tensordot(sizes, deviations**2, axes=1) / (len(replicas) * np.where(constant, 1.0, error)**2)
-    return np.where(constant, np.nan, stats.chi2.sf(chi2, len(labels) - 1))
+    chi2 = np.tensordot(sizes, deviations**2, axes=1) / (np.sum(sizes) * np.where(constant, 1.0, error)**2)
+    return np.where(constant, np.nan, stats.chi2.sf(chi2, len(sizes) - 1))
+
+
+def _replica_mean(replica_central_values: np.ndarray, sizes: NDArray[np.integer]) -> np.ndarray:
+    """Wolff eq. 15: ``Fbar = sum_r N_r F_r / N``."""
+    return np.tensordot(sizes, replica_central_values, axes=1) / np.sum(sizes)
 
 # ---------------------------------------------------------------------------
 # Errors for autocorrelation plots
