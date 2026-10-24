@@ -241,31 +241,31 @@ class Variable:
         layout = Layout(self.layout.ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
         return type(self).from_data(observations, layout)
 
-    def least_squares_fit(self, model: least_squares.Model, x: ArrayLike, initial_parameters: ArrayLike, *,
+    def least_squares_fit(self, model: least_squares.Model, fit_range: ArrayLike, initial_parameters: ArrayLike, *,
                           weight_matrix: np.ndarray | None = None, tolerance: float | None = None,
                           max_calls: int | None = None) -> least_squares.LeastSquaresFit:
-        """Least-squares fit of the function ``model(x, parameters)``, e.g. a numba model from
-        ``statpy.qcd.correlator.models``, to the central value at the component indices ``x``; refit each
+        """Least-squares fit of the function ``model(fit_range, parameters)``, e.g. a numba model from
+        ``statpy.qcd.correlator.models``, to the central value at the component indices ``fit_range``; refit each
         jackknife and bootstrap replicate present, starting from the central parameters, with the same
         ``weight_matrix``.
 
-        ``weight_matrix`` defaults to the inverse jackknife variance on ``x``. Observations and fluctuations
+        ``weight_matrix`` defaults to the inverse jackknife variance on ``fit_range``. Observations and fluctuations
         are not used. Returns a ``LeastSquaresFit``; its parameters have this variable's layout.
         """
-        x = np.asarray(x)
+        fit_range = np.asarray(fit_range)
         initial_parameters = np.asarray(initial_parameters, dtype=float)
-        dof = len(x) - len(initial_parameters)
+        dof = len(fit_range) - len(initial_parameters)
         if dof <= 0:
-            raise ValueError(f"least_squares_fit: {len(x)} points for {len(initial_parameters)} parameters, dof = {dof}")
+            raise ValueError(f"least_squares_fit: {len(fit_range)} points for {len(initial_parameters)} parameters, dof = {dof}")
         if weight_matrix is None:
-            weight_matrix = np.diag(1.0 / self.jackknife_variance()[x])
+            weight_matrix = np.diag(1.0 / self.jackknife_variance()[fit_range])
 
         chi2_function = least_squares.chi2(model)
 
         def objective(y: np.ndarray, parameters: np.ndarray) -> float:
-            return chi2_function(x, y, parameters, weight_matrix)
+            return chi2_function(fit_range, y, parameters, weight_matrix)
 
-        y = self.central_value[x]
+        y = self.central_value[fit_range]
         parameters = least_squares.minimize(objective, y, initial_parameters, tolerance=tolerance,
                                             max_calls=max_calls)
         chi2_value = objective(y, parameters)
@@ -274,10 +274,10 @@ class Variable:
         jackknife_replicates = bootstrap_replicates = None
         if self.jackknife_replicates is not None:
             jackknife_replicates = least_squares.fit_replicates(
-                objective, self.jackknife_replicates[:, x], parameters, tolerance=tolerance, max_calls=max_calls)
+                objective, self.jackknife_replicates[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
         if self.bootstrap_replicates is not None:
             bootstrap_replicates = least_squares.fit_replicates(
-                objective, self.bootstrap_replicates[:, x], parameters, tolerance=tolerance, max_calls=max_calls)
+                objective, self.bootstrap_replicates[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
         fitted = Variable.from_results(central_value=parameters, layout=self.layout,
                                        jackknife_replicates=jackknife_replicates,
                                        bootstrap_replicates=bootstrap_replicates)
