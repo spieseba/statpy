@@ -144,7 +144,7 @@ def test_effective_mass_matches_wolff_exact_values(numerical):
         step_sizes = [gamma.step_sizes_from_fluctuations(a1.fluctuations), gamma.step_sizes_from_fluctuations(a2.fluctuations)]
         jacobian = gamma.numerical_jacobians(lambda x, y: np.log(x / y), [a1.central_value, a2.central_value],
                                              step_sizes=step_sizes)
-        effective_mass = Variable.derive(lambda x, y: np.log(x / y), a1, a2, jacobian=jacobian, use_jax=False)
+        effective_mass = Variable.derive(lambda x, y: np.log(x / y), a1, a2, jacobian=jacobian, use_vmap=False)
     else:
         effective_mass = Variable.derive(lambda x, y: jnp.log(x / y), a1, a2)
 

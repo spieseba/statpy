@@ -1,6 +1,6 @@
 import warnings
 from collections.abc import Callable, Iterable, Sequence
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 import jax
 import numpy as np
@@ -156,41 +156,40 @@ class Variable:
 
     @classmethod
     def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: "Variable",
-               jacobian: Sequence[np.ndarray] | None = None, use_jax: bool = True) -> Self:
+               jacobian: Literal["jax"] | Sequence[np.ndarray] | None = "jax", use_vmap: bool = True) -> Self:
         """Variable for ``func`` of the inputs: central value, fluctuations and replicates; layouts must be equal.
 
-        The central value is ``func`` of the central values, each replicate kind (jackknife, bootstrap, replica
-        central values) is ``func`` of the inputs' replicates, and the fluctuations are the inputs' fluctuations
-        projected with the Jacobian of ``func``: ``jacobian`` if given (one array per input, shape output + input),
-        else from jax. A part missing in some input is dropped with a warning.
-
-        ``use_jax=True`` uses jax for the Jacobian and to evaluate all replicates in one batch; if jax cannot trace
-        ``func`` (it needs jax.numpy, no in-place writes or Python control flow on values), a warning is given, the
-        replicates are evaluated in a loop and fluctuations need ``jacobian``. ``use_jax=False`` skips jax.
+        ``jacobian`` sets how fluctuations are propagated: ``"jax"`` computes the Jacobian, a list supplies it (one
+        array per input, shape output + input), ``None`` propagates none. ``use_vmap`` evaluates the replicates in
+        one jax batch, else in a loop. If jax cannot trace ``func`` (it needs jax.numpy), the loop is used and
+        ``"jax"`` gives no fluctuations. Parts that cannot be propagated are dropped with a warning.
         """
         layout = cls._common_layout(variables, "derive")
         central_values = [variable.central_value for variable in variables]
-        compatible = use_jax and cls._is_jax_compatible(func, central_values)
+        compatible = (jacobian == "jax" or use_vmap) and cls._is_jax_compatible(func, central_values, use_vmap)
         input_fluctuations = cls._common_field(variables, "fluctuations")
-        if input_fluctuations is not None and (jacobian is not None or compatible):
-            if jacobian is None:
-                central_value, jacobian = gamma.value_and_jacobians(func, central_values)
-            else:
-                central_value = np.asarray(func(*central_values))
-            fluctuations = gamma.project_fluctuations(jacobian, input_fluctuations)
+        jacobians = None if jacobian == "jax" else jacobian
+        if jacobian == "jax" and compatible and input_fluctuations is not None:
+            central_value, jacobians = gamma.value_and_jacobians(func, central_values)
         else:
-            central_value, fluctuations = np.asarray(func(*central_values)), None
-            if any(variable.fluctuations is not None for variable in variables):
+            central_value = np.asarray(func(*central_values))
+        if input_fluctuations is not None and jacobians is not None:
+            fluctuations = gamma.project_fluctuations(jacobians, input_fluctuations)
+        else:
+            fluctuations = None
+            if jacobian is not None and any(variable.fluctuations is not None for variable in variables):
                 warnings.warn("derive: gamma-method fluctuations not propagated", stacklevel=2)
-        replicates = cls._derive_replicates(func, variables, compatible)  # jackknife, bootstrap and replica central values
+        replicates = cls._derive_replicates(func, variables, use_vmap and compatible)
         return cls.from_results(central_value=central_value, layout=layout, fluctuations=fluctuations, **replicates)
 
     @staticmethod
-    def _is_jax_compatible(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray]) -> bool:
+    def _is_jax_compatible(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray],
+                           vmap: bool) -> bool:
         try:
             jax.eval_shape(func, *central_values)
         except Exception as error:  # noqa: BLE001 any tracing failure (jax, numpy, numba) means not traceable
-            warnings.warn(f"derive: func not traceable by jax ({type(error).__name__}); replicates evaluated in a Python loop", stacklevel=3)
+            loop_note = "; replicates evaluated in a Python loop" if vmap else ""
+            warnings.warn(f"derive: func not traceable by jax ({type(error).__name__}){loop_note}", stacklevel=3)
             return False
         else:
             return True
