@@ -164,6 +164,31 @@ def project_fluctuations(jacobians: Sequence[np.ndarray], fluctuations: Sequence
         projections.append(np.tensordot(fluctuation, jacobian, axes=(fluctuation_input_axes, jacobian_input_axes)))
     return np.sum(projections, axis=0)
 
+
+def numerical_jacobians(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray], *,
+                        step_sizes: Sequence[np.ndarray | float]) -> list[np.ndarray]:
+    """Jacobians of ``func`` at ``central_values`` by central differences (Wolff eq. 39), as from ``value_and_jacobians``.
+
+    ``step_sizes`` has one entry per input: an array of the input's shape or a scalar. A zero step gives derivative 0.
+    """
+    jacobians = []
+    for k, (value, step_size) in enumerate(zip(central_values, step_sizes, strict=True)):
+        steps = np.broadcast_to(step_size, np.shape(value))
+        derivatives = []
+        for index in np.ndindex(np.shape(value)):
+            shift = np.zeros(np.shape(value))
+            shift[index] = steps[index]
+            plus = np.asarray(func(*central_values[:k], value + shift, *central_values[k + 1:]))
+            minus = np.asarray(func(*central_values[:k], value - shift, *central_values[k + 1:]))
+            derivatives.append((plus - minus) / (2 * steps[index]) if steps[index] != 0 else np.zeros_like(plus))
+        jacobians.append(np.stack(derivatives, axis=-1).reshape(derivatives[0].shape + np.shape(value)))
+    return jacobians
+
+
+def step_sizes_from_fluctuations(fluctuations: np.ndarray) -> np.ndarray:
+    """Step sizes ``sqrt(Gamma(0) / N)`` for ``numerical_jacobians`` (Wolff eq. 38); zero for constant components."""
+    return np.sqrt(np.mean(fluctuations**2, axis=0) / len(fluctuations))
+
 # ---------------------------------------------------------------------------
 # Analysis steps
 # ---------------------------------------------------------------------------

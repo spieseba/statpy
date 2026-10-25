@@ -155,19 +155,29 @@ class Variable:
     # ---------------------------------------------------------------------------
 
     @classmethod
-    def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: "Variable") -> Self:
-        """Apply func to the central values and to the replicates present in all inputs; layouts must be equal.
+    def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: "Variable",
+               jacobian: Sequence[np.ndarray] | None = None, use_jax: bool = True) -> Self:
+        """Variable for ``func`` of the inputs: central value, fluctuations and replicates; layouts must be equal.
 
-        If func is traceable by jax, fluctuations are propagated and replicates evaluated with vmap; otherwise
-        a warning is raised and replicates are evaluated in a loop.
+        The central value is ``func`` of the central values, each replicate kind (jackknife, bootstrap, replica
+        central values) is ``func`` of the inputs' replicates, and the fluctuations are the inputs' fluctuations
+        projected with the Jacobian of ``func``: ``jacobian`` if given (one array per input, shape output + input),
+        else from jax. A part missing in some input is dropped with a warning.
+
+        ``use_jax=True`` uses jax for the Jacobian and to evaluate all replicates in one batch; if jax cannot trace
+        ``func`` (it needs jax.numpy, no in-place writes or Python control flow on values), a warning is given, the
+        replicates are evaluated in a loop and fluctuations need ``jacobian``. ``use_jax=False`` skips jax.
         """
         layout = cls._common_layout(variables, "derive")
         central_values = [variable.central_value for variable in variables]
-        compatible = cls._is_jax_compatible(func, central_values)
+        compatible = use_jax and cls._is_jax_compatible(func, central_values)
         input_fluctuations = cls._common_field(variables, "fluctuations")
-        if compatible and input_fluctuations is not None:
-            central_value, jacobians = gamma.value_and_jacobians(func, central_values)
-            fluctuations = gamma.project_fluctuations(jacobians, input_fluctuations)
+        if input_fluctuations is not None and (jacobian is not None or compatible):
+            if jacobian is None:
+                central_value, jacobian = gamma.value_and_jacobians(func, central_values)
+            else:
+                central_value = np.asarray(func(*central_values))
+            fluctuations = gamma.project_fluctuations(jacobian, input_fluctuations)
         else:
             central_value, fluctuations = np.asarray(func(*central_values)), None
             if any(variable.fluctuations is not None for variable in variables):
@@ -190,6 +200,10 @@ class Variable:
                            compatible: bool) -> dict[str, np.ndarray]:
         replicates = {field: cls._common_field(variables, field)
                       for field in ("jackknife_replicates", "bootstrap_replicates", "replica_central_values")}
+        dropped = [field for field, values in replicates.items()
+                   if values is None and any(getattr(variable, field) is not None for variable in variables)]
+        if dropped:
+            warnings.warn(f"derive: {', '.join(dropped)} not propagated (missing in some inputs)", stacklevel=3)
         present = {field: values for field, values in replicates.items() if values is not None}
         if not present:
             return {}

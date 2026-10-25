@@ -74,6 +74,23 @@ def test_derived_fluctuations_match_finite_difference_projection(func):
     np.testing.assert_allclose(derived.fluctuations, expected, rtol=1e-6)
 
 
+@pytest.mark.parametrize("func", [_fewer_outputs, _more_outputs], ids=["fewer_outputs", "more_outputs"])
+def test_numerical_jacobians_match_jax_jacobians(func):
+    rng = np.random.default_rng(0)
+    central_values = [rng.normal(size=2), rng.normal(size=(3, 4))]
+    _, (expected_x, expected_y) = gamma.value_and_jacobians(func, central_values)
+
+    # Test that a zero step on y[0, 0] gives derivative 0 there.
+    y_step_sizes = np.full((3, 4), 1e-5)
+    y_step_sizes[0, 0] = 0
+    expected_y = expected_y.copy()
+    expected_y[..., 0, 0] = 0
+    jacobians = gamma.numerical_jacobians(func, central_values, step_sizes=[1e-5, y_step_sizes])
+
+    for jacobian, expected_jacobian in zip(jacobians, [expected_x, expected_y], strict=True):
+        np.testing.assert_allclose(jacobian, expected_jacobian, rtol=1e-6, atol=1e-9)
+
+
 def test_chained_derive_matches_single_derive():
     num_configurations = 10
     rng = np.random.default_rng(0)
@@ -110,7 +127,9 @@ def test_chained_derive_matches_single_derive():
     np.testing.assert_allclose(two_step.fluctuations, one_step.fluctuations, rtol=1e-12, atol=1e-14)
 
 
-def test_effective_mass_matches_wolff_exact_values():
+# jax: traced Jacobian; numerical: Wolff's numerical Jacobian (eqs. 38-39) of a numpy func, passed to derive.
+@pytest.mark.parametrize("numerical", [False, True], ids=["jax", "numerical"])
+def test_effective_mass_matches_wolff_exact_values(numerical):
     # Wolff App. C.2, eq. 71: a_1 = G(0) + q (nu_1 + nu_2), a_2 = G(1) + q (nu_1 + nu_3), G(z) = exp(-m z)
     m, q, taus = 0.2, 0.2, np.array([4.0, 8.0, 8.0])
     num_replicas, num_per_replica = 8, 1000
@@ -120,7 +139,14 @@ def test_effective_mass_matches_wolff_exact_values():
                     replicas=np.repeat(np.arange(num_replicas), num_per_replica))
     a1 = Variable.from_data(1 + q * (nu[:, 0] + nu[:, 1]), layout)
     a2 = Variable.from_data(np.exp(-m) + q * (nu[:, 0] + nu[:, 2]), layout)
-    effective_mass = Variable.derive(lambda x, y: jnp.log(x / y), a1, a2)
+    if numerical:
+        assert a1.fluctuations is not None and a2.fluctuations is not None
+        step_sizes = [gamma.step_sizes_from_fluctuations(a1.fluctuations), gamma.step_sizes_from_fluctuations(a2.fluctuations)]
+        jacobian = gamma.numerical_jacobians(lambda x, y: np.log(x / y), [a1.central_value, a2.central_value],
+                                             step_sizes=step_sizes)
+        effective_mass = Variable.derive(lambda x, y: np.log(x / y), a1, a2, jacobian=jacobian, use_jax=False)
+    else:
+        effective_mass = Variable.derive(lambda x, y: jnp.log(x / y), a1, a2)
 
     # exact values, Wolff eqs. 72-75
     m_hat = 2 * np.sinh(m / 2)
