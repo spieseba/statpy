@@ -164,6 +164,8 @@ class Variable:
         one jax batch, else in a loop. If jax cannot trace ``func`` (it needs jax.numpy), the loop is used and
         ``"jax"`` gives no fluctuations. Parts that cannot be propagated are dropped with a warning.
         """
+        if isinstance(jacobian, str) and jacobian != "jax":
+            raise ValueError(f'derive: jacobian must be "jax", a list of arrays or None, not {jacobian!r}')
         layout = cls._common_layout(variables, "derive")
         central_values = [variable.central_value for variable in variables]
         compatible = (jacobian == "jax" or use_vmap) and cls._is_jax_compatible(func, central_values, use_vmap)
