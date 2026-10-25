@@ -1,5 +1,5 @@
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import TYPE_CHECKING, Self
 
 import jax
@@ -77,8 +77,8 @@ class Variable:
     # Constructors
     # ---------------------------------------------------------------------------
 
-    def __init__(self, *, central_value: np.ndarray, observations: np.ndarray | None = None, layout: Layout, 
-                 jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None, 
+    def __init__(self, *, central_value: np.ndarray, observations: np.ndarray | None = None, layout: Layout,
+                 jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None,
                  fluctuations: np.ndarray | None = None, replica_central_values: np.ndarray | None = None) -> None:
         """Internal constructor; create variables with the classmethods."""
         self.central_value = central_value
@@ -156,31 +156,62 @@ class Variable:
 
     @classmethod
     def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: "Variable") -> Self:
-        """Apply func to the central values and to the replicates and replica central values present in all
-        inputs; layouts must be equal.
+        """Apply func to the central values and to the replicates present in all inputs; layouts must be equal.
 
-        If all inputs have fluctuations, they are projected with the Jacobians of func at the central
-        values. The func must be traceable by jax, otherwise a warning is raised and fluctuations are returned.
+        If func is traceable by jax, fluctuations are propagated and replicates evaluated with vmap; otherwise
+        a warning is raised and replicates are evaluated in a loop.
         """
         layout = cls._common_layout(variables, "derive")
         central_values = [variable.central_value for variable in variables]
-        input_fluctuations = [variable.fluctuations for variable in variables if variable.fluctuations is not None]
-        central_value, fluctuations = None, None
-        if len(input_fluctuations) == len(variables):
-            try:
-                central_value, jacobians = gamma.value_and_jacobians(func, central_values)
-            except (TypeError, IndexError):  # func not traceable: numpy calls and in-place writes raise TypeError, boolean masks IndexError
-                warnings.warn("derive: func not traceable by jax; gamma-method fluctuations not propagated", stacklevel=2)
-            else:
-                fluctuations = gamma.project_fluctuations(jacobians, input_fluctuations)
-        if central_value is None:
-            central_value = np.asarray(func(*central_values))
-        jackknife_replicates = cls._derive_jackknife(func, variables)
-        bootstrap_replicates = cls._derive_bootstrap(func, variables)
-        replica_central_values = cls._derive_replica_central_values(func, variables)
-        return cls.from_results(central_value=central_value, layout=layout,
-                                jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates,
-                                fluctuations=fluctuations, replica_central_values=replica_central_values)
+        compatible = cls._is_jax_compatible(func, central_values)
+        input_fluctuations = cls._common_field(variables, "fluctuations")
+        if compatible and input_fluctuations is not None:
+            central_value, jacobians = gamma.value_and_jacobians(func, central_values)
+            fluctuations = gamma.project_fluctuations(jacobians, input_fluctuations)
+        else:
+            central_value, fluctuations = np.asarray(func(*central_values)), None
+            if any(variable.fluctuations is not None for variable in variables):
+                warnings.warn("derive: gamma-method fluctuations not propagated", stacklevel=2)
+        replicates = cls._derive_replicates(func, variables, compatible)  # jackknife, bootstrap and replica central values
+        return cls.from_results(central_value=central_value, layout=layout, fluctuations=fluctuations, **replicates)
+
+    @staticmethod
+    def _is_jax_compatible(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray]) -> bool:
+        try:
+            jax.eval_shape(func, *central_values)
+        except Exception as error:  # noqa: BLE001 any tracing failure (jax, numpy, numba) means not traceable
+            warnings.warn(f"derive: func not traceable by jax ({type(error).__name__}); replicates evaluated in a Python loop", stacklevel=3)
+            return False
+        else:
+            return True
+
+    @classmethod
+    def _derive_replicates(cls, func: Callable[..., np.ndarray | jax.Array], variables: tuple["Variable", ...],
+                           compatible: bool) -> dict[str, np.ndarray]:
+        replicates = {field: cls._common_field(variables, field)
+                      for field in ("jackknife_replicates", "bootstrap_replicates", "replica_central_values")}
+        present = {field: values for field, values in replicates.items() if values is not None}
+        if not present:
+            return {}
+        batched_inputs = [np.concatenate(arrays) for arrays in zip(*present.values())]
+        if compatible:
+            batched_output = np.asarray(jax.vmap(func)(*batched_inputs))
+        else:
+            batched_output = np.array([func(*row) for row in zip(*batched_inputs)])
+        sizes = [len(values[0]) for values in present.values()]
+        pieces = np.split(batched_output, np.cumsum(sizes)[:-1])
+        return dict(zip(present.keys(), pieces))
+
+    @staticmethod
+    def _common_field(variables: tuple["Variable", ...], field: str) -> list[np.ndarray] | None:
+        values = [getattr(variable, field) for variable in variables]
+        if any(value is None for value in values):
+            return None
+        num_rows = len(values[0])
+        for index, input_values in enumerate(values):
+            if len(input_values) != num_rows:
+                raise ValueError(f"derive: input {index} has a different number of {field}")
+        return values
 
     @classmethod
     def map_observations(cls, func: Callable[..., np.ndarray], *variables: "Variable") -> Self:
@@ -202,34 +233,6 @@ class Variable:
                 if not np.array_equal(getattr(variable.layout, field), getattr(reference, field)):
                     raise ValueError(f"{name}: input {index} {field} differ")
         return reference
-
-    @staticmethod
-    def _derive_jackknife(func: Callable[..., np.ndarray | jax.Array], variables: tuple["Variable", ...]) -> np.ndarray | None:
-        replicates = [variable.jackknife_replicates for variable in variables
-                      if variable.jackknife_replicates is not None]
-        if len(replicates) < len(variables):
-            return None
-        return np.array([func(*row) for row in zip(*replicates)])
-
-    @staticmethod
-    def _derive_bootstrap(func: Callable[..., np.ndarray | jax.Array], variables: tuple["Variable", ...]) -> np.ndarray | None:
-        replicates = [variable.bootstrap_replicates for variable in variables
-                      if variable.bootstrap_replicates is not None]
-        if len(replicates) < len(variables):
-            return None
-        num_bootstraps = len(replicates[0])
-        for index, variable_replicates in enumerate(replicates):
-            if len(variable_replicates) != num_bootstraps:
-                raise ValueError(f"derive: input {index} has a different number of bootstrap replicates")
-        return np.array([func(*row) for row in zip(*replicates)])
-
-    @staticmethod
-    def _derive_replica_central_values(func: Callable[..., np.ndarray | jax.Array], variables: tuple["Variable", ...]) -> np.ndarray | None:
-        values = [variable.replica_central_values for variable in variables
-                  if variable.replica_central_values is not None]
-        if len(values) < len(variables):
-            return None
-        return np.array([func(*row) for row in zip(*values)])
 
     @classmethod
     def concatenate_components(cls, *variables: "Variable", axis: int = 0) -> Self:
