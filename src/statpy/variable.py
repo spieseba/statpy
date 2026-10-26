@@ -90,13 +90,28 @@ class Variable:
         self.replica_central_values = replica_central_values
 
     def __repr__(self) -> str:
-        parts = [f"shape={np.shape(self.central_value)}"]
-        for name, replicates, count in (("observations", self.observations, "N"),
-                                        ("jackknife", self.jackknife_replicates, "N"),
-                                        ("bootstrap", self.bootstrap_replicates, "B")):
-            if replicates is not None:
-                parts.append(f"{name} {count}={len(replicates)}")
-        return f"Variable({', '.join(parts)})"
+        layout = self.layout
+        labels = np.unique(layout.replicas)
+        reweighted = ", reweighted" if np.any(layout.weights != 1) else ""
+        lines = [(f"Variable of shape {np.shape(self.central_value)} on ensemble {layout.ensemble}, "
+                  f"{len(layout.replicas)} configurations{reweighted}")]
+        for label in labels:
+            times = layout.monte_carlo_times[layout.replicas == label]
+            if len(times) == 1:
+                line = f"Monte Carlo time {times[0]}"
+            else:
+                step = np.gcd.reduce(np.diff(times))
+                missing = (times[-1] - times[0]) // step + 1 - len(times)
+                line = f"Monte Carlo times {times[0]} to {times[-1]} in steps of {step}"
+                line += f", {missing} missing" if missing else ""
+            lines.append(line if len(labels) == 1 else f"replica {label}: {len(times)} configurations, {line}")
+        bootstrap = "bootstrap" if self.bootstrap_replicates is None else f"bootstrap (B = {len(self.bootstrap_replicates)})"
+        stored = [name for name, value in (("observations", self.observations), ("jackknife", self.jackknife_replicates),
+                                           (bootstrap, self.bootstrap_replicates), ("fluctuations", self.fluctuations),
+                                           ("replica central values", self.replica_central_values))
+                  if value is not None]
+        lines.append(f"stored: {', '.join(stored) or 'central value only'}")
+        return "\n  ".join(lines)
 
     @classmethod
     def from_data(cls, observations: np.ndarray, layout: Layout,
