@@ -167,7 +167,7 @@ def project_fluctuations(jacobians: Sequence[np.ndarray], fluctuations: Sequence
 
 def numerical_jacobians(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray], *,
                         step_sizes: Sequence[np.ndarray | float]) -> list[np.ndarray]:
-    """Jacobians of ``func`` at ``central_values`` by central differences (Wolff eq. 39), as from ``value_and_jacobians``.
+    """Jacobians of ``func`` at ``central_values`` by central differences, as from ``value_and_jacobians``.
 
     ``step_sizes`` has one entry per input: an array of the input's shape or a scalar. A zero step gives derivative 0.
     """
