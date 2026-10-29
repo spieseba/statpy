@@ -20,7 +20,7 @@ def test_fit_recovers_parameters_of_central_value_and_replicates():
     jackknife_p = TRUE_P * (1 + 0.01 * rng.standard_normal((N_CFG, 2)))
     bootstrap_p = TRUE_P * (1 + 0.01 * rng.standard_normal((N_BOOT, 2)))
     v = Variable.from_results(
-        central_value=_model(T, TRUE_P), layout=Layout("test", np.arange(N_CFG)),
+        layout=Layout("test", np.arange(N_CFG)), central_value=_model(T, TRUE_P),
         jackknife_replicates=np.array([_model(T, p) for p in jackknife_p]),
         bootstrap_replicates=np.array([_model(T, p) for p in bootstrap_p]),
     )

@@ -58,36 +58,36 @@ class Layout:
 class Variable:
     """A quantity with its central value and replicates for error estimation.
 
-    Attributes (``None`` if absent; ``central_value`` and ``layout`` are always set):
-    - ``central_value``: estimate of the quantity.
+    Attributes (``None`` if absent; ``layout`` and ``central_value`` are always set):
     - ``observations``: data per configuration (configurations on axis 0).
     - ``layout``: ``Layout`` of the configurations.
+    - ``central_value``: estimate of the quantity.
+    - ``replica_central_values``: estimate from each replica alone, replicas in sorted label order,
+      for the replica bias correction and check.
+    - ``fluctuations``: per-configuration fluctuations for the gamma method.
     - ``jackknife_replicates``: delete-one replicates, one per configuration.
     - ``bootstrap_replicates``: one replicate per bootstrap sample.
-    - ``fluctuations``: per-configuration fluctuations for the gamma method.
-    - ``replica_central_values``: estimate from each replica alone, replicas in sorted label order
-      (Wolff eq. 15), for the replica bias correction and check.
 
-    A data variable (made by ``from_data``) has observations, fluctuations and replica central values.
+    A data variable (made by ``from_data``) has observations, replica central values and fluctuations.
     ``derive`` and ``from_results`` return variables without observations; ``derive`` propagates
-    fluctuations and replica central values when all inputs have them.
+    replica central values and fluctuations when all inputs have them.
     """
 
     # ---------------------------------------------------------------------------
     # Constructors
     # ---------------------------------------------------------------------------
 
-    def __init__(self, *, central_value: np.ndarray, observations: np.ndarray | None = None, layout: Layout,
-                 jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None,
-                 fluctuations: np.ndarray | None = None, replica_central_values: np.ndarray | None = None) -> None:
+    def __init__(self, *, observations: np.ndarray | None = None, layout: Layout, central_value: np.ndarray,
+                 replica_central_values: np.ndarray | None = None, fluctuations: np.ndarray | None = None,
+                 jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None) -> None:
         """Internal constructor; create variables with the classmethods."""
-        self.central_value = central_value
         self.observations = observations
         self.layout = layout
+        self.central_value = central_value
+        self.replica_central_values = replica_central_values
+        self.fluctuations = fluctuations
         self.jackknife_replicates = jackknife_replicates
         self.bootstrap_replicates = bootstrap_replicates
-        self.fluctuations = fluctuations
-        self.replica_central_values = replica_central_values
 
     def __repr__(self) -> str:
         layout = self.layout
@@ -106,9 +106,10 @@ class Variable:
                 line += f", {missing} missing" if missing else ""
             lines.append(line if len(labels) == 1 else f"replica {label}: {len(times)} configurations, {line}")
         bootstrap = "bootstrap" if self.bootstrap_replicates is None else f"bootstrap (B = {len(self.bootstrap_replicates)})"
-        stored = [name for name, value in (("observations", self.observations), ("jackknife", self.jackknife_replicates),
-                                           (bootstrap, self.bootstrap_replicates), ("fluctuations", self.fluctuations),
-                                           ("replica central values", self.replica_central_values))
+        stored = [name for name, value in (("observations", self.observations),
+                                           ("replica central values", self.replica_central_values),
+                                           ("fluctuations", self.fluctuations), ("jackknife", self.jackknife_replicates),
+                                           (bootstrap, self.bootstrap_replicates))
                   if value is not None]
         lines.append(f"stored: {', '.join(stored) or 'central value only'}")
         return "\n  ".join(lines)
@@ -116,8 +117,8 @@ class Variable:
     @classmethod
     def from_data(cls, observations: np.ndarray, layout: Layout,
                   bootstrap_indices: NDArray[np.integer] | None = None) -> Self:
-        """Return a data variable: weighted mean, jackknife replicates, gamma-method fluctuations and the
-        weighted mean of each replica.
+        """Return a data variable: weighted mean, the weighted mean of each replica, gamma-method fluctuations
+        and jackknife replicates.
 
         ``observations`` has configurations on axis 0, in ``layout`` order. ``bootstrap_indices`` is an
         optional index matrix (num_bootstraps, N); with it, bootstrap replicates are computed too.
@@ -129,41 +130,41 @@ class Variable:
             raise ValueError(f"from_data: observations have length {len(observations)}, expected {num_configurations}")
 
         weights = layout.weights
-        jackknife_replicates = jackknife.mean_replicates(observations, weights=weights)
-        bootstrap_replicates = None
-        if bootstrap_indices is not None:
-            bootstrap_replicates = bootstrap.mean_replicates(observations, bootstrap_indices, weights=weights)
         mean, fluctuations = gamma.mean_and_fluctuations(observations, weights)
         replica_central_values = np.stack([
             np.average(observations[layout.replicas == replica], axis=0, weights=weights[layout.replicas == replica])
             for replica in np.unique(layout.replicas)])
-        return cls(central_value=mean, observations=observations, layout=layout,
-                   jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates,
-                   fluctuations=fluctuations, replica_central_values=replica_central_values)
+        jackknife_replicates = jackknife.mean_replicates(observations, weights=weights)
+        bootstrap_replicates = None
+        if bootstrap_indices is not None:
+            bootstrap_replicates = bootstrap.mean_replicates(observations, bootstrap_indices, weights=weights)
+        return cls(observations=observations, layout=layout, central_value=mean,
+                   replica_central_values=replica_central_values, fluctuations=fluctuations,
+                   jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates)
 
     @classmethod
-    def from_results(cls, *, central_value: np.ndarray, layout: Layout,
-                     jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None,
-                     fluctuations: np.ndarray | None = None, replica_central_values: np.ndarray | None = None) -> Self:
-        """Return a variable from a computed central value, replicates, fluctuations and replica central values,
+    def from_results(cls, *, layout: Layout, central_value: np.ndarray,
+                     replica_central_values: np.ndarray | None = None, fluctuations: np.ndarray | None = None,
+                     jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None) -> Self:
+        """Return a variable from a computed central value, replica central values, fluctuations and replicates,
         stored unchanged."""
         num_configurations = len(layout.monte_carlo_times)
         num_replicas = len(np.unique(layout.replicas))
-        for name, values, expected in (("jackknife_replicates", jackknife_replicates, num_configurations),
+        for name, values, expected in (("replica_central_values", replica_central_values, num_replicas),
                                        ("fluctuations", fluctuations, num_configurations),
-                                       ("replica_central_values", replica_central_values, num_replicas)):
+                                       ("jackknife_replicates", jackknife_replicates, num_configurations)):
             if values is not None and len(values) != expected:
                 raise ValueError(f"from_results: {name} have length {len(values)}, expected {expected}")
         shape = np.shape(central_value)
-        for name, replicates in (("jackknife_replicates", jackknife_replicates),
-                                 ("bootstrap_replicates", bootstrap_replicates),
+        for name, replicates in (("replica_central_values", replica_central_values),
                                  ("fluctuations", fluctuations),
-                                 ("replica_central_values", replica_central_values)):
+                                 ("jackknife_replicates", jackknife_replicates),
+                                 ("bootstrap_replicates", bootstrap_replicates)):
             if replicates is not None and replicates.shape[1:] != shape:
                 raise ValueError(f"from_results: {name} have shape {replicates.shape[1:]}, expected {shape}")
-        return cls(central_value=central_value, layout=layout,
-                   jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates,
-                   fluctuations=fluctuations, replica_central_values=replica_central_values)
+        return cls(layout=layout, central_value=central_value,
+                   replica_central_values=replica_central_values, fluctuations=fluctuations,
+                   jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates)
 
     # ---------------------------------------------------------------------------
     # Transformations
@@ -172,7 +173,8 @@ class Variable:
     @classmethod
     def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: "Variable",
                jacobian: Literal["jax"] | Sequence[np.ndarray] | None = "jax", use_vmap: bool = True) -> Self:
-        """Variable for ``func`` of the inputs: central value, fluctuations and replicates; layouts must be equal.
+        """Variable for ``func`` of the inputs: central value, replica central values, fluctuations and replicates;
+        layouts must be equal.
 
         ``jacobian`` sets how fluctuations are propagated: ``"jax"`` computes the Jacobian, a list supplies it (one
         array per input, shape output + input), ``None`` propagates none. ``use_vmap`` evaluates the replicates in
@@ -197,7 +199,7 @@ class Variable:
             if jacobian is not None and any(variable.fluctuations is not None for variable in variables):
                 warnings.warn("derive: gamma-method fluctuations not propagated", stacklevel=2)
         replicates = cls._derive_replicates(func, variables, use_vmap and compatible)
-        return cls.from_results(central_value=central_value, layout=layout, fluctuations=fluctuations, **replicates)
+        return cls.from_results(layout=layout, central_value=central_value, fluctuations=fluctuations, **replicates)
 
     @staticmethod
     def _is_jax_compatible(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray],
@@ -215,7 +217,7 @@ class Variable:
     def _derive_replicates(cls, func: Callable[..., np.ndarray | jax.Array], variables: tuple["Variable", ...],
                            compatible: bool) -> dict[str, np.ndarray]:
         replicates = {field: cls._common_field(variables, field)
-                      for field in ("jackknife_replicates", "bootstrap_replicates", "replica_central_values")}
+                      for field in ("replica_central_values", "jackknife_replicates", "bootstrap_replicates")}
         dropped = [field for field, values in replicates.items()
                    if values is None and any(getattr(variable, field) is not None for variable in variables)]
         if dropped:
@@ -301,7 +303,7 @@ class Variable:
                           max_calls: int | None = None) -> least_squares.LeastSquaresFit:
         """Least-squares fit of the function ``model(fit_range, parameters)``, e.g. a numba model from
         ``statpy.qcd.correlator.models``, to the central value at the component indices ``fit_range``; refit each
-        jackknife and bootstrap replicate and replica central value present, starting from the central parameters,
+        replica central value and jackknife and bootstrap replicate present, starting from the central parameters,
         with the same ``weight_matrix``.
 
         ``weight_matrix`` defaults to the inverse jackknife variance on ``fit_range``. Observations and fluctuations
@@ -326,21 +328,20 @@ class Variable:
         chi2_value = objective(y, parameters)
         if not np.isfinite(chi2_value):
             raise least_squares.ConvergenceError(f"least_squares_fit: non-finite chi^2 = {chi2_value}")
-        jackknife_replicates = bootstrap_replicates = replica_central_values = None
+        replica_central_values = jackknife_replicates = bootstrap_replicates = None
+        if self.replica_central_values is not None:
+            replica_central_values = least_squares.fit_replicates(
+                objective, self.replica_central_values[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
         if self.jackknife_replicates is not None:
             jackknife_replicates = least_squares.fit_replicates(
                 objective, self.jackknife_replicates[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
         if self.bootstrap_replicates is not None:
             bootstrap_replicates = least_squares.fit_replicates(
                 objective, self.bootstrap_replicates[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
-        if self.replica_central_values is not None:
-            replica_central_values = least_squares.fit_replicates(
-                objective, self.replica_central_values[:, fit_range], parameters, tolerance=tolerance,
-                max_calls=max_calls)
-        fitted = Variable.from_results(central_value=parameters, layout=self.layout,
+        fitted = Variable.from_results(layout=self.layout, central_value=parameters,
+                                       replica_central_values=replica_central_values,
                                        jackknife_replicates=jackknife_replicates,
-                                       bootstrap_replicates=bootstrap_replicates,
-                                       replica_central_values=replica_central_values)
+                                       bootstrap_replicates=bootstrap_replicates)
         return least_squares.LeastSquaresFit(fitted, chi2_value, dof, least_squares.p_value(chi2_value, dof))
 
     # ---------------------------------------------------------------------------
@@ -377,10 +378,10 @@ class Variable:
         return bootstrap.covariance(self.bootstrap_replicates)
 
     def gamma_method(self, S: float = 1.5) -> gamma.GammaErrorAnalysis:
-        """Return the gamma-method error analysis per component (Wolff, hep-lat/0306017).
+        """Return the gamma-method error analysis per component.
 
-        ``S`` is the factor in Wolff's hypothesis tau ~ S tau_int (sec. 3.3) that sets the
-        automatic window. Fields: see ``GammaErrorAnalysis``. The variable is unchanged.
+        ``S`` sets the automatic summation window; a larger ``S`` gives a larger window.
+        Fields: see ``GammaErrorAnalysis``. The variable is unchanged.
         """
         if self.fluctuations is None:
             raise ValueError("gamma_method: variable has no fluctuations")
@@ -388,7 +389,7 @@ class Variable:
         return gamma.error_analysis(self.fluctuations, layout.monte_carlo_times, layout.replicas, S)
 
     def bias_corrected_value(self) -> np.ndarray:
-        """Return the central value with Wolff's replica bias correction (eq. 20), which cancels the leading
+        """Return the central value with the replica bias correction, which cancels the leading
         O(1/N) bias of nonlinear derived quantities. Needs replica central values of at least two replicas;
         the variable is unchanged."""
         _, sizes = np.unique(self.layout.replicas, return_counts=True)

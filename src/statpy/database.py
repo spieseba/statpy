@@ -89,16 +89,16 @@ class Database(Mapping[str, Variable]):
         """Write the entire database (all fields, including observations) to ``dst``."""
         payload = pickle.dumps(
             {t: {
-                "central_value": variable.central_value,
                 "observations": variable.observations,
                 "ensemble": variable.layout.ensemble,
                 "monte_carlo_times": variable.layout.monte_carlo_times,
                 "replicas": variable.layout.replicas,
                 "weights": variable.layout.weights,
+                "central_value": variable.central_value,
+                "replica_central_values": variable.replica_central_values,
+                "fluctuations": variable.fluctuations,
                 "jackknife_replicates": variable.jackknife_replicates,
                 "bootstrap_replicates": variable.bootstrap_replicates,
-                "fluctuations": variable.fluctuations,
-                "replica_central_values": variable.replica_central_values,
             } for t, variable in self._variables.items()},
             protocol=pickle.HIGHEST_PROTOCOL,
         )
