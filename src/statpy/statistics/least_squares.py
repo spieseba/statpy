@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from statpy.variable import Variable
 
 
-Model = Callable[[np.ndarray, np.ndarray], np.ndarray]
+Model = Callable[[np.ndarray, np.ndarray], np.ndarray | jax.Array]
 
 
 class ConvergenceError(Exception):
@@ -63,10 +63,10 @@ def inverse_covariance(cov: np.ndarray, num_samples: int) -> tuple[np.ndarray | 
 # ---------------------------------------------------------------------------
 
 @functools.cache
-def chi2(model: Model) -> Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+def chi2(model: Model) -> Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray | jax.Array]:
     """Return ``chi2(x, y, parameters, weight_matrix) = r @ weight_matrix @ r`` with
     ``r = model(x, parameters) - y``; compiled with numba if ``model`` is a numba function."""
-    def model_chi2(x: np.ndarray, y: np.ndarray, parameters: np.ndarray, weight_matrix: np.ndarray) -> np.ndarray:
+    def model_chi2(x: np.ndarray, y: np.ndarray, parameters: np.ndarray, weight_matrix: np.ndarray) -> np.ndarray | jax.Array:
         residuals = model(x, parameters) - y
         return residuals @ weight_matrix @ residuals
     return njit(model_chi2) if isinstance(model, CPUDispatcher) else model_chi2

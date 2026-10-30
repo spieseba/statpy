@@ -3,7 +3,7 @@
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from statpy.qcd.correlator import models
+from statpy.qcd.correlator import numba_models
 from statpy.qcd.correlator.primitives import effective_mass
 
 # ---------------------------------------------------------------------------
@@ -37,11 +37,11 @@ def initial_parameter_guesses(fit_model: str, times: ArrayLike, correlator: Arra
     if gaps.ndim != 1 or gaps.size == 0 or not np.isfinite(gaps).all() or np.any(gaps <= 0):
         raise ValueError("mass_gaps must be a nonempty 1D array of finite positive gaps")
     if fit_model == "double-exp":
-        model = models.exp()
+        model = numba_models.exp()
     elif fit_model in ("double-cosh", "double-sinh"):
         if Nt is None or not np.isfinite(Nt) or Nt <= 0:
             raise ValueError("Periodic models require a finite positive Nt")
-        model = models.cosh(Nt) if fit_model == "double-cosh" else models.sinh(Nt)
+        model = numba_models.cosh(Nt) if fit_model == "double-cosh" else numba_models.sinh(Nt)
     else:
         raise ValueError(f"Unknown fit_model: {fit_model!r}")
 
@@ -74,9 +74,9 @@ def propose_ground_state_range(fit_model: str, times: NDArray[np.integer], varia
     ``variance`` is the correlator variance at ``times``; ``parameters`` are the two-state fit parameters
     ``[A0, m0, A1, m1]``.
     """
-    model_func = {"double-cosh": models.double_cosh(Nt),
-                  "double-sinh": models.double_sinh(Nt),
-                  "double-exp": models.double_exp()}[fit_model]
+    model_func = {"double-cosh": numba_models.double_cosh(Nt),
+                  "double-sinh": numba_models.double_sinh(Nt),
+                  "double-exp": numba_models.double_exp()}[fit_model]
     boundary_condition = "open" if fit_model == "double-exp" else "periodic"
     excited = np.abs(model_func(times, np.array([0.0, 0.0, parameters[2], parameters[3]])))
     std_over_four = (variance ** 0.5) / 4.0

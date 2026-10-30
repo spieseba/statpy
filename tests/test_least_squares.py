@@ -1,6 +1,7 @@
 """Least-squares fit of exact data recovers the parameters of the central value and every replicate."""
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from numba import njit
 
 from statpy.statistics import least_squares
@@ -17,7 +18,12 @@ def _model(t, p):
     return p[0] * np.exp(-p[1] * t)
 
 
-def test_fit_recovers_parameters_of_central_value_and_replicates():
+def _jnp_model(t, p):
+    return p[0] * jnp.exp(-p[1] * t)
+
+
+@pytest.mark.parametrize("numba_model", [None, _model])
+def test_fit_recovers_parameters_of_central_value_and_replicates(numba_model):
     rng = np.random.default_rng(3)
     jackknife_p = TRUE_P * (1 + 0.01 * rng.standard_normal((N_CFG, 2)))
     bootstrap_p = TRUE_P * (1 + 0.01 * rng.standard_normal((N_BOOT, 2)))
@@ -26,7 +32,7 @@ def test_fit_recovers_parameters_of_central_value_and_replicates():
         jackknife_replicates=np.array([_model(T, p) for p in jackknife_p]),
         bootstrap_replicates=np.array([_model(T, p) for p in bootstrap_p]),
     )
-    fit = v.least_squares_fit(_model, T, [1.0, 0.2], tolerance=1e-8)
+    fit = v.least_squares_fit(_jnp_model, T, [1.0, 0.2], numba_model=numba_model, tolerance=1e-8)
     np.testing.assert_allclose(fit.parameters.central_value, TRUE_P, rtol=1e-5)
     assert fit.parameters.jackknife_replicates is not None and fit.parameters.bootstrap_replicates is not None
     np.testing.assert_allclose(fit.parameters.jackknife_replicates, jackknife_p, rtol=1e-5)
@@ -37,11 +43,9 @@ def test_fit_recovers_parameters_of_central_value_and_replicates():
 
 def test_parameter_jacobian_matches_exact_reference_at_zero_residual():
     """At zero residual, dp/dy = (J^T W J)^-1 J^T W with J = dmodel/dp."""
-    def model(t, p):
-        return p[0] * jnp.exp(-p[1] * t)
-    y = np.asarray(model(T, TRUE_P))
+    y = np.asarray(_jnp_model(T, TRUE_P))
     weight_matrix = np.diag(1 / (0.01 * y) ** 2)
     J = np.stack([np.exp(-TRUE_P[1] * T), -TRUE_P[0] * T * np.exp(-TRUE_P[1] * T)], axis=1)
     expected = np.linalg.solve(J.T @ weight_matrix @ J, J.T @ weight_matrix)
-    np.testing.assert_allclose(least_squares.parameter_jacobian(model, T, y, TRUE_P, weight_matrix), expected,
+    np.testing.assert_allclose(least_squares.parameter_jacobian(_jnp_model, T, y, TRUE_P, weight_matrix), expected,
                                rtol=1e-12)

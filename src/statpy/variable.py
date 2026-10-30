@@ -299,15 +299,17 @@ class Variable:
         return type(self).from_data(observations, layout)
 
     def least_squares_fit(self, model: least_squares.Model, fit_range: ArrayLike, initial_parameters: ArrayLike, *,
-                          weight_matrix: np.ndarray | None = None, tolerance: float | None = None,
-                          max_calls: int | None = None) -> least_squares.LeastSquaresFit:
-        """Least-squares fit of the function ``model(fit_range, parameters)``, e.g. a numba model from
+                          numba_model: least_squares.Model | None = None, weight_matrix: np.ndarray | None = None,
+                          tolerance: float | None = None, max_calls: int | None = None) -> least_squares.LeastSquaresFit:
+        """Least-squares fit of the jnp function ``model(fit_range, parameters)``, e.g. from
         ``statpy.qcd.correlator.models``, to the central value at the component indices ``fit_range``; refit each
         replica central value and jackknife and bootstrap replicate present, starting from the central parameters,
         with the same ``weight_matrix``.
 
-        ``weight_matrix`` defaults to the inverse jackknife variance on ``fit_range``. Observations and fluctuations
-        are not used. Returns a ``LeastSquaresFit``; its parameters have this variable's layout.
+        ``numba_model``, the same function in numba, e.g. from ``statpy.qcd.correlator.numba_models``, replaces
+        ``model`` in the fits and speeds them up. ``weight_matrix`` defaults to the inverse jackknife variance on
+        ``fit_range``. Observations and fluctuations are not used. Returns a ``LeastSquaresFit``; its parameters have
+        this variable's layout.
         """
         fit_range = np.asarray(fit_range)
         initial_parameters = np.asarray(initial_parameters, dtype=float)
@@ -317,7 +319,7 @@ class Variable:
         if weight_matrix is None:
             weight_matrix = np.diag(1.0 / self.jackknife_variance()[fit_range])
 
-        chi2_function = least_squares.chi2(model)
+        chi2_function = least_squares.chi2(model if numba_model is None else numba_model)
 
         def objective(y: np.ndarray, parameters: np.ndarray) -> float:
             return float(chi2_function(fit_range, y, parameters, weight_matrix))
