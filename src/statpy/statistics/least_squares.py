@@ -1,10 +1,13 @@
 """Least-squares fits minimized with Migrad (iminuit)."""
 
 import functools
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 from iminuit import Minuit
 from numba import njit
@@ -21,6 +24,10 @@ Model = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 class ConvergenceError(Exception):
     pass
+
+
+class HessianNotPositiveDefiniteError(Exception):
+    """The chi^2 Hessian is not positive definite: the parameters are not at a strict minimum."""
 
 
 @dataclass(frozen=True)
@@ -56,12 +63,12 @@ def inverse_covariance(cov: np.ndarray, num_samples: int) -> tuple[np.ndarray | 
 # ---------------------------------------------------------------------------
 
 @functools.cache
-def chi2(model: Model) -> Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], float]:
+def chi2(model: Model) -> Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
     """Return ``chi2(x, y, parameters, weight_matrix) = r @ weight_matrix @ r`` with
     ``r = model(x, parameters) - y``; compiled with numba if ``model`` is a numba function."""
-    def model_chi2(x: np.ndarray, y: np.ndarray, parameters: np.ndarray, weight_matrix: np.ndarray) -> float:
+    def model_chi2(x: np.ndarray, y: np.ndarray, parameters: np.ndarray, weight_matrix: np.ndarray) -> np.ndarray:
         residuals = model(x, parameters) - y
-        return float(residuals @ weight_matrix @ residuals)
+        return residuals @ weight_matrix @ residuals
     return njit(model_chi2) if isinstance(model, CPUDispatcher) else model_chi2
 
 
@@ -104,6 +111,43 @@ def aic(chi2_value: float, dof: int, num_parameters: int) -> float:
 # ---------------------------------------------------------------------------
 # Error propagation
 # ---------------------------------------------------------------------------
+
+@jax.jit(static_argnums=0)
+def _chi2_second_derivatives(model: Model, x: np.ndarray, y: np.ndarray, parameters: np.ndarray,
+                             weight_matrix: np.ndarray) -> tuple[jax.Array, jax.Array]:
+    """Return d^2 chi2 / dp^2, shape (parameters, parameters), and d^2 chi2 / dp dy, shape (parameters, data points),
+    compiled once per model and input shape."""
+    chi2_function = chi2(model)
+    hessian = jax.hessian(chi2_function, argnums=2)(x, y, parameters, weight_matrix)
+    mixed_derivatives = jax.jacfwd(jax.grad(chi2_function, argnums=2), argnums=1)(x, y, parameters, weight_matrix)
+    return hessian, mixed_derivatives
+
+
+def parameter_jacobian(model: Model, x: np.ndarray, y: np.ndarray, parameters: np.ndarray,
+                       weight_matrix: np.ndarray) -> np.ndarray:
+    """Return the Jacobian of the fitted ``parameters`` with respect to the data ``y``, shape (parameters, data
+    points), at the chi^2 minimum ``parameters``; ``model`` must be traceable by JAX.
+
+    Raises ``HessianNotPositiveDefiniteError`` if the chi^2 Hessian is not positive definite; warns if it is
+    ill-conditioned.
+    """
+    hessian, mixed_derivatives = _chi2_second_derivatives(model, x, y, parameters, weight_matrix)
+    diagonal = jnp.diag(hessian)
+    if jnp.any(diagonal <= 0):
+        raise HessianNotPositiveDefiniteError(f"parameter_jacobian: chi^2 Hessian has a non-positive diagonal: {diagonal}")
+    scaling = jnp.diag(1 / jnp.sqrt(diagonal))
+    eigenvalues, eigenvectors = jnp.linalg.eigh(scaling @ hessian @ scaling)  # unit diagonal
+    if eigenvalues[0] <= 0:
+        raise HessianNotPositiveDefiniteError(f"parameter_jacobian: chi^2 Hessian has a non-positive eigenvalue: {eigenvalues}")
+    condition_number = eigenvalues[-1] / eigenvalues[0]
+    relative_error = condition_number * jnp.finfo(jnp.float64).eps  # error bound of the solve
+    if relative_error > 1e-8:
+        warnings.warn(f"parameter_jacobian: ill-conditioned chi^2 Hessian (condition number {condition_number:.1e}); "
+                      f"Jacobian accurate to fewer than 8 digits (relative error about {relative_error:.0e})",
+                      stacklevel=2)
+    inverse_hessian = scaling @ eigenvectors @ jnp.diag(1 / eigenvalues) @ eigenvectors.T @ scaling
+    return np.asarray(-inverse_hessian @ mixed_derivatives)
+
 
 def model_prediction_variance(t: float, parameters: np.ndarray, covariance: np.ndarray,
                               gradient: Callable[[float, np.ndarray], np.ndarray]) -> float:

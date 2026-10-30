@@ -320,7 +320,7 @@ class Variable:
         chi2_function = least_squares.chi2(model)
 
         def objective(y: np.ndarray, parameters: np.ndarray) -> float:
-            return chi2_function(fit_range, y, parameters, weight_matrix)
+            return float(chi2_function(fit_range, y, parameters, weight_matrix))
 
         y = self.central_value[fit_range]
         parameters = least_squares.minimize(objective, y, initial_parameters, tolerance=tolerance,
