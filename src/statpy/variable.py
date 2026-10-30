@@ -307,9 +307,9 @@ class Variable:
         with the same ``weight_matrix``.
 
         ``numba_model``, the same function in numba, e.g. from ``statpy.qcd.correlator.numba_models``, replaces
-        ``model`` in the fits and speeds them up. ``weight_matrix`` defaults to the inverse jackknife variance on
-        ``fit_range``. Observations and fluctuations are not used. Returns a ``LeastSquaresFit``; its parameters have
-        this variable's layout.
+        ``model`` in the fits to speed them up. Fluctuations present are propagated with ``model``. ``weight_matrix``
+        defaults to the inverse jackknife variance on ``fit_range``. Observations are not used. Returns a
+        ``LeastSquaresFit``; its parameters have this variable's layout.
         """
         fit_range = np.asarray(fit_range)
         initial_parameters = np.asarray(initial_parameters, dtype=float)
@@ -324,13 +324,15 @@ class Variable:
         def objective(y: np.ndarray, parameters: np.ndarray) -> float:
             return float(chi2_function(fit_range, y, parameters, weight_matrix))
 
-        y = self.central_value[fit_range]
-        parameters = least_squares.minimize(objective, y, initial_parameters, tolerance=tolerance,
-                                            max_calls=max_calls)
-        chi2_value = objective(y, parameters)
+        parameters = least_squares.minimize(objective, self.central_value[fit_range], initial_parameters,
+                                            tolerance=tolerance, max_calls=max_calls)
+        chi2_value = objective(self.central_value[fit_range], parameters)
         if not np.isfinite(chi2_value):
             raise least_squares.ConvergenceError(f"least_squares_fit: non-finite chi^2 = {chi2_value}")
-        replica_central_values = jackknife_replicates = bootstrap_replicates = None
+        replica_central_values = fluctuations = jackknife_replicates = bootstrap_replicates = None
+        if self.fluctuations is not None:
+            jacobian = least_squares.parameter_jacobian(model, fit_range, self.central_value[fit_range], parameters, weight_matrix)
+            fluctuations = gamma.project_fluctuations([jacobian], [self.fluctuations[:, fit_range]])
         if self.replica_central_values is not None:
             replica_central_values = least_squares.fit_replicates(
                 objective, self.replica_central_values[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
@@ -342,6 +344,7 @@ class Variable:
                 objective, self.bootstrap_replicates[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
         fitted = Variable.from_results(layout=self.layout, central_value=parameters,
                                        replica_central_values=replica_central_values,
+                                       fluctuations=fluctuations,
                                        jackknife_replicates=jackknife_replicates,
                                        bootstrap_replicates=bootstrap_replicates)
         return least_squares.LeastSquaresFit(fitted, chi2_value, dof, least_squares.p_value(chi2_value, dof))
