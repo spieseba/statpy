@@ -24,9 +24,11 @@ def label_top(ax: "Axes", x: float, text: str) -> None:
                 va="top", fontsize="small")
 
 
-def legend_above(ax: "Axes", handles: Sequence["Artist | tuple[Artist, ...]"], labels: Sequence[str]) -> None:
-    """One-row legend above the axes; its lines are thicker than thin traces, so the colors stay visible."""
-    legend = ax.legend(handles, labels, loc="lower left", bbox_to_anchor=(0, 1), ncols=len(labels), frameon=False,
+def legend_above(ax: "Axes", handles: Sequence["Artist | tuple[Artist, ...]"], labels: Sequence[str],
+                 ncols: int | None = None) -> None:
+    """Legend above the axes, one row unless ``ncols`` is given; its lines are thicker than thin traces, so the colors
+    stay visible."""
+    legend = ax.legend(handles, labels, loc="lower left", bbox_to_anchor=(0, 1), ncols=ncols or len(labels), frameon=False,
                        fontsize="small", handlelength=1.5)
     for line in legend.get_lines():
         line.set_linewidth(2)

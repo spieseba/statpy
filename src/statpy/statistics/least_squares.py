@@ -4,7 +4,7 @@ import functools
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
@@ -12,10 +12,15 @@ import numpy as np
 from iminuit import Minuit
 from numba import njit
 from numba.core.registry import CPUDispatcher
+from numpy.typing import ArrayLike
 from scipy import stats
 from scipy.linalg import cho_factor, cho_solve
 
+from statpy.plot import legend_above, style_axes
+
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+
     from statpy.variable import Variable
 
 
@@ -32,11 +37,51 @@ class HessianNotPositiveDefiniteError(Exception):
 
 @dataclass(frozen=True)
 class LeastSquaresFit:
-    """Least-squares fit result: parameters as a Variable and goodness of fit."""
+    """Least-squares fit result: parameters as a Variable, goodness of fit, and the model, fit range and data."""
     parameters: "Variable"
     chi2: float
     dof: int
     p_value: float
+    model: Model
+    fit_range: np.ndarray
+    data: "Variable"
+
+    def plot(self, ax: "Axes", error: Literal["gamma", "jackknife", "bootstrap"] = "gamma",
+             plot_range: ArrayLike | None = None) -> "Axes":
+        """Plot the data at the indices ``plot_range`` (default all) with ``error`` bars into ``ax``, and the fitted
+        model with its ``error`` band on the part of the fit range inside ``plot_range``."""
+        indices = np.arange(len(self.data.central_value)) if plot_range is None else np.asarray(plot_range)
+        points = ax.errorbar(indices, self.data.central_value[indices], _variable_error(self.data, error)[indices], fmt="o",
+                             markersize=5, markeredgecolor="white", markeredgewidth=0.6, elinewidth=1, capsize=3, zorder=3,
+                             label=f"data ({error})")
+        color = points[0].get_color()
+        prediction = self.parameters.derive(lambda parameters: self.model(self.fit_range, parameters), self.parameters)
+        in_plot = np.isin(self.fit_range, indices)
+        x, y, band = self.fit_range[in_plot], prediction.central_value[in_plot], _variable_error(prediction, error)[in_plot]
+        # NaN at jumps of the fit range, so the line and band break there
+        jumps = np.flatnonzero(np.diff(x) > np.diff(self.fit_range).min()) + 1
+        x, y, band = (np.insert(values, jumps, np.nan) for values in (x.astype(float), y, band))
+        ax.plot(x, y, color=color, linewidth=1.2, label=f"fit ({error})")
+        ax.fill_between(x, y - band, y + band, color=color, alpha=0.3, linewidth=0, label=f"fit ({error})")
+        # One legend entry per label; the fit symbol shows line and band together
+        entries = {}
+        for handle, label in zip(*ax.get_legend_handles_labels(), strict=True):
+            entries.setdefault(label, []).append(handle)
+        legend_above(ax, [tuple(handles) for handles in entries.values()], list(entries), ncols=2)
+        ax.set(xlabel="$x$", ylabel="$y$")
+        style_axes(ax)
+        return ax
+
+
+def _variable_error(variable: "Variable", error: str) -> np.ndarray:
+    """Return the ``"gamma"``, ``"jackknife"`` or ``"bootstrap"`` error of ``variable``; raises ``ValueError`` if absent."""
+    if error == "gamma":
+        return variable.gamma_method().error
+    if error == "jackknife":
+        return np.sqrt(variable.jackknife_variance())
+    if error == "bootstrap":
+        return np.sqrt(variable.bootstrap_variance())
+    raise ValueError(f"Unknown error: {error}")
 
 
 # ---------------------------------------------------------------------------

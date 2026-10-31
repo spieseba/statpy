@@ -355,7 +355,8 @@ class Variable:
                                        fluctuations=fluctuations,
                                        jackknife_replicates=jackknife_replicates,
                                        bootstrap_replicates=bootstrap_replicates)
-        return least_squares.LeastSquaresFit(fitted, chi2_value, dof, least_squares.p_value(chi2_value, dof))
+        return least_squares.LeastSquaresFit(fitted, chi2_value, dof, least_squares.p_value(chi2_value, dof),
+                                             model, fit_range, self)
 
     # ---------------------------------------------------------------------------
     # Error analysis
