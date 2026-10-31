@@ -324,8 +324,13 @@ class Variable:
         def objective(y: np.ndarray, parameters: np.ndarray) -> float:
             return float(chi2_function(fit_range, y, parameters, weight_matrix))
 
+        def exact_gradient(y: np.ndarray, parameters: np.ndarray) -> jax.Array:
+            return least_squares.chi2_gradient(model, fit_range, y, parameters, weight_matrix)
+
+        objective_gradient = exact_gradient if numba_model is None else None
+
         parameters = least_squares.minimize(objective, self.central_value[fit_range], initial_parameters,
-                                            tolerance=tolerance, max_calls=max_calls)
+                                            tolerance=tolerance, max_calls=max_calls, objective_gradient=objective_gradient)
         chi2_value = objective(self.central_value[fit_range], parameters)
         if not np.isfinite(chi2_value):
             raise least_squares.ConvergenceError(f"least_squares_fit: non-finite chi^2 = {chi2_value}")
@@ -335,13 +340,16 @@ class Variable:
             fluctuations = gamma.project_fluctuations([jacobian], [self.fluctuations[:, fit_range]])
         if self.replica_central_values is not None:
             replica_central_values = least_squares.fit_replicates(
-                objective, self.replica_central_values[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
+                objective, self.replica_central_values[:, fit_range], parameters,
+                tolerance=tolerance, max_calls=max_calls, objective_gradient=objective_gradient)
         if self.jackknife_replicates is not None:
             jackknife_replicates = least_squares.fit_replicates(
-                objective, self.jackknife_replicates[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
+                objective, self.jackknife_replicates[:, fit_range], parameters,
+                tolerance=tolerance, max_calls=max_calls, objective_gradient=objective_gradient)
         if self.bootstrap_replicates is not None:
             bootstrap_replicates = least_squares.fit_replicates(
-                objective, self.bootstrap_replicates[:, fit_range], parameters, tolerance=tolerance, max_calls=max_calls)
+                objective, self.bootstrap_replicates[:, fit_range], parameters,
+                tolerance=tolerance, max_calls=max_calls, objective_gradient=objective_gradient)
         fitted = Variable.from_results(layout=self.layout, central_value=parameters,
                                        replica_central_values=replica_central_values,
                                        fluctuations=fluctuations,

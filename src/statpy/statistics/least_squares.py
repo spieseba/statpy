@@ -62,21 +62,30 @@ def inverse_covariance(cov: np.ndarray, num_samples: int) -> tuple[np.ndarray | 
 # Minimization
 # ---------------------------------------------------------------------------
 
+@jax.jit(static_argnums=0)
+def chi2_gradient(model: Model, x: np.ndarray, y: np.ndarray, parameters: np.ndarray,
+                  weight_matrix: np.ndarray) -> jax.Array:
+    """Return d chi2 / dp, shape (parameters), compiled once per model and input shape."""
+    chi2_function = chi2(model)
+    return jax.grad(chi2_function, argnums=2)(x, y, parameters, weight_matrix)
+
+
 @functools.cache
 def chi2(model: Model) -> Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray | jax.Array]:
     """Return ``chi2(x, y, parameters, weight_matrix) = r @ weight_matrix @ r`` with
-    ``r = model(x, parameters) - y``; compiled with numba if ``model`` is a numba function."""
+    ``r = model(x, parameters) - y``; compiled with numba for a numba ``model``, otherwise with ``jax.jit``."""
     def model_chi2(x: np.ndarray, y: np.ndarray, parameters: np.ndarray, weight_matrix: np.ndarray) -> np.ndarray | jax.Array:
         residuals = model(x, parameters) - y
         return residuals @ weight_matrix @ residuals
-    return njit(model_chi2) if isinstance(model, CPUDispatcher) else model_chi2
+    return njit(model_chi2) if isinstance(model, CPUDispatcher) else jax.jit(model_chi2)
 
 
 def minimize(objective: Callable[[np.ndarray, np.ndarray], float], y: np.ndarray, initial_parameters: np.ndarray, *,
-             tolerance: float | None, max_calls: int | None) -> np.ndarray:
+             tolerance: float | None, max_calls: int | None, objective_gradient: Callable[[np.ndarray, np.ndarray], np.ndarray | jax.Array] | None) -> np.ndarray:
     """Return the parameters minimizing ``objective(y, parameters)`` with Migrad, starting from
     ``initial_parameters``."""
-    minuit = Minuit(lambda parameters: objective(y, parameters), initial_parameters)  # pyrefly: ignore[bad-argument-type]  # iminuit types fcn with float arguments only
+    grad = (lambda parameters: objective_gradient(y, parameters)) if objective_gradient is not None else None
+    minuit = Minuit(lambda parameters: objective(y, parameters), initial_parameters, grad=grad)  # pyrefly: ignore[bad-argument-type]  # iminuit types fcn with float arguments only
     minuit.tol = tolerance
     minuit.migrad(ncall=max_calls)
     if not minuit.valid:
@@ -88,9 +97,10 @@ def minimize(objective: Callable[[np.ndarray, np.ndarray], float], y: np.ndarray
 
 
 def fit_replicates(objective: Callable[[np.ndarray, np.ndarray], float], replicates: np.ndarray,
-                   initial_parameters: np.ndarray, *, tolerance: float | None, max_calls: int | None) -> np.ndarray:
+                   initial_parameters: np.ndarray, *, tolerance: float | None, max_calls: int | None,
+                   objective_gradient: Callable[[np.ndarray, np.ndarray], np.ndarray | jax.Array] | None) -> np.ndarray:
     """Return the parameters minimizing ``objective`` for each replicate, each fit starting from ``initial_parameters``."""
-    return np.array([minimize(objective, y, initial_parameters, tolerance=tolerance, max_calls=max_calls)
+    return np.array([minimize(objective, y, initial_parameters, tolerance=tolerance, max_calls=max_calls, objective_gradient=objective_gradient)
                      for y in replicates])
 
 
