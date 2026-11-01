@@ -301,7 +301,7 @@ class Variable:
 
     def least_squares_fit(self, model: least_squares.Model, fit_range: ArrayLike, initial_parameters: ArrayLike, *,
                           numba_model: least_squares.Model | None = None, weight_matrix: np.ndarray | None = None,
-                          tolerance: float | None = None, max_calls: int | None = None) -> least_squares.LeastSquaresFit:
+                          tolerance: float = 1e-4, max_calls: int | None = None) -> least_squares.LeastSquaresFit:
         """Least-squares fit of the jnp function ``model(fit_range, parameters)``, e.g. from
         ``statpy.qcd.correlator.models``, to the central value at the component indices ``fit_range``; refit each
         replica central value and jackknife and bootstrap replicate present, starting from the central parameters,
@@ -310,7 +310,8 @@ class Variable:
         ``numba_model``, the same function in numba, e.g. from ``statpy.qcd.correlator.numba_models``, replaces
         ``model`` in the fits to speed them up. Fluctuations present are propagated with ``model``. ``weight_matrix``
         defaults to the inverse jackknife variance on ``fit_range``. Observations are not used. Returns a
-        ``LeastSquaresFit``; its parameters have this variable's layout.
+        ``LeastSquaresFit``; its parameters have this variable's layout. ``tolerance`` is Migrad's; its default of
+        0.1 makes jackknife refits too small at large sample sizes.
         """
         fit_range = np.asarray(fit_range)
         initial_parameters = np.asarray(initial_parameters, dtype=float)
