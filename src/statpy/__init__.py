@@ -14,6 +14,7 @@ import statpy.qcd
 import statpy.simulation
 import statpy.statistics
 import statpy.variable
+from statpy.variable import Layout, Variable
 
 
 def _commit_hash() -> str | None:

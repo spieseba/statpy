@@ -1,4 +1,5 @@
 """Correlator analysis: primitives, model factories and fit helpers."""
+import statpy.qcd.correlator.models
 from statpy.qcd.correlator.averaging import (
     BoundaryAverage,
     obc_meson_boundary_average,
