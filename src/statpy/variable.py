@@ -1,5 +1,5 @@
 import warnings
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, Self
 
 import jax
@@ -413,11 +413,11 @@ class Variable:
             raise ValueError("bias_corrected_value: needs replica central values of at least two replicas")
         return gamma.bias_corrected_value(self.central_value, self.replica_central_values, sizes)
 
-    def summarize(self, S: float = 1.5, components: Iterable[int | tuple[int, ...]] | None = None) -> None:
+    def summarize(self, S: float = 1.5, components: Mapping[str, int | tuple[int, ...]] | Iterable[int | tuple[int, ...]] | None = None) -> None:
         """Print ensemble, configurations and replicas, then per component the central value, its bias-corrected
         value and the correction in units of the gamma error, the errors (gamma method at ``S``, jackknife,
-        bootstrap), tau_int, window W and replica Q-value; ``-`` if absent. ``components`` lists the rows to show
-        (ints or index tuples), default all."""
+        bootstrap), tau_int, window W and replica Q-value; columns without values are left out. ``components`` lists
+        the rows to show (ints or index tuples), default all; a dict names them, e.g. ``{"A": 0, "m": 1}``."""
         layout = self.layout
         _, sizes = np.unique(layout.replicas, return_counts=True)
         shape = np.shape(self.central_value)
@@ -440,11 +440,15 @@ class Variable:
         def with_error(value: float, error: float | None) -> str:
             return f"{value:.6g}" if error is None else log.format_paren(value, error)
 
-        rows = [["component", "value", "corrected", "bias/σ", *errors, "tau_int", "W", "replica Q"]]
-        indices = np.ndindex(shape) if components is None else [np.index_exp[component] for component in components]
-        for index in indices:
+        rows = [["component", "value", "corrected", "bias/σ", *(f"{method}_error" for method in errors), "tau_int", "W", "replica Q"]]
+        if isinstance(components, Mapping):
+            selected = [(name, np.index_exp[component]) for name, component in components.items()]
+        else:
+            indices = np.ndindex(shape) if components is None else [np.index_exp[component] for component in components]
+            selected = [(", ".join(map(str, index)), index) for index in indices]
+        for label, index in selected:
             value_error = available[0][index].item() if available else None
-            rows.append([", ".join(map(str, index)),
+            rows.append([str(label),
                          with_error(self.central_value[index].item(), value_error),
                          "-" if corrected is None else with_error(corrected[index].item(), value_error),
                          "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
@@ -453,6 +457,8 @@ class Variable:
                                                                      result.error_tau_int[index].item()),
                          "-" if result is None else str(result.window[index]),
                          "-" if q_value is None else f"{q_value[index]:.2f}"])
+        columns = [i for i in range(len(rows[0])) if any(row[i] not in ("-", "") for row in rows[1:])]
+        rows = [[row[i] for i in columns] for row in rows]
         widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
         for row in rows:
             print("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())

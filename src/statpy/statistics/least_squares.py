@@ -2,7 +2,7 @@
 
 import functools
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -45,6 +45,13 @@ class LeastSquaresFit:
     model: Model
     fit_range: np.ndarray
     data: Variable
+
+    def summarize(self, S: float = 1.5, components: Mapping[str, int | tuple[int, ...]] | Iterable[int | tuple[int, ...]] | None = None) -> None:
+        """Print the fit range, chi^2/dof and p-value, then ``parameters.summarize(S, components)``."""
+        runs = np.split(self.fit_range, np.flatnonzero(np.diff(self.fit_range) != 1) + 1)
+        print(f"fit range {', '.join(f'{run[0]}..{run[-1]}' for run in runs)} ({len(self.fit_range)} points), "
+              f"chi2/dof = {self.chi2:.3g}/{self.dof} = {self.chi2 / self.dof:.3g}, p-value = {self.p_value:.2f}")
+        self.parameters.summarize(S, components)
 
     def plot(self, ax: Axes, error: Literal["gamma", "jackknife", "bootstrap"] = "gamma",
              plot_range: ArrayLike | None = None) -> Axes:
