@@ -51,7 +51,7 @@ class GammaErrorAnalysis:
     error_tau_ints: np.ndarray   # all W
     num_configurations: int      # N, for the errors of the autocorrelation
 
-    def plot_autocorrelation(self, ax: "Axes", component: int | tuple[int, ...] = (), max_lag: int | None = None) -> "Axes":
+    def plot_autocorrelation(self, ax: Axes, component: int | tuple[int, ...] = (), max_lag: int | None = None) -> Axes:
         """Plot the autocorrelation rho(t) of one ``component`` into ``ax`` with its errors for lags 0 to ``max_lag``
         (default max(10, 2W)), shading lags 0 to the chosen window W."""
         rho = autocorrelation(select_component(self.autocovariance, component))
@@ -64,8 +64,8 @@ class GammaErrorAnalysis:
         ax.set(xlabel="lag $t$", ylabel=r"autocorrelation $\rho(t)$")
         return ax
 
-    def plot_integrated_autocorrelation_time(self, ax: "Axes", component: int | tuple[int, ...] = (),
-                                             max_window: int | None = None) -> "Axes":
+    def plot_integrated_autocorrelation_time(self, ax: Axes, component: int | tuple[int, ...] = (),
+                                             max_window: int | None = None) -> Axes:
         """Plot tau_int(W) of one ``component`` into ``ax`` with its errors for windows 0 to ``max_window``
         (default max(10, 2W)), shading windows 0 to the chosen W, and the reported bias-corrected tau_int with its
         error as a band; the curve is not bias-corrected."""
@@ -111,7 +111,7 @@ def _plot_range(W: int, length: int, requested: int | None) -> int:
     return min(max(10, 2 * W) if requested is None else requested, length - 1)
 
 
-def _window_axes(ax: "Axes", W: int, last: int) -> None:
+def _window_axes(ax: Axes, W: int, last: int) -> None:
     """Shade 0 to ``W`` with a direct label, show 0 to ``last`` with integer ticks, common style."""
     from matplotlib.ticker import MaxNLocator
     ax.axvspan(-0.5, W + 0.5, color="0.95", linewidth=0, zorder=0)
@@ -121,7 +121,7 @@ def _window_axes(ax: "Axes", W: int, last: int) -> None:
     style_axes(ax)
 
 
-def _errorbars(ax: "Axes", x: np.ndarray, y: np.ndarray, errors: np.ndarray) -> None:
+def _errorbars(ax: Axes, x: np.ndarray, y: np.ndarray, errors: np.ndarray) -> None:
     """Points with error bars in the first cycle color, ringed in white so overlapping bars stay readable."""
     ax.errorbar(x, y, errors, fmt="o", color="C0", markersize=4, markeredgecolor="white", markeredgewidth=0.6,
                 elinewidth=1, capsize=2, zorder=3)

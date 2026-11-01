@@ -26,7 +26,7 @@ class Database(Mapping[str, Variable]):
     # Constructors
     # ---------------------------------------------------------------------------
 
-    def __init__(self, *args: "Path | Database") -> None:
+    def __init__(self, *args: Path | Database) -> None:
         """Create a Database from database files (``Path``) or Databases with disjoint tags."""
         global _commit_logged
         self._variables: dict[str, Variable] = {}

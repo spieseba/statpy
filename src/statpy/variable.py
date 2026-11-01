@@ -171,7 +171,7 @@ class Variable:
     # ---------------------------------------------------------------------------
 
     @classmethod
-    def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: "Variable",
+    def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: Variable,
                jacobian: Literal["jax"] | Sequence[np.ndarray] | None = "jax", use_vmap: bool = True) -> Self:
         """Variable for ``func`` of the inputs: central value, replica central values, fluctuations and replicates;
         layouts must be equal.
@@ -214,7 +214,7 @@ class Variable:
             return True
 
     @classmethod
-    def _derive_replicates(cls, func: Callable[..., np.ndarray | jax.Array], variables: tuple["Variable", ...],
+    def _derive_replicates(cls, func: Callable[..., np.ndarray | jax.Array], variables: tuple[Variable, ...],
                            compatible: bool) -> dict[str, np.ndarray]:
         replicates = {field: cls._common_field(variables, field)
                       for field in ("replica_central_values", "jackknife_replicates", "bootstrap_replicates")}
@@ -235,7 +235,7 @@ class Variable:
         return dict(zip(present.keys(), pieces))
 
     @staticmethod
-    def _common_field(variables: tuple["Variable", ...], field: str) -> list[np.ndarray] | None:
+    def _common_field(variables: tuple[Variable, ...], field: str) -> list[np.ndarray] | None:
         values = [getattr(variable, field) for variable in variables]
         if any(value is None for value in values):
             return None
@@ -246,7 +246,7 @@ class Variable:
         return values
 
     @classmethod
-    def map_observations(cls, func: Callable[..., np.ndarray], *variables: "Variable") -> Self:
+    def map_observations(cls, func: Callable[..., np.ndarray], *variables: Variable) -> Self:
         """Apply func to the observations of data variables; layouts must be equal. Return a data variable.
 
         func takes the observation arrays (configurations on axis 0) and must act on each configuration separately.
@@ -258,7 +258,7 @@ class Variable:
         return cls.from_data(observations, layout)
 
     @staticmethod
-    def _common_layout(variables: tuple["Variable", ...], name: str) -> Layout:
+    def _common_layout(variables: tuple[Variable, ...], name: str) -> Layout:
         reference = variables[0].layout
         for index, variable in enumerate(variables):
             for field in ("ensemble", "monte_carlo_times", "replicas", "weights"):
@@ -267,7 +267,7 @@ class Variable:
         return reference
 
     @classmethod
-    def concatenate_components(cls, *variables: "Variable", axis: int = 0) -> Self:
+    def concatenate_components(cls, *variables: Variable, axis: int = 0) -> Self:
         """Join data variables along component ``axis``; layouts must be equal."""
         observations_axis = axis + 1 if axis >= 0 else axis
         return cls.map_observations(lambda *observations: np.concatenate(observations, axis=observations_axis),
@@ -459,7 +459,7 @@ class Variable:
     # Plots
     # ---------------------------------------------------------------------------
 
-    def plot_observations(self, ax: "Axes", component: int | tuple[int, ...] = (), weighted: bool = False) -> "Axes":
+    def plot_observations(self, ax: Axes, component: int | tuple[int, ...] = (), weighted: bool = False) -> Axes:
         """Plot the observations of one ``component`` into ``ax`` against Monte Carlo time with their mean;
         ``weighted=True`` plots ``w a / mean(w)`` with their weighted mean."""
         if self.observations is None:
@@ -474,7 +474,7 @@ class Variable:
         return _monte_carlo_history(ax, weights * observations / np.mean(weights), self.layout, central_value,
                                     rf"$\bar F = {central_value:.4g}$", r"weighted observation $w_i a_i / \bar w$")
 
-    def plot_fluctuations(self, ax: "Axes", component: int | tuple[int, ...] = ()) -> "Axes":
+    def plot_fluctuations(self, ax: Axes, component: int | tuple[int, ...] = ()) -> Axes:
         """Plot the fluctuations of one ``component`` into ``ax`` against Monte Carlo time."""
         if self.fluctuations is None:
             raise ValueError("plot_fluctuations: variable has no fluctuations")
@@ -482,15 +482,15 @@ class Variable:
         return _monte_carlo_history(ax, select_component(self.fluctuations, component), self.layout, 0.0,
                                     rf"$0.0$ $(\bar F = {central_value:.4g})$", r"fluctuation $\delta_i$")
 
-    def plot_weights(self, ax: "Axes") -> "Axes":
+    def plot_weights(self, ax: Axes) -> Axes:
         """Plot the weights into ``ax`` against Monte Carlo time with their mean."""
         weights = self.layout.weights
         mean = np.mean(weights)
         return _monte_carlo_history(ax, weights, self.layout, mean, rf"$\bar w = {mean:.4g}$", r"weight $w_i$")
 
 
-def _monte_carlo_history(ax: "Axes", values: np.ndarray, layout: Layout, reference: float, reference_label: str,
-                         ylabel: str) -> "Axes":
+def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference: float, reference_label: str,
+                         ylabel: str) -> Axes:
     """Plot ``values`` into ``ax`` against Monte Carlo time, replicas one after another, with a line at ``reference``;
     legend of the replicas (if more than one) and the reference line."""
     offset = 0

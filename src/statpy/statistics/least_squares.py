@@ -38,16 +38,16 @@ class HessianNotPositiveDefiniteError(Exception):
 @dataclass(frozen=True)
 class LeastSquaresFit:
     """Least-squares fit result: parameters as a Variable, goodness of fit, and the model, fit range and data."""
-    parameters: "Variable"
+    parameters: Variable
     chi2: float
     dof: int
     p_value: float
     model: Model
     fit_range: np.ndarray
-    data: "Variable"
+    data: Variable
 
-    def plot(self, ax: "Axes", error: Literal["gamma", "jackknife", "bootstrap"] = "gamma",
-             plot_range: ArrayLike | None = None) -> "Axes":
+    def plot(self, ax: Axes, error: Literal["gamma", "jackknife", "bootstrap"] = "gamma",
+             plot_range: ArrayLike | None = None) -> Axes:
         """Plot the data at the indices ``plot_range`` (default all) with ``error`` bars into ``ax``, and the fitted
         model with its ``error`` band on the part of the fit range inside ``plot_range``."""
         indices = np.arange(len(self.data.central_value)) if plot_range is None else np.asarray(plot_range)
@@ -73,7 +73,7 @@ class LeastSquaresFit:
         return ax
 
 
-def _variable_error(variable: "Variable", error: str) -> np.ndarray:
+def _variable_error(variable: Variable, error: str) -> np.ndarray:
     """Return the ``"gamma"``, ``"jackknife"`` or ``"bootstrap"`` error of ``variable``; raises ``ValueError`` if absent."""
     if error == "gamma":
         return variable.gamma_method().error

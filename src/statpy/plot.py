@@ -18,13 +18,13 @@ def select_component(values: np.ndarray, component: int | tuple[int, ...]) -> np
     return selected.reshape(len(selected))
 
 
-def label_top(ax: "Axes", x: float, text: str) -> None:
+def label_top(ax: Axes, x: float, text: str) -> None:
     """Direct label just right of ``x`` at the top edge of ``ax``."""
     ax.annotate(text, (x, 1), xycoords=("data", "axes fraction"), xytext=(4, -2), textcoords="offset points",
                 va="top", fontsize="small")
 
 
-def legend_above(ax: "Axes", handles: Sequence["Artist | tuple[Artist, ...]"], labels: Sequence[str],
+def legend_above(ax: Axes, handles: Sequence[Artist | tuple[Artist, ...]], labels: Sequence[str],
                  ncols: int | None = None) -> None:
     """Legend above the axes, one row unless ``ncols`` is given; its lines are thicker than thin traces, so the colors
     stay visible."""
@@ -34,7 +34,7 @@ def legend_above(ax: "Axes", handles: Sequence["Artist | tuple[Artist, ...]"], l
         line.set_linewidth(2)
 
 
-def style_axes(ax: "Axes") -> None:
+def style_axes(ax: Axes) -> None:
     """Light grid, grey frame and ticks, no top/right frame."""
     ax.grid(color="0.9", linewidth=0.8)
     ax.set_axisbelow(True)

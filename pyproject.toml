@@ -9,7 +9,7 @@ description = "Python toolkit targeted at MCMC data analysis in the context of l
 readme="README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python=">=3.12"
+requires-python=">=3.14"
 authors = [
     {name="Sebastian Spiegel", email="spieseba@mailbox.org"}
 ]
