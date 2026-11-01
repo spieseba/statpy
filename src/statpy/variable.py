@@ -273,20 +273,21 @@ class Variable:
         return cls.map_observations(lambda *observations: np.concatenate(observations, axis=observations_axis),
                                     *variables)
 
-    def bin(self, bin_size: int) -> Self:
+    def bin(self, bin_size: int, bootstrap_indices: NDArray[np.integer] | None = None) -> Self:
         """Return the data variable binned in array order, truncating the trailing incomplete bin.
 
         A bin holds ``bin_size`` measured configurations; with gaps it spans more Monte Carlo time.
         Requires one replica. The result keeps the ensemble and the replica and has Monte Carlo
         times ``0, ..., num_bins - 1``. Binned layouts identify ensemble, replica and number of bins only.
-        ``bin_size == 1`` returns the variable itself.
+        ``bin_size == 1`` returns the variable itself. ``bootstrap_indices`` (num_bootstraps, num_bins) is optional;
+        with it, bootstrap replicates of the binned data are computed too.
         """
         if bin_size < 1:
             raise ValueError(f"bin: bin_size must be >= 1, got {bin_size}")
         if self.observations is None:
             raise ValueError("bin: variable has no observations")
         if bin_size == 1:
-            return self
+            return self if bootstrap_indices is None else type(self).from_data(self.observations, self.layout, bootstrap_indices)
         if len(np.unique(self.layout.replicas)) > 1:
             raise ValueError("bin: more than one replica; binning across replicas is not supported")
 
@@ -296,7 +297,7 @@ class Variable:
         bin_weights = statistics.bin(weights, bin_size, weights=np.ones(len(weights)))
         replicas = np.full(num_bins, self.layout.replicas[0])
         layout = Layout(self.layout.ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
-        return type(self).from_data(observations, layout)
+        return type(self).from_data(observations, layout, bootstrap_indices)
 
     def least_squares_fit(self, model: least_squares.Model, fit_range: ArrayLike, initial_parameters: ArrayLike, *,
                           numba_model: least_squares.Model | None = None, weight_matrix: np.ndarray | None = None,

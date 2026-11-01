@@ -2,10 +2,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-def generate_bootstrap_indices(num_bootstraps: int, num_configurations: int, seed: int) -> NDArray[np.integer]:
+def generate_bootstrap_indices(num_bootstraps: int, num_configurations: int, rng: np.random.Generator) -> NDArray[np.integer]:
     """Return a (num_bootstraps, num_configurations) bootstrap index matrix."""
-    rng = np.random.RandomState(seed)
-    return rng.randint(low=0, high=num_configurations, size=(num_bootstraps, num_configurations))
+    return rng.integers(low=0, high=num_configurations, size=(num_bootstraps, num_configurations))
 
 
 def mean_replicates(observations: np.ndarray, bootstrap_indices: NDArray[np.integer], weights: np.ndarray) -> np.ndarray:
