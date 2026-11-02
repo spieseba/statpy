@@ -173,6 +173,10 @@ for bin_size in (1, 8, 16, 32, 64):
 64 2.5e-04
 ```
 
+### Example 3: real lattice data
+
+A more involved example can be found in [caa-control-variates](https://github.com/spieseba/caa-control-variates), which applies covariant approximation averaging, a control-variates technique, to real lattice QCD correlator data and reduces the statistical error by up to an order of magnitude.
+
 ## Roadmap
 
 - Quantities from several ensembles, external inputs and systematic errors, with an error budget
