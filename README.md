@@ -1,75 +1,182 @@
 # statpy
+
 [![tests](https://github.com/spieseba/statpy/actions/workflows/ci.yml/badge.svg)](https://github.com/spieseba/statpy/actions/workflows/ci.yml)
 
-A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD.
+statpy is a Python library for statistical analysis, error propagation and autocorrelation estimation of Markov chain Monte Carlo data (e.g. from lattice field theory simulations).
 
-## What it does
+- Error estimation and propagation for autocorrelated data by jackknife and bootstrap with binning, and by the gamma method, which estimates the autocorrelations directly
+- Built on [JAX](https://github.com/jax-ml/jax): automatic differentiation (autodiff) for gamma-method Jacobians, `vmap` for jackknife and bootstrap replicates, `jit` for least-squares fits
+- Nonlinear least-squares fits with error propagation by all three methods, optionally with numba-compiled models
+- Delayed binning (Spiegel, Lehner, [Phys. Rev. D 111](https://doi.org/10.1103/mj3d-yq87)): jackknife errors of derived quantities at any bin size, without repeating the analysis
 
-- **Automatic error propagation through arbitrary, nonlinear operations:** `Variable.derive(f, *variables)` applies any function to the central value and to every jackknife/bootstrap resample, so error bars on quantities like effective masses `log(C(t)/C(t+1))` or ratios fall out with no hand-derived Jacobians and no Gaussian linearization.
-- **Correlations preserved by construction:** combining variables aligns jackknife resamples by config label (union of config sets, configs missing from an input contributing their central value) and bootstrap resamples by index, so covariances between derived quantities are carried through every step.
-- **Autocorrelation-aware UQ for MCMC time series:** jackknife, bootstrap, and a published delayed-binning estimator ([Phys. Rev. D 111](https://doi.org/10.1103/mj3d-yq87)) for errors on correlated samples, plus correlated least-squares fitting with the full covariance matrix.
-- **Reproducible, self-describing storage:** a tagged binary database carries observations, jackknife replicates, and the statpy commit hash in a CRC-checked file, so an analysis and its provenance travel together.
+## Installation
+
+Requires Python >= 3.14 and [uv](https://docs.astral.sh/uv/getting-started/). From your project directory:
+
+```bash
+uv add /absolute/path/to/statpy             # add --editable for an editable installation of statpy
+uv run python -c "import statpy; print(statpy.__file__)"
+```
+
+## Examples
+
+### Example 1: a single Markov chain
+
+We generate a chain with known integrated autocorrelation time and compare the error estimates of its mean from gamma method, jackknife, and bootstrap.
 
 ```python
 import numpy as np
 import statpy as sp
-from statpy.variable import Layout, Variable
 
+# Generate Markov chain with num_configs samples with integrated autocorrelation time tau via AR(1):
+num_configs = 100_000
+tau = 8.0
+rng = np.random.default_rng(1337)
+chain = sp.simulation.ar1.generate_chains(tau=tau, num_configurations=num_configs, rng=rng)
+x = sp.Variable.from_data(
+    observations=chain,
+    layout=sp.Layout(ensemble="Ensemble-E", monte_carlo_times=np.arange(num_configs)),
+    bootstrap_indices=sp.statistics.bootstrap.generate_bootstrap_indices(500, num_configs, rng)
+)
+
+x.summarize()
+```
+
+```text
+Ensemble-E: N = 100000, shape (), S = 1.5
+value      gamma_error  jackknife_error  bootstrap_error  tau_int   W
+0.012(13)  0.013        0.0032           0.0034           8.31(40)  67
+```
+
+The AR(1) chain has unit variance, so the exact error of its mean is `sqrt(2 tau / num_configs)` = 0.0126. The gamma method estimates it correctly (within margin of errors), and also estimates `tau_int` close to the exact value of 8. Jackknife and bootstrap ignore the autocorrelation, so their errors are too small by roughly a factor of four.
+
+The left plot shows the first 500 samples of the Monte Carlo history. The right plot shows the integrated autocorrelation time against the summation window `W`:
+
+```python
+import matplotlib.pyplot as plt
+
+fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(9, 3.5), layout="constrained")
+x.plot_observations(ax0).set_xlim(0, 500)
+x.gamma_method().plot_integrated_autocorrelation_time(ax1)
+fig.savefig("markov_chain.png", dpi=150)
+```
+
+![Monte Carlo history and integrated autocorrelation time of the chain](docs/markov_chain.png)
+
+Binning removes the autocorrelations in the chain, so jackknife and bootstrap can estimate the error if the bin size is chosen appropriately (bin size >> `tau`). The bootstrap indices have to be adapted accordingly:
+
+```python
+for bin_size in (4, 16, 64, 128):
+    bootstrap_indices = sp.statistics.bootstrap.generate_bootstrap_indices(500, num_configs // bin_size, rng)
+    binned = x.bin(bin_size, bootstrap_indices=bootstrap_indices)
+    print(f"bin size {bin_size}:")
+    binned.summarize()
+```
+
+```text
+bin size 4:
+Ensemble-E: N = 25000, shape (), S = 1.5
+value      gamma_error  jackknife_error  bootstrap_error  tau_int   W
+0.012(13)  0.013        0.0059           0.006            2.44(13)  19
+bin size 16:
+Ensemble-E: N = 6250, shape (), S = 1.5
+value      gamma_error  jackknife_error  bootstrap_error  tau_int    W
+0.012(13)  0.013        0.0096           0.0094           0.927(60)  7
+bin size 64:
+Ensemble-E: N = 1562, shape (), S = 1.5
+value      gamma_error  jackknife_error  bootstrap_error  tau_int    W
+0.012(14)  0.014        0.012            0.012            0.680(67)  4
+bin size 128:
+Ensemble-E: N = 781, shape (), S = 1.5
+value      gamma_error  jackknife_error  bootstrap_error  tau_int    W
+0.012(14)  0.014        0.012            0.012            0.641(89)  4
+```
+
+Jackknife and bootstrap errors grow with the bin size and approach the exact 0.0126 at bin sizes well above `tau`. The gamma-method error stays about the same. `tau_int` is then understood in units of bins and approaches 1/2 because the bins become independent.
+
+### Example 2: a lattice QCD correlator
+
+We simulate a correlator `2 exp(-0.3 t)` with true mass 0.3 and extract that mass. All time slices share a large AR(1) chain, which makes them strongly correlated, and each has a small chain of its own. As in real correlators, the relative noise grows with `t`.
+
+```python
+import numpy as np
+import statpy as sp
+
+# Simulate 6400 measurements of 16 time slices
+num_configs = 6400
+t = np.arange(16)
 rng = np.random.default_rng(0)
-num_cfg, num_t = 200, 8
-layout = Layout("A1", np.arange(num_cfg))  # ensemble, Monte Carlo times
+shared_chain = sp.simulation.ar1.generate_chains(tau=2.0, num_configurations=num_configs, rng=rng)
+separate_chains = sp.simulation.ar1.generate_chains(tau=np.full(16, 4.0), num_configurations=num_configs, rng=rng)
+relative_noise = 0.02 * np.exp(0.15 * t)
+observations = 2 * np.exp(-0.3 * t) * (1 + relative_noise * (shared_chain[:, None] + 0.1 * separate_chains))
 
-# Two measured correlators, one sample per configuration.
-t = np.arange(num_t)
-C1 = np.exp(-0.5 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
-C2 = np.exp(-0.7 * t) * (1 + 0.05 * rng.normal(size=(num_cfg, num_t)))
-
-db = sp.database.Database()
-db["C1"] = Variable.from_data(C1, layout)
-db["C2"] = Variable.from_data(C2, layout)
-
-# Transform one variable: effective mass  m(t) = log(C1(t) / C1(t+1)).
-db["m_eff"] = Variable.derive(lambda c: np.log(c[:-1] / c[1:]), db["C1"])
-
-# Combine two variables cfg-wise: the ratio C1 / C2.
-db["ratio"] = Variable.derive(lambda a, b: a / b, db["C1"], db["C2"])
-
-# Jackknife errors propagate automatically through both operations.
-err = lambda tag: np.sqrt(db[tag].jackknife_variance())
-print("m_eff:", db["m_eff"].central_value[:3].round(3), "+/-", err("m_eff")[:3].round(3))
-print("ratio:", db["ratio"].central_value[:3].round(3), "+/-", err("ratio")[:3].round(3))
-# m_eff: [0.505 0.5   0.494] +/- [0.005 0.005 0.005]
-# ratio: [1.001 1.225 1.491] +/- [0.005 0.006 0.008]
+correlator = sp.Variable.from_data(
+    observations=observations,
+    layout=sp.Layout(ensemble="Ensemble-E", monte_carlo_times=np.arange(num_configs)),
+    bootstrap_indices=sp.statistics.bootstrap.generate_bootstrap_indices(500, num_configs, rng)
+)
 ```
 
-See [caa-control-variates](https://github.com/spieseba/caa-control-variates) for a full worked example (Monte Carlo variance reduction on real data).
+The effective mass `log(C(t) / C(t+1))` is a nonlinear function of correlated time slices. The `derive` method of `Variable` estimates the errors of any function written with `jax.numpy`. The derivatives don't have to be supplied, as they are computed exactly via autodiff:
 
----
+```python
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
-### Prerequisites
-- Python >= 3.12 (developed and tested with 3.14; older versions are no longer checked)
-- `uv` installed (see https://docs.astral.sh/uv/getting-started/)
+effective_mass = sp.Variable.derive(lambda c: jnp.log(c[:-1] / c[1:]), correlator)
 
-### Installation
-From your project directory, run **one** of:
-
-```bash
-uv add /absolute/path/to/statpy             # non-editable
-uv add --editable /absolute/path/to/statpy  # editable
+fig, ax = plt.subplots(figsize=(6, 3.5), layout="constrained")
+ax.errorbar(t[:-1], effective_mass.central_value, effective_mass.gamma_method().error, fmt="o", capsize=3, label="effective mass")
+ax.axhline(0.3, color="C1", label="exact value")
+ax.set(xlabel="$t$", ylabel=r"$m_\mathrm{eff}(t)$")
+ax.legend()
+sp.plot.style_axes(ax)
+fig.savefig("effective_mass.png", dpi=150)
 ```
 
-Use the editable command if you actively develop statpy and want changes
-to be picked up immediately by consuming projects.
+![Effective mass and the exact value](docs/effective_mass.png)
 
-statpy is pure Python with a `uv_build` backend, so the editable install
-is a plain path link — source edits are picked up live with no rebuild step.
+We perform an uncorrelated fit of the correlator to `A exp(-m t)` with time slices 2 to 15 using the `least_squares_fit` method. The derivatives are computed automatically via autodiff:
 
-### Verify installation
-```bash
-uv run python -c "import statpy; print(statpy.__file__)"
+```python
+fit = correlator.least_squares_fit(
+    model=sp.qcd.correlator.models.exp(),
+    fit_range=np.arange(2, 16),
+    initial_parameters=np.array([2.0, 0.3])
+)
+fit.summarize(components={"A": 0, "m": 1}) 
 ```
 
----
+```text
+fit range 2..15 (14 points), chi2/dof = 1.08/12 = 0.0902, p-value = 1.00
+Ensemble-E: N = 6400, shape (2,), S = 1.5
+component  value        gamma_error  jackknife_error  bootstrap_error  tau_int   W
+A          1.99988(28)  0.00028      0.00011          0.00011          2.99(31)  20
+m          0.30001(22)  0.00022      0.00011          0.0001           2.04(18)  14
+```
 
-### Versions
-This is the actively developed version (v2). The original toolkit, written during my PhD, is preserved as the [v1.0 release](https://github.com/spieseba/statpy/releases/tag/v1.0) and on the [`v1-legacy`](https://github.com/spieseba/statpy/tree/v1-legacy) branch, and is no longer maintained.
+The mass agrees with the true value 0.3 within its error. `chi2/dof` is well below 1 and the p-value close to 1, as usual for an uncorrelated fit to strongly correlated time slices.
+
+As in Example 1, binning brings the jackknife error of `m` close to the gamma-method error. Delayed binning allows us to do this without repeating the fit:
+
+```python
+for bin_size in (1, 8, 16, 32, 64):
+    print(bin_size, f"{fit.parameters.jackknife_variance(bin_size)[1]**.5:.1e}")
+```
+
+```text
+1 1.1e-04
+8 1.9e-04
+16 2.1e-04
+32 2.3e-04
+64 2.5e-04
+```
+
+## Roadmap
+
+- Quantities from several ensembles, external inputs and systematic errors, with an error budget
+- Gamma-method covariance, with bias correction of its inverse for correlated fits
+- Expected chi-squared for uncorrelated fits (Bruno, Sommer, [arXiv:2209.14188](https://arxiv.org/abs/2209.14188))
+- Exponential tail correction (Schaefer, Sommer, Virotta, [arXiv:1009.5228](https://arxiv.org/abs/1009.5228))
+- Jacobians for effective masses from root solves
