@@ -473,37 +473,35 @@ class Variable:
     # ---------------------------------------------------------------------------
 
     def plot_observations(self, ax: Axes, component: int | tuple[int, ...] = (), weighted: bool = False) -> Axes:
-        """Plot the observations of one ``component`` into ``ax`` against Monte Carlo time with their mean;
-        ``weighted=True`` plots ``w a / mean(w)`` with their weighted mean."""
+        """Plot the observations of one ``component`` into ``ax`` against Monte Carlo time with the central value;
+        ``weighted=True`` plots ``w a / mean(w)``."""
         if self.observations is None:
             raise ValueError("plot_observations: variable has no observations")
         observations = select_component(self.observations, component)
-        if not weighted:
-            mean = np.mean(observations)
-            return _monte_carlo_history(ax, observations, self.layout, mean, rf"$\bar a = {mean:.4g}$",
-                                        r"observation $a_i$")
-        weights = self.layout.weights
         central_value = self.central_value[np.index_exp[component]].item()
+        if not weighted:
+            return _monte_carlo_history(ax, observations, self.layout, central_value, "observation")
+        weights = self.layout.weights
         return _monte_carlo_history(ax, weights * observations / np.mean(weights), self.layout, central_value,
-                                    rf"$\bar F = {central_value:.4g}$", r"weighted observation $w_i a_i / \bar w$")
+                                    "weighted observation")
 
     def plot_fluctuations(self, ax: Axes, component: int | tuple[int, ...] = ()) -> Axes:
-        """Plot the fluctuations of one ``component`` into ``ax`` against Monte Carlo time."""
+        """Plot central value + fluctuations of one ``component`` into ``ax`` against Monte Carlo time."""
         if self.fluctuations is None:
             raise ValueError("plot_fluctuations: variable has no fluctuations")
         central_value = self.central_value[np.index_exp[component]].item()
-        return _monte_carlo_history(ax, select_component(self.fluctuations, component), self.layout, 0.0,
-                                    rf"$0.0$ $(\bar F = {central_value:.4g})$", r"fluctuation $\delta_i$")
+        return _monte_carlo_history(ax, central_value + select_component(self.fluctuations, component), self.layout,
+                                    central_value, "central value + fluctuation")
 
     def plot_weights(self, ax: Axes) -> Axes:
         """Plot the weights into ``ax`` against Monte Carlo time with their mean."""
         weights = self.layout.weights
         mean = np.mean(weights)
-        return _monte_carlo_history(ax, weights, self.layout, mean, rf"$\bar w = {mean:.4g}$", r"weight $w_i$")
+        return _monte_carlo_history(ax, weights, self.layout, mean, "weight", reference_name="mean")
 
 
-def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference: float, reference_label: str,
-                         ylabel: str) -> Axes:
+def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference: float, ylabel: str,
+                         reference_name: str = "central value") -> Axes:
     """Plot ``values`` into ``ax`` against Monte Carlo time, replicas one after another, with a line at ``reference``;
     legend of the replicas (if more than one) and the reference line."""
     offset = 0
@@ -518,7 +516,7 @@ def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference
         ax.plot(np.insert((times + offset).astype(float), gaps, np.nan), np.insert(values[in_replica], gaps, np.nan),
                 linewidth=0.7, label=f"replica {replica}" if several_replicas else None)
         offset += times[-1] + 1
-    ax.axhline(reference, color="0.15", linewidth=1, label=reference_label)
+    ax.axhline(reference, color="0.15", linewidth=1, label=f"{reference_name} = {reference:.4g}")
     legend_above(ax, *ax.get_legend_handles_labels())
     ax.set(xlabel="Monte Carlo time", ylabel=ylabel)
     style_axes(ax)
