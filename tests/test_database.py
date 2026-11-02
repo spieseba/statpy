@@ -1,15 +1,19 @@
 """Tests for Database save and load."""
 
 import numpy as np
+import pytest
 
 from statpy.database import Database
 from statpy.variable import Layout, Variable
 
 
-def test_save_load_keeps_every_field(tmp_path):
-    layout = Layout("E", np.array([0, 2, 3, 0, 1, 2]), replicas=np.array([0, 0, 0, 1, 1, 1]),
-                    weights=np.array([1.0, 2, 1, 1, 2, 1]))
-    bootstrap_indices = np.random.default_rng(0).integers(6, size=(4, 6))
+# Several replicas give no jackknife and bootstrap replicates, so both cases are saved
+@pytest.mark.parametrize("monte_carlo_times, replicas", [(np.array([0, 2, 3, 4, 5, 6]), np.zeros(6, dtype=int)),
+                                                         (np.array([0, 2, 3, 0, 1, 2]), np.array([0, 0, 0, 1, 1, 1]))])
+def test_save_load_keeps_every_field(tmp_path, monte_carlo_times, replicas):
+    layout = Layout("E", monte_carlo_times, replicas=replicas, weights=np.array([1.0, 2, 1, 1, 2, 1]))
+    one_replica = len(np.unique(replicas)) == 1
+    bootstrap_indices = np.random.default_rng(0).integers(6, size=(4, 6)) if one_replica else None
     variable = Variable.from_data(np.arange(12.0).reshape(6, 2), layout, bootstrap_indices=bootstrap_indices)
     db = Database()
     db["a"] = variable

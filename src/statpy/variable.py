@@ -122,19 +122,24 @@ class Variable:
 
         ``observations`` has configurations on axis 0, in ``layout`` order. ``bootstrap_indices`` is an
         optional index matrix (num_bootstraps, N); with it, bootstrap replicates are computed too.
+        Jackknife and bootstrap need one replica; with several, the variable has no jackknife replicates and
+        ``bootstrap_indices`` raises.
         """
         if not isinstance(observations, np.ndarray):
             raise TypeError(f"from_data: observations must be np.ndarray, got {type(observations).__name__}")
         num_configurations = len(layout.monte_carlo_times)
         if len(observations) != num_configurations:
             raise ValueError(f"from_data: observations have length {len(observations)}, expected {num_configurations}")
+        replicas = np.unique(layout.replicas)
+        if len(replicas) > 1 and bootstrap_indices is not None:
+            raise ValueError(f"from_data: bootstrap needs one replica, got {len(replicas)}")
 
         weights = layout.weights
         mean, fluctuations = gamma.mean_and_fluctuations(observations, weights)
         replica_central_values = np.stack([
             np.average(observations[layout.replicas == replica], axis=0, weights=weights[layout.replicas == replica])
-            for replica in np.unique(layout.replicas)])
-        jackknife_replicates = jackknife.mean_replicates(observations, weights=weights)
+            for replica in replicas])
+        jackknife_replicates = jackknife.mean_replicates(observations, weights=weights) if len(replicas) == 1 else None
         bootstrap_replicates = None
         if bootstrap_indices is not None:
             bootstrap_replicates = bootstrap.mean_replicates(observations, bootstrap_indices, weights=weights)
@@ -276,7 +281,7 @@ class Variable:
     def bin(self, bin_size: int, bootstrap_indices: NDArray[np.integer] | None = None) -> Self:
         """Return the data variable binned in array order, truncating the trailing incomplete bin.
 
-        A bin holds ``bin_size`` measured configurations; with gaps it spans more Monte Carlo time.
+        A bin holds ``bin_size`` measured configurations; gaps in the Monte Carlo times are ignored.
         Requires one replica. The result keeps the ensemble and the replica and has Monte Carlo
         times ``0, ..., num_bins - 1``. Binned layouts identify ensemble, replica and number of bins only.
         ``bin_size == 1`` returns the variable itself. ``bootstrap_indices`` (num_bootstraps, num_bins) is optional;
@@ -286,10 +291,10 @@ class Variable:
             raise ValueError(f"bin: bin_size must be >= 1, got {bin_size}")
         if self.observations is None:
             raise ValueError("bin: variable has no observations")
-        if bin_size == 1:
-            return self if bootstrap_indices is None else type(self).from_data(self.observations, self.layout, bootstrap_indices)
         if len(np.unique(self.layout.replicas)) > 1:
             raise ValueError("bin: more than one replica; binning across replicas is not supported")
+        if bin_size == 1:
+            return self if bootstrap_indices is None else type(self).from_data(self.observations, self.layout, bootstrap_indices)
 
         weights = self.layout.weights
         num_bins = len(self.observations) // bin_size
