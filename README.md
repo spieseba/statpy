@@ -48,7 +48,7 @@ value      gamma_error  jackknife_error  bootstrap_error  tau_int   W
 0.012(13)  0.013        0.0032           0.0034           8.31(40)  67
 ```
 
-The AR(1) chain has unit variance, so the exact error of its mean is `sqrt(2 tau / num_configs)` = 0.0126. The gamma method estimates it correctly (within margin of errors), and also estimates `tau_int` close to the exact value of 8. Jackknife and bootstrap ignore the autocorrelation, so their errors are too small by roughly a factor of four.
+The AR(1) chain has unit variance, so the exact error of its mean is `sqrt(2 tau / num_configs)` = 0.0126. The gamma method estimates it correctly (within margin of errors), and also estimates `tau_int` close to the exact value of 8. Jackknife and bootstrap ignore autocorrelations, so their errors are too small by roughly a factor of four.
 
 The left plot shows the first 500 samples of the Monte Carlo history. The right plot shows the integrated autocorrelation time against the summation window `W`:
 
@@ -118,7 +118,7 @@ correlator = sp.Variable.from_data(
 )
 ```
 
-The effective mass `log(C(t) / C(t+1))` is a nonlinear function of correlated time slices. The `derive` method of `Variable` estimates the errors of any function written with `jax.numpy`. The derivatives don't have to be supplied, as they are computed exactly via autodiff:
+The effective mass `log(C(t) / C(t+1))` is a nonlinear function of correlator time slices. The `derive` method of `Variable` estimates the errors of any function written with `jax.numpy`. The derivatives don't have to be supplied, as they are computed exactly via autodiff:
 
 ```python
 import jax.numpy as jnp
