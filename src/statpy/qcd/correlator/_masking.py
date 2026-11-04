@@ -1,6 +1,8 @@
 """Private helpers: masking for OBC averaging + boundary folding."""
 from collections.abc import Sequence
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
@@ -61,9 +63,8 @@ def _get_masked_corrs_boundary(corrs: np.ndarray, tsrc: int, tmin_excited: int,
     return corrs_ma
 
 
-def _flip_sign_boundary(eff_mass: np.ndarray, tsrc: int) -> np.ndarray:
-    eff_mass[:tsrc] = -eff_mass[:tsrc]
-    return eff_mass
+def _flip_sign_boundary(eff_mass: np.ndarray | jax.Array, tsrc: int) -> jax.Array:
+    return jnp.where(jnp.arange(len(eff_mass)) < tsrc, -1, 1) * eff_mass
 
 
 def _fold_meson_boundary(eff_mass: np.ndarray, time_parity: int) -> np.ndarray:

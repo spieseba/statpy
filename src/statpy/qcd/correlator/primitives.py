@@ -1,8 +1,11 @@
 """Pure correlator / effective-mass primitives. No database state."""
+from collections.abc import Callable
+from functools import partial
 from numbers import Real
 
+import jax
+import jax.numpy as jnp
 import numpy as np
-from scipy.optimize import elementwise
 
 from statpy.log import message
 
@@ -10,8 +13,7 @@ from statpy.log import message
 # Effective mass and amplitude
 # ---------------------------------------------------------------------------
 
-@np.errstate(divide='ignore', invalid='ignore')
-def effective_mass(corr: np.ndarray, *, estimator: str, Nt: int | None = None) -> np.ndarray:
+def effective_mass(corr: np.ndarray | jax.Array, *, estimator: str, Nt: int | None = None) -> jax.Array:
     """Return effective masses of a 1D correlator.
 
     estimator selects the formula:
@@ -27,20 +29,19 @@ def effective_mass(corr: np.ndarray, *, estimator: str, Nt: int | None = None) -
     Times start at zero; neighbor formulas wrap endpoints as with np.roll.
     Undefined points (e.g. arccosh argument < 1) return NaN or inf without warning.
     """
-    corr = np.asarray(corr)
     if estimator == "cosh_midpoint":
         Nt = len(corr) if Nt is None else Nt
         midpoint = corr[Nt // 2]
-        return np.abs(
-            np.arccosh(np.roll(corr, 1) / midpoint)
-            - np.arccosh(np.roll(corr, -1) / midpoint)
+        return jnp.abs(
+            jnp.arccosh(jnp.roll(corr, 1) / midpoint)
+            - jnp.arccosh(jnp.roll(corr, -1) / midpoint)
         ) / 2
     if estimator == "log":
-        return np.log(corr / np.roll(corr, -1))
+        return jnp.log(corr / jnp.roll(corr, -1))
     if estimator == "log_symmetric":
-        return np.log(np.roll(corr, 1) / np.roll(corr, -1)) / 2
+        return jnp.log(jnp.roll(corr, 1) / jnp.roll(corr, -1)) / 2
     if estimator == "arccosh":
-        return np.arccosh(0.5 * (np.roll(corr, -1) + np.roll(corr, 1)) / corr)
+        return jnp.arccosh(0.5 * (jnp.roll(corr, -1) + jnp.roll(corr, 1)) / corr)
     if estimator in ("cosh_solve", "sinh_solve"):
         if Nt is None:
             raise ValueError(f"{estimator} needs Nt")
@@ -49,43 +50,84 @@ def effective_mass(corr: np.ndarray, *, estimator: str, Nt: int | None = None) -
     raise ValueError(f"Unknown effective-mass estimator: {estimator}")
 
 
-def _solve_effective_mass(corr: np.ndarray, *, kernel: str, Nt: int) -> np.ndarray:
+@partial(jax.jit, static_argnames=("kernel", "Nt"))
+def _solve_effective_mass(corr: np.ndarray | jax.Array, *, kernel: str, Nt: int) -> jax.Array:
     """Solve kernel(m|t-Nt/2|)/kernel(m|t+1-Nt/2|) = C(t)/C(t+1) per t; kernel is "cosh" or "sinh"."""
-    t = np.arange(len(corr))
-    a = np.abs(t - Nt / 2)
-    b = np.abs(t + 1 - Nt / 2)
-    log_ratio = np.log(corr / np.roll(corr, -1))
+    t = jnp.arange(len(corr))
+    a = jnp.abs(t - Nt / 2)
+    b = jnp.abs(t + 1 - Nt / 2)
+    next_corr = jnp.roll(corr, -1)
+    nonzero = (corr != 0) & (next_corr != 0)
+    # 1 instead of 0 keeps reverse-mode derivatives finite
+    log_ratio = jnp.log(jnp.where(nonzero, corr, 1) / jnp.where(nonzero, next_corr, 1))
     if kernel == "cosh":
         # log(cosh[m(t - Nt/2)] / cosh[m(t + 1 - Nt/2)]) - log(C(t) / C(t+1))
-        def objective_function(m: np.ndarray, a: np.ndarray, b: np.ndarray, log_ratio: np.ndarray) -> np.ndarray:
+        def objective_function(m: jax.Array, a: jax.Array, b: jax.Array, log_ratio: jax.Array) -> jax.Array:
             return (
                 m * (a - b)
-                + np.log1p(np.exp(-2 * m * a))
-                - np.log1p(np.exp(-2 * m * b))
+                + jnp.log1p(jnp.exp(-2 * m * a))
+                - jnp.log1p(jnp.exp(-2 * m * b))
                 - log_ratio
             )
-        lower = np.abs(log_ratio)
-        upper = lower + np.log(2)
-        valid = a != b
+        lower = jnp.abs(log_ratio)
+        upper = lower + jnp.log(2)
+        valid = nonzero & (a != b)
     else:
         # log(sinh[m(t - Nt/2)] / sinh[m(t + 1 - Nt/2)]) - log(C(t)/C(t+1))
-        def objective_function(m: np.ndarray, a: np.ndarray, b: np.ndarray, log_ratio: np.ndarray) -> np.ndarray:
+        def objective_function(m: jax.Array, a: jax.Array, b: jax.Array, log_ratio: jax.Array) -> jax.Array:
             return (
                 m * (a - b)
-                + np.log(-np.expm1(-2 * m * a))
-                - np.log(-np.expm1(-2 * m * b))
+                + jnp.log(-jnp.expm1(-2 * m * a))
+                - jnp.log(-jnp.expm1(-2 * m * b))
                 - log_ratio
             )
-        upper = np.abs(log_ratio)
-        lower = upper - np.abs(np.log(a/b))
-        valid = (a != b) & (a != 0) & (b != 0) & (lower > 0)
-        lower = np.where(valid, lower, np.nan)
-    result = elementwise.find_root(
-        objective_function, (lower, upper),
-        args=(a, b, log_ratio)
-    )
-    mass = np.where(result.success & valid, result.x, np.nan)
+        upper = jnp.abs(log_ratio)
+        lower = upper - jnp.abs(jnp.log(a/b))
+        valid = nonzero & (a != b) & (a != 0) & (b != 0) & (lower > 0)
+        lower = jnp.where(valid, lower, jnp.nan)
+    root, bracketed = _find_root(objective_function, (lower, upper), args=(a, b, log_ratio))
+    mass = jnp.where(bracketed & valid, root, jnp.nan)
     return mass
+
+
+@partial(jax.custom_jvp, nondiff_argnums=(0,))
+def _find_root(objective_function: Callable[[jax.Array, jax.Array, jax.Array, jax.Array], jax.Array],
+               init: tuple[jax.Array, jax.Array], args: tuple[jax.Array, jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
+    """Bisect objective_function in [lower, upper] per element; return roots and where the bracket has a sign change."""
+    lower, upper = init
+    sign_f_lower = jnp.sign(objective_function(lower, *args))
+    sign_f_upper = jnp.sign(objective_function(upper, *args))
+    bracketed = sign_f_lower * sign_f_upper <= 0  # signs differ or an end is a root
+
+    def shrinking(state: tuple[jax.Array, jax.Array, jax.Array]) -> jax.Array:
+        lower, upper, sign_f_middle = state
+        middle = (lower + upper) / 2
+        # stop when no double lies between the ends; |sign| == 1 stops exact roots (0) and NaN
+        return jnp.any((lower < middle) & (middle < upper) & (jnp.abs(sign_f_middle) == 1))
+
+    def halve(state: tuple[jax.Array, jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array, jax.Array]:
+        lower, upper, _ = state
+        middle = (lower + upper) / 2
+        sign_f_middle = jnp.sign(objective_function(middle, *args))
+        lower = jnp.where(sign_f_middle == sign_f_lower, middle, lower)
+        upper = jnp.where(sign_f_middle == sign_f_upper, middle, upper)
+        return lower, upper, sign_f_middle
+
+    lower, upper, _ = jax.lax.while_loop(shrinking, halve, (lower, upper, jnp.ones_like(lower)))
+    return (lower + upper) / 2, bracketed
+
+
+@_find_root.defjvp
+def _find_root_jvp(objective_function, primals, tangents):
+    """Implicit derivative of the root: dm = -(df/dargs . dargs) / (df/dm); the bracket has none."""
+    init, args = primals
+    _, args_tangents = tangents
+    root, bracketed = _find_root(objective_function, init, args)
+    _, df_dm = jax.jvp(lambda m: objective_function(m, *args), (root,), (jnp.ones_like(root),))
+    _, df_dargs = jax.jvp(lambda *args: objective_function(root, *args), args, args_tangents)
+    # zero where unbracketed; built from values only, so NaN stays out of reverse mode
+    k = jnp.where(bracketed, -1 / df_dm, 0)
+    return (root, bracketed), (k * df_dargs, np.zeros(bracketed.shape, jax.dtypes.float0))
 
 
 def effective_amplitude(corr: np.ndarray, mass: float, *, kernel: str, Nt: int | None = None) -> np.ndarray:
