@@ -155,12 +155,16 @@ def project_fluctuations(jacobians: Sequence[np.ndarray], fluctuations: Sequence
     ``jacobians[k]`` has shape ``output_shape + input_shape_k`` (as from
     ``value_and_jacobians``), ``fluctuations[k]`` has shape
     ``(num_configurations,) + input_shape_k``. Returns shape
-    ``(num_configurations,) + output_shape``.
+    ``(num_configurations,) + output_shape``. Fluctuations of input components on which no
+    output depends are set to zero, so non-finite values there do not reach the result.
     """
     projections = []
     for jacobian, fluctuation in zip(jacobians, fluctuations, strict=True):
         fluctuation_input_axes = range(1, fluctuation.ndim)
         jacobian_input_axes = range(jacobian.ndim - len(fluctuation_input_axes), jacobian.ndim)
+        # 0 * NaN is NaN: zero the fluctuations of components the output does not depend on
+        used = np.any(jacobian != 0, axis=tuple(range(jacobian.ndim - len(fluctuation_input_axes))))
+        fluctuation = np.where(used, fluctuation, 0)
         projections.append(np.tensordot(fluctuation, jacobian, axes=(fluctuation_input_axes, jacobian_input_axes)))
     return np.sum(projections, axis=0)
 
