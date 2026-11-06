@@ -3,8 +3,10 @@
 import numpy as np
 import pytest
 
-from statpy.qcd.correlator._masking import _get_masked_meson_sample
-from statpy.qcd.correlator.primitives import meson_fold_correlator
+from statpy.qcd.correlator.averaging import (
+    _get_masked_meson_observations,
+    meson_fold_correlator,
+)
 
 
 @pytest.mark.parametrize("sign", [1, -1])
@@ -20,7 +22,7 @@ def test_masked_average_does_not_mutate_source(time_parity):
     original = sample.copy()
     sample.setflags(write=False)
 
-    result = _get_masked_meson_sample(sample, 4, 4, time_parity)
+    result = _get_masked_meson_observations(sample, 4, 4, time_parity)
 
     expected_backward = original[:, :, [0, 3, 2, 1]]
     expected_backward[:, :, 1:] *= time_parity

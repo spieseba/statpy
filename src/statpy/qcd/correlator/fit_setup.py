@@ -1,10 +1,10 @@
-"""Start values and ground-state range proposal for two-state correlator fits."""
-
+"""Start values, mass guesses and fit ranges for correlator fits."""
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from statpy.log import message
 from statpy.qcd.correlator import numba_models
-from statpy.qcd.correlator.primitives import effective_mass
+from statpy.qcd.correlator.effective_observables import effective_mass
 
 # ---------------------------------------------------------------------------
 # Start values
@@ -51,8 +51,9 @@ def initial_parameter_guesses(fit_model: str, times: ArrayLike, correlator: Arra
         m1 = m0 + gap
         if not np.isfinite(m1) or m1 <= m0:
             raise ValueError(f"Mass gap {gap} does not produce a finite mass above m0")
-        design = np.column_stack((model(times, np.array([1.0, m0])), model(times, np.array([1.0, m1])))) / sigma[:, None] 
-        scale = np.max(np.abs(design), axis=0) # scale columns to avoid treating the smaller excited kernel as zero
+        design = np.column_stack((model(times, np.array([1.0, m0])), model(times, np.array([1.0, m1])))) / sigma[:, None]
+        # scale columns so the smaller excited-state kernel is not treated as zero
+        scale = np.max(np.abs(design), axis=0)
         if not np.isfinite(design).all() or np.any(scale == 0):
             raise ValueError(f"Nonfinite or vanishing model column for mass gap {gap}")
         amplitudes, _, rank, _ = np.linalg.lstsq(design / scale, correlator / sigma, rcond=None)
@@ -74,12 +75,47 @@ def propose_ground_state_range(fit_model: str, times: NDArray[np.integer], varia
     ``variance`` is the correlator variance at ``times``; ``parameters`` are the two-state fit parameters
     ``[A0, m0, A1, m1]``.
     """
-    model_func = {"double-cosh": numba_models.double_cosh(Nt),
-                  "double-sinh": numba_models.double_sinh(Nt),
-                  "double-exp": numba_models.double_exp()}[fit_model]
-    boundary_condition = "open" if fit_model == "double-exp" else "periodic"
-    excited = np.abs(model_func(times, np.array([0.0, 0.0, parameters[2], parameters[3]])))
+    model = {"double-cosh": numba_models.double_cosh(Nt),
+             "double-sinh": numba_models.double_sinh(Nt),
+             "double-exp": numba_models.double_exp()}[fit_model]
+    excited = np.abs(model(times, np.array([0.0, 0.0, parameters[2], parameters[3]])))
     std_over_four = (variance ** 0.5) / 4.0
-    if boundary_condition == "periodic" and not folded:
+    if fit_model in ("double-cosh", "double-sinh") and not folded:
         std_over_four = (std_over_four + std_over_four[::-1]) / 2
     return times[excited < std_over_four]
+
+
+# ---------------------------------------------------------------------------
+# Signal-to-noise cut
+# ---------------------------------------------------------------------------
+
+def signal_to_noise_tmax(mean: np.ndarray, variance: np.ndarray, min_signal_to_noise: float, tmin: int | None = None,
+                         debug: bool = False) -> int:
+    """Return the first failing slice (exclusive endpoint), or the data length.
+
+    A failure is S/N below the required threshold or NaN. Search all slices
+    unless tmin is supplied, in which case only t > tmin is considered.
+    """
+    signal_to_noise = mean / variance**.5
+    times = np.arange(len(signal_to_noise))
+    invalid = (signal_to_noise < min_signal_to_noise) | np.isnan(signal_to_noise)
+    if tmin is not None:
+        invalid &= times > tmin
+    candidates = times[invalid]
+
+    tmax = int(candidates[0]) if candidates.size else len(mean)
+    if not candidates.size:
+        reason = "End of data; no failing slice in search region"
+    else:
+        reason = "First NaN" if np.isnan(signal_to_noise[tmax]) else "First value below threshold"
+    search_region = "all time slices" if tmin is None else f"t > {tmin}"
+    message(
+        "Signal-to-noise cutoff\n"
+        f"  {'Threshold':<14} {min_signal_to_noise}\n"
+        f"  {'Search region':<14} {search_region}\n"
+        f"  {'tmax':<14} {tmax} (exclusive)\n"
+        f"  {'Reason':<14} {reason}"
+    )
+    if debug:
+        message(f"Signal-to-noise values ({len(signal_to_noise)} slices):\n{signal_to_noise}")
+    return tmax

@@ -4,7 +4,7 @@ import jax
 import numpy as np
 import pytest
 
-from statpy.qcd.correlator.primitives import effective_mass
+from statpy.qcd.correlator.effective_observables import effective_mass
 from statpy.statistics import gamma
 
 Nt, m = 48, 0.3

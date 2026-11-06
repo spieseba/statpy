@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from statpy.qcd.correlator._masking import _fold_meson_boundary
+from statpy.qcd.correlator.averaging import _fold_meson_boundary
 
 
 def test_fold_does_not_mutate_input():
