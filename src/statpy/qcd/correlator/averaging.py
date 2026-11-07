@@ -1,6 +1,5 @@
 """Source averaging and folding of meson correlators."""
 from collections.abc import Sequence
-from dataclasses import dataclass
 from numbers import Real
 
 import jax
@@ -34,6 +33,17 @@ def _validate_time_parity(time_parity: int) -> int:
     ):
         raise ValueError("time_parity must be +1 (even) or -1 (odd), not a boolean")
     return int(time_parity)
+
+
+def obc_fold_effective_mass(mass: np.ndarray | jax.Array) -> jax.Array:
+    """Average an OBC effective mass with its mirror image around (T - 1)/2, using the available half.
+
+    Where only one of m(t) and m(T - 1 - t) is finite, that value is returned; NaN where neither is.
+    """
+    half = len(mass) // 2
+    stacked = jnp.stack([mass[:half], jnp.flip(mass[half:])], axis=0)
+    finite = jnp.isfinite(stacked)
+    return jnp.sum(jnp.where(finite, stacked, 0), axis=0) / jnp.sum(finite, axis=0)
 
 
 # ---------------------------------------------------------------------------
@@ -92,78 +102,63 @@ def _get_masked_meson_observations(observations: np.ndarray, tmax_forward: int, 
 # Boundary average
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
-class BoundaryAverage:
-    """Boundary effective mass, folded effective mass, and source counts."""
+def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited: int, *,
+                               max_source_distance: int | None = None,
+                               estimator: str = "log_symmetric") -> tuple[Variable, np.ndarray]:
+    """Return the source-averaged boundary effective mass and the number of sources per time slice.
 
-    effective_mass: Variable
-    folded: Variable
-    nsrc_hist: np.ndarray
-
-
-def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited: int, *, max_source_distance: int | None = None,
-                               time_parity: int = 1) -> BoundaryAverage:
-    """Return source-averaged boundary effective masses and source counts."""
-    time_parity = _validate_time_parity(time_parity)
-
-    effective_masses = []
-    for tsrc, variable in correlators.items():
-        masked = Variable.map_observations(lambda observations, tsrc=tsrc: np.array([
-            _get_masked_correlators_boundary(observation, tsrc, tmin_excited, max_source_distance).mean(axis=0)
-            for observation in observations
-        ]), variable)
-        effective_masses.append(Variable.derive(
-            lambda correlator, tsrc=tsrc: _boundary_effective_mass(correlator, tsrc), masked))
-
-    def source_average(*masses: np.ndarray) -> np.ndarray:
-        # masked mean over tsrcs (0 marks a masked time slice)
-        return np.ma.filled(np.ma.masked_equal(np.array(masses), 0).mean(axis=0), 0)
-    effective_mass = Variable.derive(source_average, *effective_masses)
-    nsrc_hist = np.sum(np.array([mass.central_value for mass in effective_masses]) != 0, axis=0)
-    folded = Variable.derive(lambda mass: _fold_meson_boundary(mass, time_parity), effective_mass)
-    return BoundaryAverage(effective_mass, folded, nsrc_hist)
-
-
-def _boundary_effective_mass(correlator: np.ndarray, tsrc: int) -> np.ndarray:
-    """Boundary effective mass of a (masked) correlator, sign-corrected per tsrc.
-
-    Masked / non-finite time slices collapse to 0 -- the marker the source
-    average reads as "no contribution here".
+    The average is NaN where no source has a value.
     """
-    return np.nan_to_num(
-        _flip_sign_boundary(effective_mass(correlator, estimator="log_symmetric"), tsrc), nan=0.0, posinf=0.0, neginf=0.0
-    )
+    # source count from the central values; raises here, before derive, for an unsupported estimator
+    effective_masses = np.array([
+        _masked_source_mass(correlators[tsrc].central_value, tsrc, tmin_excited, max_source_distance, estimator)
+        for tsrc in correlators
+    ])
+    num_sources = np.sum(np.isfinite(effective_masses), axis=0)
+
+    tsrcs = list(correlators)
+
+    def source_average(*arrays: np.ndarray) -> jax.Array:
+        """Return the mean over sources of the finite masked masses; arrays in the order of tsrcs."""
+        stacked = jnp.stack([
+            _masked_source_mass(array, tsrc, tmin_excited, max_source_distance, estimator)
+            for array, tsrc in zip(arrays, tsrcs, strict=True)
+        ])
+        finite = jnp.isfinite(stacked)
+        # sum and count only finite masses; 0/0 = NaN where no source is finite
+        return jnp.sum(jnp.where(finite, stacked, 0), axis=0) / jnp.sum(finite, axis=0)
+
+    # one derive over all sources
+    average = Variable.derive(source_average, *correlators.values())
+    return average, num_sources
 
 
-def _get_masked_correlators_boundary(correlators: np.ndarray, tsrc: int, tmin_excited: int,
-                                     max_source_distance: int | None = None) -> np.ma.MaskedArray:
-    """Return correlators in lattice time, masked where |t - tsrc| < tmin_excited or |t - tsrc| > max_source_distance."""
-    # get correlators in terms of original lattice
-    aligned = np.roll(correlators, tsrc, axis=1)
-    num_correlators = correlators.shape[0]
-    # 1: create masked array
-    masked = np.ma.empty((num_correlators, correlators.shape[1]) )
-    masked.mask = True
-    # 2: fill in all elements that are not excited states
-    masked[:,:tsrc-(tmin_excited-1)] = aligned[:,:tsrc-(tmin_excited-1)]
-    masked[:,tsrc+tmin_excited:] = aligned[:,tsrc+tmin_excited:]
-    # 3: mask time slices with |t - tsrc| > max_source_distance (inclusive distance)
+def _masked_source_mass(correlators: np.ndarray, tsrc: int, tmin_excited: int, max_source_distance: int | None,
+                        estimator: str) -> jax.Array:
+    """Return one source's effective mass in lattice time.
+
+    NaN where the mass uses a correlator slice with |t - tsrc| < tmin_excited or
+    |t - tsrc| > max_source_distance, or where it is undefined.
+    """
+    # average over runs and get correlators in terms of original lattice
+    aligned = jnp.roll(jnp.mean(correlators, axis=0), tsrc)
+    mass = _flip_sign_boundary(effective_mass(aligned, estimator=estimator), tsrc)
+    # correlator mask: keep tmin_excited <= |t - tsrc| <= max_source_distance
+    times = np.arange(len(mass))
+    distance = np.abs(times - tsrc)
+    keep = distance >= tmin_excited
     if max_source_distance is not None:
-        times = np.arange(correlators.shape[1])
-        tmax_mask = np.abs(times - tsrc) > max_source_distance
-        masked.mask = np.logical_or(masked.mask, tmax_mask[np.newaxis,:])
-    return masked
+        keep &= distance <= max_source_distance
+    # mass mask: keep the mass at t only if all correlator slices it uses are kept
+    if estimator == "log":
+        keep_mass = keep & np.roll(keep, -1)  # C(t), C(t+1)
+    elif estimator == "log_symmetric":
+        keep_mass = np.roll(keep, 1) & np.roll(keep, -1)  # C(t-1), C(t+1)
+    else:
+        raise ValueError(f"Boundary effective mass needs estimator 'log' or 'log_symmetric', not {estimator!r}")
+    return jnp.where(keep_mass, mass, jnp.nan)
 
 
 def _flip_sign_boundary(mass: np.ndarray | jax.Array, tsrc: int) -> jax.Array:
     """Negate effective masses before tsrc."""
     return jnp.where(jnp.arange(len(mass)) < tsrc, -1, 1) * mass
-
-
-def _fold_meson_boundary(mass: np.ndarray, time_parity: int) -> np.ndarray:
-    """Average mass with its mirror image around (T - 1)/2, times time_parity."""
-    time_parity = _validate_time_parity(time_parity)
-    half = len(mass) // 2
-    first_half = mass[:half]
-    second_half = np.flip(mass[half:]) * time_parity
-    return np.mean([first_half, second_half], axis=0)

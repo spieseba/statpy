@@ -2,8 +2,8 @@
 import statpy.qcd.correlator.models
 import statpy.qcd.correlator.numba_models
 from statpy.qcd.correlator.averaging import (
-    BoundaryAverage,
     meson_fold_correlator,
+    obc_fold_effective_mass,
     obc_meson_boundary_average,
     obc_meson_correlator_average,
 )
