@@ -1,5 +1,6 @@
 """Source averaging and folding of meson correlators."""
 from collections.abc import Sequence
+from functools import partial
 from numbers import Real
 
 import jax
@@ -107,23 +108,25 @@ def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited: i
                                estimator: str = "log_symmetric") -> tuple[Variable, np.ndarray]:
     """Return the source-averaged boundary effective mass and the number of sources per time slice.
 
-    The average is NaN where no source has a value.
+    All correlators need the same number of time slices. The average is NaN where no source has a value.
     """
+    tsrcs = jnp.array(list(correlators.keys()))
+    source_mass = partial(_masked_source_mass, tmin_excited=tmin_excited, max_source_distance=max_source_distance,
+                          estimator=estimator)
+
+    def masses(*arrays: np.ndarray | jax.Array) -> jax.Array:
+        """Return the masked masses of all sources, shape (num_sources, T); arrays in the order of tsrcs."""
+        # average over runs per source (run counts may differ), then one vmap over sources
+        run_means = jnp.stack([jnp.mean(array, axis=0) for array in arrays])
+        return jax.vmap(source_mass)(run_means, tsrcs)
+
     # source count from the central values; raises here, before derive, for an unsupported estimator
-    effective_masses = np.array([
-        _masked_source_mass(correlators[tsrc].central_value, tsrc, tmin_excited, max_source_distance, estimator)
-        for tsrc in correlators
-    ])
-    num_sources = np.sum(np.isfinite(effective_masses), axis=0)
+    central_values = [correlator.central_value for correlator in correlators.values()]
+    num_sources = np.sum(np.isfinite(masses(*central_values)), axis=0)
 
-    tsrcs = list(correlators)
-
-    def source_average(*arrays: np.ndarray) -> jax.Array:
+    def source_average(*arrays: np.ndarray | jax.Array) -> jax.Array:
         """Return the mean over sources of the finite masked masses; arrays in the order of tsrcs."""
-        stacked = jnp.stack([
-            _masked_source_mass(array, tsrc, tmin_excited, max_source_distance, estimator)
-            for array, tsrc in zip(arrays, tsrcs, strict=True)
-        ])
+        stacked = masses(*arrays)
         finite = jnp.isfinite(stacked)
         # sum and count only finite masses; 0/0 = NaN where no source is finite
         return jnp.sum(jnp.where(finite, stacked, 0), axis=0) / jnp.sum(finite, axis=0)
@@ -133,32 +136,32 @@ def obc_meson_boundary_average(correlators: dict[int, Variable], tmin_excited: i
     return average, num_sources
 
 
-def _masked_source_mass(correlators: np.ndarray, tsrc: int, tmin_excited: int, max_source_distance: int | None,
-                        estimator: str) -> jax.Array:
-    """Return one source's effective mass in lattice time.
+def _masked_source_mass(correlator: np.ndarray | jax.Array, tsrc: int | jax.Array, tmin_excited: int,
+                        max_source_distance: int | None, estimator: str) -> jax.Array:
+    """Return the effective mass in lattice time of one source's run-averaged correlator, shape (T,).
 
     NaN where the mass uses a correlator slice with |t - tsrc| < tmin_excited or
     |t - tsrc| > max_source_distance, or where it is undefined.
     """
-    # average over runs and get correlators in terms of original lattice
-    aligned = jnp.roll(jnp.mean(correlators, axis=0), tsrc)
+    # get the correlator in terms of original lattice
+    aligned = jnp.roll(correlator, tsrc)
     mass = _flip_sign_boundary(effective_mass(aligned, estimator=estimator), tsrc)
     # correlator mask: keep tmin_excited <= |t - tsrc| <= max_source_distance
-    times = np.arange(len(mass))
-    distance = np.abs(times - tsrc)
+    times = jnp.arange(len(mass))
+    distance = jnp.abs(times - tsrc)
     keep = distance >= tmin_excited
     if max_source_distance is not None:
         keep &= distance <= max_source_distance
     # mass mask: keep the mass at t only if all correlator slices it uses are kept
     if estimator == "log":
-        keep_mass = keep & np.roll(keep, -1)  # C(t), C(t+1)
+        keep_mass = keep & jnp.roll(keep, -1)  # C(t), C(t+1)
     elif estimator == "log_symmetric":
-        keep_mass = np.roll(keep, 1) & np.roll(keep, -1)  # C(t-1), C(t+1)
+        keep_mass = jnp.roll(keep, 1) & jnp.roll(keep, -1)  # C(t-1), C(t+1)
     else:
         raise ValueError(f"Boundary effective mass needs estimator 'log' or 'log_symmetric', not {estimator!r}")
     return jnp.where(keep_mass, mass, jnp.nan)
 
 
-def _flip_sign_boundary(mass: np.ndarray | jax.Array, tsrc: int) -> jax.Array:
+def _flip_sign_boundary(mass: np.ndarray | jax.Array, tsrc: int | jax.Array) -> jax.Array:
     """Negate effective masses before tsrc."""
     return jnp.where(jnp.arange(len(mass)) < tsrc, -1, 1) * mass
