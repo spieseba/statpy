@@ -10,7 +10,7 @@ from statpy.statistics import gamma
 Nt, m = 48, 0.3
 
 
-@pytest.mark.parametrize(("kernel", "undefined"), [("cosh", []), ("sinh", [Nt // 2 - 1, Nt // 2, Nt - 1])])
+@pytest.mark.parametrize(("kernel", "undefined"), [("cosh", [Nt - 1]), ("sinh", [Nt // 2 - 1, Nt // 2, Nt - 1])])
 def test_solve_returns_mass_and_nan_where_undefined(kernel, undefined):
     corr = getattr(np, kernel)(m * (np.arange(Nt) - Nt / 2))
     mass = np.asarray(effective_mass(corr, estimator=f"{kernel}_solve", Nt=Nt))

@@ -20,40 +20,46 @@ def effective_mass(correlator: np.ndarray | jax.Array, *, estimator: str, Nt: in
       (*_solve: Gattringer & Lang, Lect. Notes Phys. 788 (2010), p. 145.)
     Nt is required for cosh_solve and sinh_solve (also for folded input);
     cosh_midpoint uses the correlator length and needs unfolded data.
-    Times start at zero; neighbor formulas wrap endpoints as with np.roll.
+    Times start at zero; slices whose neighbors lie outside the array are NaN.
     Undefined points (e.g. arccosh argument < 1) return NaN or inf without warning.
     """
     if estimator == "cosh_midpoint":
         Nt = len(correlator) if Nt is None else Nt
         midpoint = correlator[Nt // 2]
-        return jnp.abs(
-            jnp.arccosh(jnp.roll(correlator, 1) / midpoint)
-            - jnp.arccosh(jnp.roll(correlator, -1) / midpoint)
-        ) / 2
+        previous, following = correlator[:-2], correlator[2:]
+        mass = jnp.abs(jnp.arccosh(previous / midpoint) - jnp.arccosh(following / midpoint)) / 2
+        return jnp.pad(mass, (1, 1), constant_values=jnp.nan)
     if estimator == "log":
-        return jnp.log(correlator / jnp.roll(correlator, -1))
+        current, following = correlator[:-1], correlator[1:]
+        mass = jnp.log(current / following)
+        return jnp.pad(mass, (0, 1), constant_values=jnp.nan)
     if estimator == "log_symmetric":
-        return jnp.log(jnp.roll(correlator, 1) / jnp.roll(correlator, -1)) / 2
+        previous, following = correlator[:-2], correlator[2:]
+        mass = jnp.log(previous / following) / 2
+        return jnp.pad(mass, (1, 1), constant_values=jnp.nan)
     if estimator == "arccosh":
-        return jnp.arccosh(0.5 * (jnp.roll(correlator, -1) + jnp.roll(correlator, 1)) / correlator)
+        previous, current, following = correlator[:-2], correlator[1:-1], correlator[2:]
+        mass = jnp.arccosh((previous + following) / (2 * current))
+        return jnp.pad(mass, (1, 1), constant_values=jnp.nan)
     if estimator in ("cosh_solve", "sinh_solve"):
         if Nt is None:
             raise ValueError(f"{estimator} needs Nt")
-        return _solve_effective_mass(correlator, kernel=estimator.removesuffix("_solve"), Nt=Nt)
+        mass = _solve_effective_mass(correlator, kernel=estimator.removesuffix("_solve"), Nt=Nt)
+        return jnp.pad(mass, (0, 1), constant_values=jnp.nan)
 
     raise ValueError(f"Unknown effective-mass estimator: {estimator}")
 
 
 @partial(jax.jit, static_argnames=("kernel", "Nt"))
 def _solve_effective_mass(correlator: np.ndarray | jax.Array, *, kernel: str, Nt: int) -> jax.Array:
-    """Solve kernel(m|t-Nt/2|)/kernel(m|t+1-Nt/2|) = C(t)/C(t+1) per t; kernel is "cosh" or "sinh"."""
-    t = jnp.arange(len(correlator))
+    """Solve kernel(m|t-Nt/2|)/kernel(m|t+1-Nt/2|) = C(t)/C(t+1) per t = 0, ..., len - 2; kernel is "cosh" or "sinh"."""
+    current, following = correlator[:-1], correlator[1:]
+    t = jnp.arange(len(current))
     a = jnp.abs(t - Nt / 2)
     b = jnp.abs(t + 1 - Nt / 2)
-    next_correlator = jnp.roll(correlator, -1)
-    nonzero = (correlator != 0) & (next_correlator != 0)
+    nonzero = (current != 0) & (following != 0)
     # 1 instead of 0 keeps reverse-mode derivatives finite
-    log_ratio = jnp.log(jnp.where(nonzero, correlator, 1) / jnp.where(nonzero, next_correlator, 1))
+    log_ratio = jnp.log(jnp.where(nonzero, current, 1) / jnp.where(nonzero, following, 1))
     if kernel == "cosh":
         # log(cosh[m(t - Nt/2)] / cosh[m(t + 1 - Nt/2)]) - log(C(t) / C(t+1))
         def objective_function(m: jax.Array, a: jax.Array, b: jax.Array, log_ratio: jax.Array) -> jax.Array:
