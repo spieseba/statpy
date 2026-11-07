@@ -5,6 +5,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.typing import ArrayLike
 
 
 def effective_mass(correlator: np.ndarray | jax.Array, *, estimator: str, Nt: int | None = None) -> jax.Array:
@@ -130,7 +131,8 @@ def _find_root_jvp(objective_function, primals, tangents):
     return (root, bracketed), (k * df_dargs, np.zeros(bracketed.shape, jax.dtypes.float0))
 
 
-def effective_amplitude(correlator: np.ndarray, mass: float, *, kernel: str, Nt: int | None = None) -> np.ndarray:
+def effective_amplitude(correlator: ArrayLike, mass: float | jax.Array, *, kernel: str, Nt: int | None = None
+                        ) -> jax.Array:
     """Divide a 1D correlator by a single-state kernel, preserving its sign.
 
     kernel selects the time dependence:
@@ -138,15 +140,21 @@ def effective_amplitude(correlator: np.ndarray, mass: float, *, kernel: str, Nt:
       "cosh"/"sinh": exp(-mass*t) plus/minus exp(-mass*(Nt-t)).
     Nt is required for cosh and sinh (also for folded data).
     Times start at zero; exponential sums set the normalization.
+    NaN where the kernel is zero (sinh at t = Nt/2).
     """
-    correlator = np.asarray(correlator)
-    t = np.arange(len(correlator))
-    forward = np.exp(-mass * t)
+    correlator = jnp.asarray(correlator)
+    t = jnp.arange(len(correlator))
+    forward = jnp.exp(-mass * t)
     if kernel == "exp":
         return correlator / forward
     if kernel not in ("cosh", "sinh"):
         raise ValueError(f"Unknown effective-amplitude kernel: {kernel}")
     if Nt is None:
         raise ValueError(f"{kernel} kernel needs Nt")
-    backward = np.exp(-mass * (Nt - t))
-    return correlator / (forward + backward) if kernel == "cosh" else correlator / (forward - backward)
+    backward = jnp.exp(-mass * (Nt - t))
+    kernel_values = forward + backward if kernel == "cosh" else forward - backward
+    zero = kernel_values == 0
+    # divide by 1 where the kernel is 0, so reverse-mode derivatives stay finite
+    safe_kernel_values = jnp.where(zero, 1, kernel_values)
+    amplitude = correlator / safe_kernel_values
+    return jnp.where(zero, jnp.nan, amplitude)
