@@ -5,9 +5,13 @@
 statpy is a Python library for statistical analysis, error propagation and autocorrelation estimation of Markov chain Monte Carlo data (e.g. from lattice field theory simulations).
 
 - Error estimation and propagation for autocorrelated data by jackknife and bootstrap with binning, and by the gamma method, which estimates the autocorrelations directly
-- Built on [JAX](https://github.com/jax-ml/jax): automatic differentiation (autodiff) for gamma-method Jacobians, `vmap` for jackknife and bootstrap replicates, `jit` for least-squares fits
+- Built on [NumPy](https://numpy.org) and [JAX](https://github.com/jax-ml/jax):
+  - Data storage and core statistical calculations with NumPy
+  - Function transformations with JAX: automatic differentiation (autodiff) for gamma-method error propagation, vectorized evaluation of jackknife and bootstrap replicates (`vmap`), and just-in-time compilation (`jit`)
 - Nonlinear least-squares fits with error propagation by all three methods, optionally with numba-compiled models
 - Delayed binning (Spiegel, Lehner, [Phys. Rev. D 111](https://doi.org/10.1103/mj3d-yq87)): jackknife errors of derived quantities at any bin size, without repeating the analysis
+
+statpy enables JAX's 64-bit mode on import.
 
 ## Installation
 
@@ -118,7 +122,9 @@ correlator = sp.Variable.from_data(
 )
 ```
 
-The effective mass `log(C(t) / C(t+1))` is a nonlinear function of correlator time slices. The `derive` method of `Variable` estimates the errors of any function written with `jax.numpy`. The derivatives don't have to be supplied, as they are computed exactly via autodiff:
+The effective mass `log(C(t) / C(t+1))` is a nonlinear function of correlator time slices. `Variable.derive` propagates its errors through this function. For automatic gamma-method error propagation, write the function using `jax.numpy` (`jnp`) so JAX can compute its derivatives. The input data remain NumPy arrays.
+
+Functions that JAX cannot differentiate can still be used for jackknife and bootstrap propagation; gamma-method propagation requires supplying their Jacobians explicitly.
 
 ```python
 import jax.numpy as jnp
