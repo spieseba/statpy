@@ -5,13 +5,18 @@ type: software
 authors:
   - family-names: Spiegel
     given-names: Sebastian
-    email: spieseba@mailbox.org 
+    email: spieseba@mailbox.org
 version: 2.0.0
 license: MIT
 repository-code: "https://github.com/spieseba/statpy"
-abstract: "A Python toolkit for statistical analysis of Markov Chain Monte Carlo data in the context of lattice QCD."
+abstract: "A Python library for statistical analysis, error propagation and autocorrelation estimation of Markov chain Monte Carlo data (e.g. from lattice field theory simulations)."
 keywords:
   - lattice QCD
   - Markov chain Monte Carlo
   - statistics
   - data analysis
+  - error propagation
+  - autocorrelation
+  - gamma method
+  - jackknife
+  - bootstrap
