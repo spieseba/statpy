@@ -28,7 +28,13 @@ def effective_mass(correlator: np.ndarray | jax.Array, *, estimator: str, Nt: in
         Nt = len(correlator) if Nt is None else Nt
         midpoint = correlator[Nt // 2]
         previous, following = correlator[:-2], correlator[2:]
-        mass = jnp.abs(jnp.arccosh(previous / midpoint) - jnp.arccosh(following / midpoint)) / 2
+        # Zero the C(Nt/2)/C(Nt/2) term by index: arccosh'(1) is infinite and the rounded ratio can drop below 1
+        t = jnp.arange(1, len(correlator) - 1)
+        previous_mask = t - 1 == Nt // 2
+        following_mask = t + 1 == Nt // 2
+        previous_term = jnp.where(previous_mask, 0, jnp.arccosh(jnp.where(previous_mask, 2, previous / midpoint)))
+        following_term = jnp.where(following_mask, 0, jnp.arccosh(jnp.where(following_mask, 2, following / midpoint)))
+        mass = jnp.abs(previous_term - following_term) / 2
         return jnp.pad(mass, (1, 1), constant_values=jnp.nan)
     if estimator == "log":
         current, following = correlator[:-1], correlator[1:]
