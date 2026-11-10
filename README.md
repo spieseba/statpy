@@ -189,4 +189,3 @@ A more involved example can be found in [caa-control-variates](https://github.co
 - Gamma-method covariance, with bias correction of its inverse for correlated fits
 - Expected chi-squared for uncorrelated fits (Bruno, Sommer, [arXiv:2209.14188](https://arxiv.org/abs/2209.14188))
 - Exponential tail correction (Schaefer, Sommer, Virotta, [arXiv:1009.5228](https://arxiv.org/abs/1009.5228))
-- Jacobians for effective masses from root solves
