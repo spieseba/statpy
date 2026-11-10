@@ -1,17 +1,22 @@
-import pickle
-import struct
-import zlib
+import warnings
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
+
+import h5py
+import numpy as np
 
 import statpy
 from statpy.log import message
 from statpy.variable import Layout, Variable
 
-# Database file: magic number (format version) + u32 CRC32 + pickled {tag: variable state dict}.
-# Change the magic number on any format change. Retired: v1 JSON, v2 SPDB, v3 SPD3, v4 SPD4, v5 SPD5,
-# v6 SPD6, v7 SPD7, v8 SPD8, v9 SPD9.
-_MAGIC = b"SP10"
+# Database file: HDF5 with root attributes ``format`` and ``statpy_commit``; one group per tag with attribute
+# ``ensemble`` and one dataset per field that is not None. Change ``_FORMAT`` when the meaning of a field changes.
+_FORMAT = "statpy-database-1"
+_VARIABLE_FIELDS = ("observations", "central_value", "replica_central_values", "fluctuations",
+                    "jackknife_replicates", "bootstrap_replicates")
+_LAYOUT_FIELDS = ("monte_carlo_times", "replicas", "weights")
+# Scalar datasets cannot carry filters
+_DATASET_FILTERS = {"fletcher32": True, "shuffle": True, "compression": "gzip", "compression_opts": 4}
 _commit_logged = False
 
 
@@ -20,7 +25,10 @@ class DuplicateTagError(ValueError):
 
 
 class Database(Mapping[str, Variable]):
-    """Dict-like store of Variables by tag, saved to and loaded from a database file."""
+    """Dict-like store of Variables by tag, saved to and loaded from a database file.
+
+    Tags must not contain ``/``; use ``.`` to separate their parts (e.g. ``"pion.mass"``).
+    """
 
     # ---------------------------------------------------------------------------
     # Constructors
@@ -55,28 +63,20 @@ class Database(Mapping[str, Variable]):
         message(f"Load {src}")
         if not src.is_file():
             raise FileNotFoundError(f"{src} not found")
-        with src.open("rb") as f:
-            header = f.read(8)
-            if len(header) < 8 or header[:4] != _MAGIC:
-                raise ValueError(
-                    f"{src}: not a statpy database file, or an outdated format "
-                    f"(expected magic {_MAGIC.decode()}); regenerate if outdated"
-                )
-            (crc_expected,) = struct.unpack("<I", header[4:8])
-            payload = f.read()
-        if (zlib.crc32(payload) & 0xFFFFFFFF) != crc_expected:
-            raise ValueError(f"{src}: CRC mismatch -- file corrupted")
-        src_db = pickle.loads(payload)
-        self._check_new_tags(src_db, f"load({src})")
-        variables = {}
-        for t, state in src_db.items():
-            state = state.copy()
-            ensemble = state.pop("ensemble")
-            monte_carlo_times = state.pop("monte_carlo_times")
-            replicas = state.pop("replicas")
-            weights = state.pop("weights")
-            layout = Layout(ensemble, monte_carlo_times, replicas=replicas, weights=weights)
-            variables[t] = Variable(layout=layout, **state)
+        with h5py.File(src, "r") as f:
+            if f.attrs.get("format") != _FORMAT:
+                raise ValueError(f"{src}: not a statpy database file, or another format (expected {_FORMAT})")
+            self._check_new_tags(f, f"load({src})")
+            variables = {}
+            for tag, group in f.items():
+                unknown = sorted(set(group) - set(_VARIABLE_FIELDS) - set(_LAYOUT_FIELDS))
+                if unknown:
+                    warnings.warn(f"{src}: {tag}: fields unknown to this statpy version ignored: {unknown}",
+                                  stacklevel=2)
+                fields = {name: group[name][...] for name in group if name not in unknown}
+                layout = Layout(group.attrs["ensemble"], fields.pop("monte_carlo_times"),
+                                replicas=fields.pop("replicas", None), weights=fields.pop("weights", None))
+                variables[tag] = Variable(layout=layout, **fields)
         self._variables.update(variables)
 
     def _check_new_tags(self, tags: Iterable[str], context: str) -> None:
@@ -85,28 +85,24 @@ class Database(Mapping[str, Variable]):
             raise DuplicateTagError(f"{context}: {len(dup)} overlapping tag(s): {dup[:5]}"
                                     + ("..." if len(dup) > 5 else ""))
 
+    @staticmethod
+    def _check_tag(tag: str) -> None:
+        if "/" in tag:
+            raise ValueError(f"tag {tag!r} contains '/'; use '.' to separate its parts")
+
     def save(self, dst: Path) -> None:
         """Write the entire database (all fields, including observations) to ``dst``."""
-        payload = pickle.dumps(
-            {t: {
-                "observations": variable.observations,
-                "ensemble": variable.layout.ensemble,
-                "monte_carlo_times": variable.layout.monte_carlo_times,
-                "replicas": variable.layout.replicas,
-                "weights": variable.layout.weights,
-                "central_value": variable.central_value,
-                "replica_central_values": variable.replica_central_values,
-                "fluctuations": variable.fluctuations,
-                "jackknife_replicates": variable.jackknife_replicates,
-                "bootstrap_replicates": variable.bootstrap_replicates,
-            } for t, variable in self._variables.items()},
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
-        crc = zlib.crc32(payload) & 0xFFFFFFFF
-        with dst.open("wb") as f:
-            f.write(_MAGIC)
-            f.write(struct.pack("<I", crc))
-            f.write(payload)
+        with h5py.File(dst, "w") as f:
+            f.attrs["format"] = _FORMAT
+            f.attrs["statpy_commit"] = statpy.__commit__ or "unknown"
+            for tag, variable in self._variables.items():
+                group = f.create_group(tag)
+                group.attrs["ensemble"] = variable.layout.ensemble
+                fields = ({name: getattr(variable, name) for name in _VARIABLE_FIELDS}
+                          | {name: getattr(variable.layout, name) for name in _LAYOUT_FIELDS})
+                for name, value in fields.items():
+                    if value is not None:
+                        group.create_dataset(name, data=value, **(_DATASET_FILTERS if np.ndim(value) > 0 else {}))
 
     # ---------------------------------------------------------------------------
     # Mapping interface
@@ -122,6 +118,7 @@ class Database(Mapping[str, Variable]):
         return len(self._variables)
 
     def __setitem__(self, tag: str, variable: Variable) -> None:
+        self._check_tag(tag)
         if tag in self._variables:
             raise DuplicateTagError(f"Database[{tag!r}]: tag already exists")
         if not isinstance(variable, Variable):
@@ -133,6 +130,7 @@ class Database(Mapping[str, Variable]):
 
     def rename(self, old: str, new: str) -> None:
         """Move a variable to an unused tag."""
+        self._check_tag(new)
         variable = self._variables[old]
         if new in self._variables:
             raise DuplicateTagError(f"rename({old!r} -> {new!r}): target tag already exists")

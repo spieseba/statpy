@@ -23,7 +23,7 @@ def load_CLS(fn: str, rwf_fn: str, correlator_patterns: list[str], stream_tag: s
     ``stream_tag`` is ``<ensemble>r<stream number>`` (e.g. ``U101r001``); the stream is one replica,
     numbered by its stream number. Monte Carlo times are the cfg ids, negated for ``reverse=True`` so
     that they increase in array order; missing ids are gaps.
-    Returns ``(db, cfg_ids)`` with the cfg ids in array order.
+    Returns ``(db, cfg_ids)`` with the cfg ids in array order; tags are ``<stream_tag>.<run_tag>.<key>``.
     """
     stream = re.match(r"^(.+)r(\d+)$", stream_tag)
     if stream is None:
@@ -171,7 +171,7 @@ def _populate_data(db: Database, f: h5py.Group, compiled_patterns: list[re.Patte
             if key not in loaded_keys and pattern.search(key):
                 f_vals = f["data"].get(key)[:]
                 observations = f_vals[h5_idx]
-                f_tag = f"{stream_tag}/{run_tag}/{key}"
+                f_tag = f"{stream_tag}.{run_tag}.{key}"
                 db[f_tag] = Variable.from_data(observations, layout)
                 loaded_keys.add(key)
 
