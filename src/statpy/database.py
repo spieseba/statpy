@@ -97,7 +97,7 @@ class Database(Mapping[str, Variable]):
             f.attrs["statpy_commit"] = statpy.__commit__ or "unknown"
             for tag, variable in self._variables.items():
                 group = f.create_group(tag)
-                group.attrs["ensemble"] = variable.layout.ensemble
+                (group.attrs["ensemble"],) = variable.layout.ensemble_names
                 fields = ({name: getattr(variable, name) for name in _VARIABLE_FIELDS}
                           | {name: getattr(variable.layout, name) for name in _LAYOUT_FIELDS})
                 for name, value in fields.items():

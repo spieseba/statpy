@@ -16,25 +16,27 @@ if TYPE_CHECKING:
 
 
 class Layout:
-    """Ensemble, Monte Carlo times, replicas and weights of the configurations.
+    """Ensembles, Monte Carlo times, replicas and weights of the configurations.
 
-    Required: ``ensemble`` (name) and ``monte_carlo_times`` (one integer per configuration,
-    strictly increasing in array order within each replica). Optional: ``replicas`` (one integer
+    Required: ``ensembles`` (one name for all configurations, or one name per configuration in
+    sorted blocks) and ``monte_carlo_times`` (one integer per configuration, strictly increasing
+    in array order within each replica of an ensemble). Optional: ``replicas`` (one integer
     per configuration; default ``zeros(N)``, one replica) and ``weights`` (reweighting factors;
     default ``ones(N)``). A configuration is identified by (ensemble, replica, Monte Carlo time).
     """
 
-    def __init__(self, ensemble: str, monte_carlo_times: NDArray[np.integer], *,
+    def __init__(self, ensembles: str | NDArray[np.str_], monte_carlo_times: NDArray[np.integer], *,
                  replicas: NDArray[np.integer] | None = None, weights: np.ndarray | None = None) -> None:
         num_configurations = len(monte_carlo_times)
+        if isinstance(ensembles, str):
+            ensembles = np.full(num_configurations, ensembles)
         if replicas is None:
             replicas = np.zeros(num_configurations, dtype=int)
         if weights is None:
             weights = np.ones(num_configurations)
 
-        if not isinstance(ensemble, str):
-            raise TypeError(f"Layout: ensemble must be str, got {type(ensemble).__name__}")
-        arrays = {"monte_carlo_times": monte_carlo_times, "replicas": replicas, "weights": weights}
+        arrays = {"ensembles": ensembles, "monte_carlo_times": monte_carlo_times, "replicas": replicas,
+                  "weights": weights}
         for name, values in arrays.items():
             if not isinstance(values, np.ndarray):
                 raise TypeError(f"Layout: {name} must be np.ndarray, got {type(values).__name__}")
@@ -45,14 +47,26 @@ class Layout:
         for name in ("monte_carlo_times", "replicas"):
             if not np.issubdtype(arrays[name].dtype, np.integer):
                 raise ValueError(f"Layout: {name} must be integer, got {arrays[name].dtype}")
-        for replica in np.unique(replicas):
-            if np.any(np.diff(monte_carlo_times[replicas == replica]) <= 0):
-                raise ValueError(f"Layout: monte_carlo_times not strictly increasing in replica {replica}")
+        if not np.issubdtype(ensembles.dtype, np.str_):
+            raise ValueError(f"Layout: ensembles must be strings, got {ensembles.dtype}")
+        if np.any(ensembles[:-1] > ensembles[1:]):
+            raise ValueError("Layout: ensembles must be in sorted blocks")
+        for ensemble in np.unique(ensembles):
+            for replica in np.unique(replicas[ensembles == ensemble]):
+                selected = (ensembles == ensemble) & (replicas == replica)
+                if np.any(np.diff(monte_carlo_times[selected]) <= 0):
+                    raise ValueError("Layout: monte_carlo_times not strictly increasing in "
+                                     f"ensemble {ensemble}, replica {replica}")
 
-        self.ensemble = ensemble
+        self.ensembles = ensembles
         self.monte_carlo_times = monte_carlo_times
         self.replicas = replicas
         self.weights = weights
+
+    @property
+    def ensemble_names(self) -> tuple[str, ...]:
+        """The names of the ensembles in sorted order."""
+        return tuple(np.unique(self.ensembles).tolist())
 
 
 class Variable:
@@ -93,7 +107,7 @@ class Variable:
         layout = self.layout
         labels = np.unique(layout.replicas)
         reweighted = ", reweighted" if np.any(layout.weights != 1) else ""
-        lines = [(f"Variable of shape {np.shape(self.central_value)} on ensemble {layout.ensemble}, "
+        lines = [(f"Variable of shape {np.shape(self.central_value)} on ensemble {', '.join(layout.ensemble_names)}, "
                   f"{len(layout.replicas)} configurations{reweighted}")]
         for label in labels:
             times = layout.monte_carlo_times[layout.replicas == label]
@@ -266,7 +280,7 @@ class Variable:
     def _common_layout(variables: tuple[Variable, ...], name: str) -> Layout:
         reference = variables[0].layout
         for index, variable in enumerate(variables):
-            for field in ("ensemble", "monte_carlo_times", "replicas", "weights"):
+            for field in ("ensembles", "monte_carlo_times", "replicas", "weights"):
                 if not np.array_equal(getattr(variable.layout, field), getattr(reference, field)):
                     raise ValueError(f"{name}: input {index} {field} differ")
         return reference
@@ -301,7 +315,8 @@ class Variable:
         observations = statistics.bin(self.observations, bin_size, weights=weights)
         bin_weights = statistics.bin(weights, bin_size, weights=np.ones(len(weights)))
         replicas = np.full(num_bins, self.layout.replicas[0])
-        layout = Layout(self.layout.ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
+        (ensemble,) = self.layout.ensemble_names
+        layout = Layout(ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
         return type(self).from_data(observations, layout, bootstrap_indices)
 
     def least_squares_fit(self, model: least_squares.Model, fit_range: ArrayLike, initial_parameters: ArrayLike, *,
@@ -428,7 +443,7 @@ class Variable:
         shape = np.shape(self.central_value)
         replica_sizes = f" = {' + '.join(map(str, sizes))}" if len(sizes) > 1 else ""
         S_text = "" if self.fluctuations is None else f", S = {S}"
-        print(f"{layout.ensemble}: N = {len(layout.replicas)}{replica_sizes}, shape {shape}{S_text}")
+        print(f"{', '.join(layout.ensemble_names)}: N = {len(layout.replicas)}{replica_sizes}, shape {shape}{S_text}")
         result = None if self.fluctuations is None else self.gamma_method(S)
         corrected = bias_over_error = q_value = None
         if self.replica_central_values is not None and len(sizes) > 1:

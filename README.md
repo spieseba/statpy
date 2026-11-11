@@ -39,7 +39,7 @@ rng = np.random.default_rng(1337)
 chain = sp.simulation.ar1.generate_chains(tau=tau, num_configurations=num_configs, rng=rng)
 x = sp.Variable.from_data(
     observations=chain,
-    layout=sp.Layout(ensemble="Ensemble-E", monte_carlo_times=np.arange(num_configs)),
+    layout=sp.Layout("Ensemble-E", monte_carlo_times=np.arange(num_configs)),
     bootstrap_indices=sp.statistics.bootstrap.generate_bootstrap_indices(500, num_configs, rng)
 )
 
@@ -117,7 +117,7 @@ observations = 2 * np.exp(-0.3 * t) * (1 + relative_noise * (shared_chain[:, Non
 
 correlator = sp.Variable.from_data(
     observations=observations,
-    layout=sp.Layout(ensemble="Ensemble-E", monte_carlo_times=np.arange(num_configs)),
+    layout=sp.Layout("Ensemble-E", monte_carlo_times=np.arange(num_configs)),
     bootstrap_indices=sp.statistics.bootstrap.generate_bootstrap_indices(500, num_configs, rng)
 )
 ```
