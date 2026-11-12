@@ -68,6 +68,27 @@ class Layout:
         """The names of the ensembles in sorted order."""
         return tuple(np.unique(self.ensembles).tolist())
 
+    @staticmethod
+    def merge(*layouts: Layout) -> Layout:
+        """Layout with the configurations of all ensembles of ``layouts``, ensembles in sorted order; layouts with
+        the same ensemble must have the same configurations of it."""
+        fields = ("ensembles", "monte_carlo_times", "replicas", "weights")
+        parts = []
+        for name in sorted({name for layout in layouts for name in layout.ensemble_names}):
+            reference = None
+            for index, layout in enumerate(layouts):
+                if name not in layout.ensemble_names:
+                    continue
+                part = [getattr(layout, field)[layout.ensembles == name] for field in fields]
+                if reference is None:
+                    reference = part
+                for field, values, reference_values in zip(fields, part, reference):
+                    if not np.array_equal(values, reference_values):
+                        raise ValueError(f"Layout.merge: layout {index} {field} differ in ensemble {name}")
+            parts.append(reference)
+        ensembles, monte_carlo_times, replicas, weights = (np.concatenate(values) for values in zip(*parts))
+        return Layout(ensembles, monte_carlo_times, replicas=replicas, weights=weights)
+
 
 class Variable:
     """A quantity with its central value and replicates for error estimation.
@@ -141,6 +162,8 @@ class Variable:
         """
         if not isinstance(observations, np.ndarray):
             raise TypeError(f"from_data: observations must be np.ndarray, got {type(observations).__name__}")
+        if len(layout.ensemble_names) > 1:
+            raise ValueError(f"from_data: observations need one ensemble, got {len(layout.ensemble_names)}")
         num_configurations = len(layout.monte_carlo_times)
         if len(observations) != num_configurations:
             raise ValueError(f"from_data: observations have length {len(observations)}, expected {num_configurations}")
@@ -168,7 +191,7 @@ class Variable:
         """Return a variable from a computed central value, replica central values, fluctuations and replicates,
         stored unchanged."""
         num_configurations = len(layout.monte_carlo_times)
-        num_replicas = len(np.unique(layout.replicas))
+        num_replicas = len(_row_ensembles(layout, "replica_central_values"))
         for name, values, expected in (("replica_central_values", replica_central_values, num_replicas),
                                        ("fluctuations", fluctuations, num_configurations),
                                        ("jackknife_replicates", jackknife_replicates, num_configurations)):
@@ -192,9 +215,10 @@ class Variable:
     @classmethod
     def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: Variable,
                jacobian: Literal["jax"] | Sequence[np.ndarray] | None = "jax", use_vmap: bool = True) -> Self:
-        """Variable for ``func`` of the inputs: central value, replica central values, fluctuations and replicates;
-        layouts must be equal.
+        """Variable for ``func`` of the inputs: central value, replica central values, fluctuations and replicates.
 
+        The result has the configurations of all ensembles of the inputs; inputs with the same ensemble must have
+        the same configurations of it. On an ensemble an input does not have, the input enters at its central value.
         ``jacobian`` sets how fluctuations are propagated: ``"jax"`` computes the Jacobian, a list supplies it (one
         array per input, shape output + input), ``None`` propagates none. ``use_vmap`` evaluates the replicates in
         one jax batch, else in a loop. If jax cannot trace ``func`` (it needs jax.numpy), the loop is used and
@@ -202,10 +226,10 @@ class Variable:
         """
         if isinstance(jacobian, str) and jacobian != "jax":
             raise ValueError(f'derive: jacobian must be "jax", a list of arrays or None, not {jacobian!r}')
-        layout = cls._common_layout(variables, "derive")
+        layout = Layout.merge(*(variable.layout for variable in variables))
         central_values = [variable.central_value for variable in variables]
         compatible = (jacobian == "jax" or use_vmap) and cls._is_jax_compatible(func, central_values, use_vmap)
-        input_fluctuations = cls._common_field(variables, "fluctuations")
+        input_fluctuations = cls._field_on_merged_layout(variables, "fluctuations", layout)
         jacobians = None if jacobian == "jax" else jacobian
         if jacobian == "jax" and compatible and input_fluctuations is not None:
             central_value, jacobians = gamma.value_and_jacobians(func, central_values)
@@ -217,7 +241,7 @@ class Variable:
             fluctuations = None
             if jacobian is not None and any(variable.fluctuations is not None for variable in variables):
                 warnings.warn("derive: gamma-method fluctuations not propagated", stacklevel=2)
-        replicates = cls._derive_replicates(func, variables, use_vmap and compatible)
+        replicates = cls._derive_replicates(func, variables, layout, use_vmap and compatible)
         return cls.from_results(layout=layout, central_value=central_value, fluctuations=fluctuations, **replicates)
 
     @staticmethod
@@ -234,8 +258,8 @@ class Variable:
 
     @classmethod
     def _derive_replicates(cls, func: Callable[..., np.ndarray | jax.Array], variables: tuple[Variable, ...],
-                           compatible: bool) -> dict[str, np.ndarray]:
-        replicates = {field: cls._common_field(variables, field)
+                           layout: Layout, compatible: bool) -> dict[str, np.ndarray]:
+        replicates = {field: cls._field_on_merged_layout(variables, field, layout)
                       for field in ("replica_central_values", "jackknife_replicates", "bootstrap_replicates")}
         dropped = [field for field, values in replicates.items()
                    if values is None and any(getattr(variable, field) is not None for variable in variables)]
@@ -254,15 +278,36 @@ class Variable:
         return dict(zip(present.keys(), pieces))
 
     @staticmethod
-    def _common_field(variables: tuple[Variable, ...], field: str) -> list[np.ndarray] | None:
+    def _field_on_merged_layout(variables: tuple[Variable, ...], field: str,
+                                merged_layout: Layout) -> list[np.ndarray] | None:
+        """``field`` of each input with the rows of ``merged_layout``, or None if an input lacks it. For an ensemble
+        an input does not have, its rows are the central value (fluctuations: zero)."""
         values = [getattr(variable, field) for variable in variables]
         if any(value is None for value in values):
             return None
-        num_rows = len(values[0])
-        for index, input_values in enumerate(values):
-            if len(input_values) != num_rows:
-                raise ValueError(f"derive: input {index} has a different number of {field}")
-        return values
+        if field == "bootstrap_replicates":
+            for index, input_values in enumerate(values):
+                if len(input_values) != len(values[0]):
+                    raise ValueError(f"derive: input {index} has a different number of {field}")
+            return values
+        merged_row_ensembles = _row_ensembles(merged_layout, field)
+        rows = []
+        for variable, input_values in zip(variables, values):
+            # same ensembles: the rows are already those of the merged layout
+            if variable.layout.ensemble_names == merged_layout.ensemble_names:
+                rows.append(input_values)
+                continue
+            input_row_ensembles = _row_ensembles(variable.layout, field)
+            fill = np.zeros_like(variable.central_value) if field == "fluctuations" else variable.central_value
+            blocks = []
+            for name in merged_layout.ensemble_names:
+                if name in variable.layout.ensemble_names:
+                    blocks.append(input_values[input_row_ensembles == name])
+                else:
+                    num_rows = np.sum(merged_row_ensembles == name)
+                    blocks.append(np.broadcast_to(fill, (num_rows, *np.shape(fill))))
+            rows.append(np.concatenate(blocks))
+        return rows
 
     @classmethod
     def map_observations(cls, func: Callable[..., np.ndarray], *variables: Variable) -> Self:
@@ -272,18 +317,11 @@ class Variable:
         """
         if any(variable.observations is None for variable in variables):
             raise ValueError("map_observations: input has no observations")
-        layout = cls._common_layout(variables, "map_observations")
+        layout = Layout.merge(*(variable.layout for variable in variables))
+        if len(layout.ensemble_names) > 1:
+            raise ValueError("map_observations: inputs are on different ensembles")
         observations = func(*[variable.observations for variable in variables])
         return cls.from_data(observations, layout)
-
-    @staticmethod
-    def _common_layout(variables: tuple[Variable, ...], name: str) -> Layout:
-        reference = variables[0].layout
-        for index, variable in enumerate(variables):
-            for field in ("ensembles", "monte_carlo_times", "replicas", "weights"):
-                if not np.array_equal(getattr(variable.layout, field), getattr(reference, field)):
-                    raise ValueError(f"{name}: input {index} {field} differ")
-        return reference
 
     @classmethod
     def concatenate_components(cls, *variables: Variable, axis: int = 0) -> Self:
@@ -513,6 +551,15 @@ class Variable:
         weights = self.layout.weights
         mean = np.mean(weights)
         return _monte_carlo_history(ax, weights, self.layout, mean, "weight", reference_name="mean")
+
+
+def _row_ensembles(layout: Layout, field: str) -> np.ndarray:
+    """Ensemble name of each row of ``field``: one row per (ensemble, replica) for replica central values, else
+    one per configuration."""
+    if field != "replica_central_values":
+        return layout.ensembles
+    return np.concatenate([np.full(len(np.unique(layout.replicas[layout.ensembles == name])), name)
+                           for name in layout.ensemble_names])
 
 
 def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference: float, ylabel: str,
