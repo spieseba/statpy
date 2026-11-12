@@ -480,58 +480,109 @@ class Variable:
 
     def bias_corrected_value(self) -> np.ndarray:
         """Return the central value with the replica bias correction, which cancels the leading
-        O(1/N) bias of nonlinear derived quantities. Needs replica central values of at least two replicas;
-        the variable is unchanged."""
-        _, sizes = np.unique(self.layout.replicas, return_counts=True)
-        if self.replica_central_values is None or len(sizes) < 2:
+        O(1/N) bias of nonlinear derived quantities. The corrections of the ensembles with at least two replicas
+        are added; needs replica central values and one such ensemble. The variable is unchanged."""
+        sizes = self._replica_sizes()
+        if self.replica_central_values is None or all(len(ensemble_sizes) < 2 for ensemble_sizes in sizes.values()):
             raise ValueError("bias_corrected_value: needs replica central values of at least two replicas")
-        return gamma.bias_corrected_value(self.central_value, self.replica_central_values, sizes)
+        row_ensembles = _row_ensembles(self.layout, "replica_central_values")
+        corrected = [gamma.bias_corrected_value(self.central_value, self.replica_central_values[row_ensembles == name],
+                                                ensemble_sizes)
+                     for name, ensemble_sizes in sizes.items() if len(ensemble_sizes) >= 2]
+        # central value plus the correction of each ensemble
+        return np.sum(corrected, axis=0) - (len(corrected) - 1) * self.central_value
 
-    def summarize(self, S: float = 1.5, components: Mapping[str, int | tuple[int, ...]] | Iterable[int | tuple[int, ...]] | None = None) -> None:
-        """Print ensemble, configurations and replicas, then per component the central value, its bias-corrected
-        value and the correction in units of the gamma error, the errors (gamma method at ``S``, jackknife,
-        bootstrap), tau_int, window W and replica Q-value; columns without values are left out. ``components`` lists
-        the rows to show (ints or index tuples), default all; a dict names them, e.g. ``{"A": 0, "m": 1}``."""
+    def _replica_sizes(self) -> dict[str, np.ndarray]:
+        """Number of configurations of each replica, by ensemble name."""
         layout = self.layout
-        (ensemble,) = layout.ensemble_names
-        _, sizes = np.unique(layout.replicas, return_counts=True)
+        return {name: np.unique(layout.replicas[layout.ensembles == name], return_counts=True)[1]
+                for name in layout.ensemble_names}
+
+    def summarize(self, S: float | Mapping[str, float] = 1.5,
+                  components: Mapping[str, int | tuple[int, ...]] | Iterable[int | tuple[int, ...]] | None = None) -> None:
+        """Print ensembles, configurations and replicas, then per component the central value, its bias-corrected
+        value and the correction in units of the gamma error, the errors (gamma method at ``S``, jackknife,
+        bootstrap), tau_int, window W and replica Q-value; columns without values are left out. With multiple
+        ensembles, a row follows for each ensemble the component depends on, with its gamma and jackknife errors,
+        their shares of the total variance, tau_int, W and replica Q-value. ``components`` lists the rows to show
+        (ints or index tuples), default all; a dict names them, e.g. ``{"A": 0, "m": 1}``."""
+        sizes = self._replica_sizes()
         shape = np.shape(self.central_value)
-        replica_sizes = f" = {' + '.join(map(str, sizes))}" if len(sizes) > 1 else ""
+        sizes_text = "; ".join(f"{name}: N = {np.sum(ensemble_sizes)}"
+                               + (f" = {' + '.join(map(str, ensemble_sizes))}" if len(ensemble_sizes) > 1 else "")
+                               for name, ensemble_sizes in sizes.items())
         S_text = "" if self.fluctuations is None else f", S = {S}"
-        print(f"{', '.join(layout.ensemble_names)}: N = {len(layout.replicas)}{replica_sizes}, shape {shape}{S_text}")
+        print(f"{sizes_text}, shape {shape}{S_text}")
         result = None if self.fluctuations is None else self.gamma_method(S)
-        corrected = bias_over_error = q_value = None
-        if self.replica_central_values is not None and len(sizes) > 1:
+        corrected = bias_over_error = None
+        q_values = {}
+        if self.replica_central_values is not None and any(len(ensemble_sizes) > 1 for ensemble_sizes in sizes.values()):
             corrected = self.bias_corrected_value()
             if result is not None:
                 # constant component (error 0): NaN
                 bias_over_error = (self.central_value - corrected) / np.where(result.error == 0, np.nan, result.error)
-                q_value = gamma.replica_q_value(self.replica_central_values, sizes, result.error)
-        errors = {"gamma": None if result is None else result.error,
-                  "jackknife": None if self.jackknife_replicates is None else np.sqrt(self.jackknife_variance()),
-                  "bootstrap": None if self.bootstrap_replicates is None else np.sqrt(self.bootstrap_variance())}
-        available = [error for error in errors.values() if error is not None]
+                row_ensembles = _row_ensembles(self.layout, "replica_central_values")
+                q_values = {name: gamma.replica_q_value(self.replica_central_values[row_ensembles == name],
+                                                        ensemble_sizes, result.ensemble_errors[name])
+                            for name, ensemble_sizes in sizes.items() if len(ensemble_sizes) > 1}
+        # total error of each available method and, where the method has it, the error from each ensemble alone
+        errors, ensemble_errors = {}, {}
+        if result is not None:
+            errors["gamma"], ensemble_errors["gamma"] = result.error, result.ensemble_errors
+        if self.jackknife_replicates is not None:
+            variances = [jackknife.variance(replicates) for replicates in self._jackknife_replicates(1)]
+            errors["jackknife"] = np.sqrt(np.sum(variances, axis=0))
+            ensemble_errors["jackknife"] = dict(zip(sizes, np.sqrt(variances)))
+        if self.bootstrap_replicates is not None:
+            errors["bootstrap"] = np.sqrt(self.bootstrap_variance())
+        multiple = len(sizes) > 1
 
         def with_error(value: float, error: float | None) -> str:
             return f"{value:.6g}" if error is None else log.format_paren(value, error)
 
-        rows = [["component", "value", "corrected", "bias/σ", *(f"{method}_error" for method in errors), "tau_int", "W", "replica Q"]]
+        def error_cells(index: tuple, name: str | None = None) -> list[str]:
+            """Error of each method, total or from ensemble ``name``; with multiple ensembles and its share of the
+            total variance in percent."""
+            cells = []
+            for method, total in errors.items():
+                error = total if name is None else ensemble_errors.get(method, {}).get(name)
+                if error is None:
+                    cells.append("")
+                elif multiple and method in ensemble_errors and total[index] != 0:
+                    cells.append(f"{error[index]:.2g} ({100 * (error[index] / total[index])**2:.1f}%)")
+                else:
+                    cells.append(f"{error[index]:.2g}")
+            return cells
+
+        def diagnostics(name: str, index: tuple) -> list[str]:
+            """tau_int, W and replica Q-value of one ensemble."""
+            return ["-" if result is None else log.format_paren(result.tau_int[name][index].item(),
+                                                                result.error_tau_int[name][index].item()),
+                    "-" if result is None else str(result.window[name][index]),
+                    f"{q_values[name][index]:.2f}" if name in q_values else "-"]
+
+        rows = [["component", "ensemble", "value", "corrected", "bias/σ",
+                 *(f"{method}_error" + (" (variance share)" if multiple and method in ensemble_errors else "")
+                   for method in errors),
+                 "tau_int", "W", "replica Q"]]
         if isinstance(components, Mapping):
             selected = [(name, np.index_exp[component]) for name, component in components.items()]
         else:
             indices = np.ndindex(shape) if components is None else [np.index_exp[component] for component in components]
             selected = [(", ".join(map(str, index)), index) for index in indices]
         for label, index in selected:
-            value_error = available[0][index].item() if available else None
-            rows.append([str(label),
+            value_error = next(iter(errors.values()))[index].item() if errors else None
+            rows.append([str(label), "total" if multiple else "-",
                          with_error(self.central_value[index].item(), value_error),
                          "-" if corrected is None else with_error(corrected[index].item(), value_error),
                          "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
-                         *("-" if error is None else f"{error[index]:.2g}" for error in errors.values()),
-                         "-" if result is None else log.format_paren(result.tau_int[ensemble][index].item(),
-                                                                     result.error_tau_int[ensemble][index].item()),
-                         "-" if result is None else str(result.window[ensemble][index]),
-                         "-" if q_value is None else f"{q_value[index]:.2f}"])
+                         *error_cells(index),
+                         *([""] * 3 if multiple else diagnostics(next(iter(sizes)), index))])
+            for name in sizes if multiple else ():
+                # no row for an ensemble with variance shares below 0.05%: the component does not depend on it
+                if any(method_errors[name][index]**2 > 5e-4 * errors[method][index]**2
+                       for method, method_errors in ensemble_errors.items()):
+                    rows.append(["", name, "", "", "", *error_cells(index, name), *diagnostics(name, index)])
         columns = [i for i in range(len(rows[0])) if any(row[i] not in ("-", "") for row in rows[1:])]
         rows = [[row[i] for i in columns] for row in rows]
         widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]

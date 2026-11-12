@@ -46,6 +46,7 @@ class GammaErrorAnalysis:
     """
     error: np.ndarray
     error_of_error: np.ndarray
+    ensemble_errors: dict[str, np.ndarray]  # error from each ensemble alone
     tau_int: dict[str, np.ndarray]          # bias-corrected, at chosen W
     error_tau_int: dict[str, np.ndarray]    # at chosen W
     window: dict[str, np.ndarray]           # chosen W
@@ -103,8 +104,8 @@ def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_
     """Gamma-method error analysis of ``fluctuations`` per component (Wolff): each ensemble is analysed on its own
     and the variances are added. ``S`` is one value or a dict by ensemble name, 1.5 for names it does not contain."""
     names = np.unique(ensembles).tolist()
-    fields = {field: {} for field in ("tau_int", "error_tau_int", "window", "autocovariance", "tau_ints",
-                                      "error_tau_ints")}
+    fields = {field: {} for field in ("ensemble_errors", "tau_int", "error_tau_int", "window", "autocovariance",
+                                      "tau_ints", "error_tau_ints")}
     sizes: dict[str, int] = {}
     errors, errors_of_errors = [], []
     for name in names:
@@ -118,6 +119,7 @@ def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_
         error = np.where(constant, 0.0, np.sqrt(variance(gamma, tau_ints, W, num_configurations)))
         errors.append(error)
         errors_of_errors.append(error_of_error(error, W, num_configurations))
+        fields["ensemble_errors"][name] = error
         fields["tau_int"][name] = np.where(constant, 0.5,
                                            _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations))
         fields["error_tau_int"][name] = np.where(constant, 0.0, _at_window(error_tau_ints, W))

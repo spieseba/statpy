@@ -58,3 +58,21 @@ def test_gamma_method_adds_the_variances_of_the_ensembles():
     error_of_error = np.sqrt(x_result.error**2 * x_result.error_of_error**2
                              + (2 * y_result.error)**2 * (2 * y_result.error_of_error)**2) / error
     np.testing.assert_allclose(result.error_of_error, error_of_error, rtol=1e-12)
+
+
+def test_bias_correction_adds_the_corrections_of_the_ensembles():
+    x, y = _data()
+    x_layout = Layout("A", np.concatenate([np.arange(250), np.arange(150)]), replicas=np.repeat([0, 1], [250, 150]))
+    y_layout = Layout("B", np.concatenate([np.arange(100), np.arange(100), np.arange(50)]),
+                      replicas=np.repeat([0, 1, 2], [100, 100, 50]))
+    z = Variable.derive(lambda x, y: x / y, Variable.from_data(x, x_layout), Variable.from_data(y, y_layout))
+
+    # per ensemble: value - (Fbar_e - value) / (R_e - 1), Fbar_e = sum_r N_r F_r / N_e; F_r from the
+    # mean of replica r of ensemble e and the full mean of the other ensemble
+    x_mean, y_mean = x.mean(), y.mean(axis=0)
+    value = x_mean / y_mean
+    x_bar = (250 * x[:250].mean() / y_mean + 150 * x[250:].mean() / y_mean) / 400
+    y_bar = (100 * x_mean / y[:100].mean(axis=0) + 100 * x_mean / y[100:200].mean(axis=0)
+             + 50 * x_mean / y[200:].mean(axis=0)) / 250
+    corrected = value - (x_bar - value) / (2 - 1) - (y_bar - value) / (3 - 1)
+    np.testing.assert_allclose(z.bias_corrected_value(), corrected, rtol=1e-12)
