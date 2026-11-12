@@ -75,11 +75,12 @@ def test_error_analysis_matches_exact_ar1():
     num_configurations = 100_000
     values = ar1.generate_chains(taus, num_configurations, np.random.default_rng(0))
     _, fluctuations = gamma.mean_and_fluctuations(values, np.ones(num_configurations))
-    result = gamma.error_analysis(fluctuations, np.arange(num_configurations), np.zeros(num_configurations, int), 1.5)
+    result = gamma.error_analysis(fluctuations, np.full(num_configurations, "E"), np.arange(num_configurations),
+                                  np.zeros(num_configurations, int), 1.5)
     # Wolff eq. 70: tau_int = tau; unit variance, so error = sqrt(2 tau / N)
     error = np.sqrt(2 * taus / num_configurations)
     # 3 sigma, with the gamma method's own error estimates
-    assert np.all(np.abs(result.tau_int - taus) < 3 * result.error_tau_int)
+    assert np.all(np.abs(result.tau_int["E"] - taus) < 3 * result.error_tau_int["E"])
     assert np.all(np.abs(result.error - error) < 3 * result.error_of_error)
 
 
@@ -96,10 +97,10 @@ def test_replica_q_value_by_hand():
 def test_error_analysis_constant_component():
     rng = np.random.default_rng(0)
     fluctuations = np.stack([rng.normal(size=100), np.zeros(100)], axis=1)   # component 1 constant
-    result = gamma.error_analysis(fluctuations, np.arange(100), np.zeros(100, int), 1.5)
-    assert result.window[1] == 0
-    np.testing.assert_array_equal([result.error[1], result.error_of_error[1], result.tau_int[1], result.error_tau_int[1]],
-                                  [0, 0, 0.5, 0])
+    result = gamma.error_analysis(fluctuations, np.full(100, "E"), np.arange(100), np.zeros(100, int), 1.5)
+    assert result.window["E"][1] == 0
+    np.testing.assert_array_equal([result.error[1], result.error_of_error[1], result.tau_int["E"][1],
+                                   result.error_tau_int["E"][1]], [0, 0, 0.5, 0])
 
 
 def test_autocovariance_independent_of_monte_carlo_time_step():
@@ -115,12 +116,14 @@ def test_autocovariance_and_autocorrelation_errors_match_spread_over_chains():
     num_chains, num_configurations = 200, 1000
     chains = ar1.generate_chains(np.full(num_chains, 4.0), num_configurations, np.random.default_rng(0))
     _, fluctuations = gamma.mean_and_fluctuations(chains, np.ones(num_configurations))
-    result = gamma.error_analysis(fluctuations, np.arange(num_configurations), np.zeros(num_configurations, int), 1.5)
-    rho = gamma.autocorrelation(result.autocovariance)
+    result = gamma.error_analysis(fluctuations, np.full(num_configurations, "E"), np.arange(num_configurations),
+                                  np.zeros(num_configurations, int), 1.5)
+    autocovariance, window = result.autocovariance["E"], result.window["E"]
+    rho = gamma.autocorrelation(autocovariance)
     lags = [1, 4, 10, 20]
-    error_gamma = gamma.error_autocovariance(result.autocovariance, result.window, num_configurations, max(lags))
-    error_rho = gamma.error_autocorrelation(rho, result.window, num_configurations, max(lags))
+    error_gamma = gamma.error_autocovariance(autocovariance, window, num_configurations, max(lags))
+    error_rho = gamma.error_autocorrelation(rho, window, num_configurations, max(lags))
     # each chain is one estimate; 3 sigma of the spread over chains, relative error 1 / sqrt(2 num_chains) (standard error of the standard deviation)
     rtol = 3 / np.sqrt(2 * num_chains)
-    np.testing.assert_allclose(error_gamma[lags].mean(axis=1), result.autocovariance[lags].std(axis=1), rtol=rtol)
+    np.testing.assert_allclose(error_gamma[lags].mean(axis=1), autocovariance[lags].std(axis=1), rtol=rtol)
     np.testing.assert_allclose(error_rho[lags].mean(axis=1), rho[lags].std(axis=1), rtol=rtol)

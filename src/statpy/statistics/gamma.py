@@ -5,7 +5,7 @@ remaining axes, e.g. a time slice, is a component and is analysed independently.
 """
 
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,24 +40,37 @@ def mean_and_fluctuations(observations: np.ndarray, weights: np.ndarray) -> tupl
 
 @dataclass(frozen=True)
 class GammaErrorAnalysis:
-    """Gamma-method error analysis of one quantity, per component."""
+    """Gamma-method error analysis of one quantity, per component.
+
+    ``error`` and ``error_of_error`` are totals over the ensembles; the other fields are dicts by ensemble name.
+    """
     error: np.ndarray
     error_of_error: np.ndarray
-    tau_int: np.ndarray          # bias-corrected, at chosen W
-    error_tau_int: np.ndarray    # at chosen W
-    window: np.ndarray           # chosen W
-    autocovariance: np.ndarray   # all lags, for autocorrelation plot
-    tau_ints: np.ndarray         # all W, for plateau plot
-    error_tau_ints: np.ndarray   # all W
-    num_configurations: int      # N, for the errors of the autocorrelation
+    tau_int: dict[str, np.ndarray]          # bias-corrected, at chosen W
+    error_tau_int: dict[str, np.ndarray]    # at chosen W
+    window: dict[str, np.ndarray]           # chosen W
+    autocovariance: dict[str, np.ndarray]   # all lags, for autocorrelation plot
+    tau_ints: dict[str, np.ndarray]         # all W, for plateau plot
+    error_tau_ints: dict[str, np.ndarray]   # all W
+    num_configurations: dict[str, int]      # N, for the errors of the autocorrelation
 
-    def plot_autocorrelation(self, ax: Axes, component: int | tuple[int, ...] = (), max_lag: int | None = None) -> Axes:
+    def _ensemble(self, ensemble: str | None) -> str:
+        """``ensemble``, or the only ensemble if None."""
+        if ensemble is None and len(self.window) == 1:
+            return next(iter(self.window))
+        if ensemble not in self.window:
+            raise ValueError(f"ensemble must be one of {list(self.window)}, got {ensemble!r}")
+        return ensemble
+
+    def plot_autocorrelation(self, ax: Axes, component: int | tuple[int, ...] = (), max_lag: int | None = None,
+                             ensemble: str | None = None) -> Axes:
         """Plot the autocorrelation rho(t) of one ``component`` into ``ax`` with its errors for lags 0 to ``max_lag``
-        (default max(10, 2W)), shading lags 0 to the chosen window W."""
-        rho = autocorrelation(select_component(self.autocovariance, component))
-        W = int(self.window[np.index_exp[component]])
+        (default max(10, 2W)), shading lags 0 to the chosen window W. ``ensemble`` selects one of multiple ensembles."""
+        ensemble = self._ensemble(ensemble)
+        rho = autocorrelation(select_component(self.autocovariance[ensemble], component))
+        W = int(self.window[ensemble][np.index_exp[component]])
         max_lag = _plot_range(W, len(rho), max_lag)
-        errors = error_autocorrelation(rho, np.array(W), self.num_configurations, max_lag)
+        errors = error_autocorrelation(rho, np.array(W), self.num_configurations[ensemble], max_lag)
         _window_axes(ax, W, max_lag)
         ax.axhline(0, color="0.35", linewidth=0.8, zorder=1)
         _errorbars(ax, np.arange(max_lag + 1), rho[:max_lag + 1], errors)
@@ -65,17 +78,18 @@ class GammaErrorAnalysis:
         return ax
 
     def plot_integrated_autocorrelation_time(self, ax: Axes, component: int | tuple[int, ...] = (),
-                                             max_window: int | None = None) -> Axes:
+                                             max_window: int | None = None, ensemble: str | None = None) -> Axes:
         """Plot tau_int(W) of one ``component`` into ``ax`` with its errors for windows 0 to ``max_window``
         (default max(10, 2W)), shading windows 0 to the chosen W, and the reported bias-corrected tau_int with its
-        error as a band; the curve is not bias-corrected."""
-        tau_ints = select_component(self.tau_ints, component)
-        errors = select_component(self.error_tau_ints, component)
+        error as a band; the curve is not bias-corrected. ``ensemble`` selects one of multiple ensembles."""
+        ensemble = self._ensemble(ensemble)
+        tau_ints = select_component(self.tau_ints[ensemble], component)
+        errors = select_component(self.error_tau_ints[ensemble], component)
         index = np.index_exp[component]
-        W = int(self.window[index])
+        W = int(self.window[ensemble][index])
         windows = np.arange(_plot_range(W, len(tau_ints), max_window) + 1)
         _window_axes(ax, W, windows[-1])
-        tau_int, error = self.tau_int[index].item(), self.error_tau_int[index].item()
+        tau_int, error = self.tau_int[ensemble][index].item(), self.error_tau_int[ensemble][index].item()
         band = ax.axhspan(tau_int - error, tau_int + error, color="C1", alpha=0.15, linewidth=0, zorder=1)
         line = ax.axhline(tau_int, color="C1", linewidth=1.2, zorder=2)
         _errorbars(ax, windows, tau_ints[windows], errors[windows])
@@ -84,25 +98,42 @@ class GammaErrorAnalysis:
         return ax
 
 
-def error_analysis(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integer], replicas: NDArray[np.integer], S: float) -> GammaErrorAnalysis:
-    """Gamma-method error analysis of ``fluctuations`` per component (Wolff)."""
-    num_configurations = len(fluctuations)
-    gamma = autocovariance(fluctuations, monte_carlo_times, replicas)
-    tau_ints = integrated_autocorrelation_times(gamma)
-    error_tau_ints = error_integrated_autocorrelation_times(tau_ints, num_configurations)
-    W = window(tau_ints, num_configurations, S)
-    constant = gamma[0] == 0    # constant: error = 0, tau_int = 1/2, error_tau_int = 0
-    error = np.where(constant, 0.0, np.sqrt(variance(gamma, tau_ints, W, num_configurations)))
+def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_carlo_times: NDArray[np.integer],
+                   replicas: NDArray[np.integer], S: float | Mapping[str, float]) -> GammaErrorAnalysis:
+    """Gamma-method error analysis of ``fluctuations`` per component (Wolff): each ensemble is analysed on its own
+    and the variances are added. ``S`` is one value or a dict by ensemble name, 1.5 for names it does not contain."""
+    names = np.unique(ensembles).tolist()
+    fields = {field: {} for field in ("tau_int", "error_tau_int", "window", "autocovariance", "tau_ints",
+                                      "error_tau_ints")}
+    sizes: dict[str, int] = {}
+    errors, errors_of_errors = [], []
+    for name in names:
+        rows = ensembles == name
+        num_configurations = int(np.sum(rows))
+        gamma = autocovariance(fluctuations[rows], monte_carlo_times[rows], replicas[rows])
+        tau_ints = integrated_autocorrelation_times(gamma)
+        error_tau_ints = error_integrated_autocorrelation_times(tau_ints, num_configurations)
+        W = window(tau_ints, num_configurations, S.get(name, 1.5) if isinstance(S, Mapping) else S)
+        constant = gamma[0] == 0    # constant: error = 0, tau_int = 1/2, error_tau_int = 0
+        error = np.where(constant, 0.0, np.sqrt(variance(gamma, tau_ints, W, num_configurations)))
+        errors.append(error)
+        errors_of_errors.append(error_of_error(error, W, num_configurations))
+        fields["tau_int"][name] = np.where(constant, 0.5,
+                                           _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations))
+        fields["error_tau_int"][name] = np.where(constant, 0.0, _at_window(error_tau_ints, W))
+        fields["window"][name] = W
+        fields["autocovariance"][name] = gamma
+        fields["tau_ints"][name] = tau_ints
+        fields["error_tau_ints"][name] = error_tau_ints
+        sizes[name] = num_configurations
+    total_error = np.sqrt(np.sum(np.square(errors), axis=0))
+    # each ensemble's share of the total error; 0 where the total is 0
+    shares = np.divide(errors, total_error, out=np.zeros_like(np.asarray(errors)), where=total_error != 0)
     return GammaErrorAnalysis(
-        error=error,
-        error_of_error=error_of_error(error, W, num_configurations),
-        tau_int=np.where(constant, 0.5, _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations)),
-        error_tau_int=np.where(constant, 0.0, _at_window(error_tau_ints, W)),
-        window=W,
-        autocovariance=gamma,
-        tau_ints=tau_ints,
-        error_tau_ints=error_tau_ints,
-        num_configurations=num_configurations,
+        error=total_error,
+        error_of_error=np.sqrt(np.sum(np.square(shares * errors_of_errors), axis=0)),
+        num_configurations=sizes,
+        **fields,
     )
 
 

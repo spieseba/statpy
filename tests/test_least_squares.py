@@ -73,5 +73,5 @@ def test_fit_fluctuations_match_exact_error_and_tau_int():
     v_shared, v_own = per_chain.sum(axis=1) ** 2, (per_chain ** 2).sum(axis=1)
     tau_int = (tau_shared * v_shared + tau_own * v_own) / (v_shared + v_own)
     error = np.sqrt(2 * (tau_shared * v_shared + tau_own * v_own) / num_configurations)
-    assert np.all(np.abs(result.tau_int - tau_int) < 3 * result.error_tau_int)
+    assert np.all(np.abs(result.tau_int["test"] - tau_int) < 3 * result.error_tau_int["test"])
     assert np.all(np.abs(result.error - error) < 3 * result.error_of_error)

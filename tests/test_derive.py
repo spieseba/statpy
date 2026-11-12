@@ -157,7 +157,7 @@ def test_effective_mass_matches_wolff_exact_values(numerical):
     assert abs(effective_mass.central_value - m) < 3 * np.sqrt(2 * tau_int_f * v_f / len(nu))
     for variable, v, tau_int in [(a1, v_a, tau_int_a), (a2, v_a, tau_int_a), (effective_mass, v_f, tau_int_f)]:
         result = variable.gamma_method()
-        assert abs(result.tau_int - tau_int) < 3 * result.error_tau_int
+        assert abs(result.tau_int["E"] - tau_int) < 3 * result.error_tau_int["E"]
         assert abs(result.error - np.sqrt(2 * tau_int * v / len(nu))) < 3 * result.error_of_error
 
 

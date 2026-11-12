@@ -466,16 +466,17 @@ class Variable:
             raise ValueError("bootstrap_covariance: variable has no bootstrap replicates")
         return bootstrap.covariance(self.bootstrap_replicates)
 
-    def gamma_method(self, S: float = 1.5) -> gamma.GammaErrorAnalysis:
-        """Return the gamma-method error analysis per component.
+    def gamma_method(self, S: float | Mapping[str, float] = 1.5) -> gamma.GammaErrorAnalysis:
+        """Return the gamma-method error analysis per component; the variances from each ensemble are added.
 
-        ``S`` sets the automatic summation window; a larger ``S`` gives a larger window.
-        Fields: see ``GammaErrorAnalysis``. The variable is unchanged.
+        ``S`` sets the automatic summation window; a larger ``S`` gives a larger window. A dict gives ``S`` per
+        ensemble name, 1.5 for names it does not contain. Fields: see ``GammaErrorAnalysis``. The variable is
+        unchanged.
         """
         if self.fluctuations is None:
             raise ValueError("gamma_method: variable has no fluctuations")
         layout = self.layout
-        return gamma.error_analysis(self.fluctuations, layout.monte_carlo_times, layout.replicas, S)
+        return gamma.error_analysis(self.fluctuations, layout.ensembles, layout.monte_carlo_times, layout.replicas, S)
 
     def bias_corrected_value(self) -> np.ndarray:
         """Return the central value with the replica bias correction, which cancels the leading
@@ -492,6 +493,7 @@ class Variable:
         bootstrap), tau_int, window W and replica Q-value; columns without values are left out. ``components`` lists
         the rows to show (ints or index tuples), default all; a dict names them, e.g. ``{"A": 0, "m": 1}``."""
         layout = self.layout
+        (ensemble,) = layout.ensemble_names
         _, sizes = np.unique(layout.replicas, return_counts=True)
         shape = np.shape(self.central_value)
         replica_sizes = f" = {' + '.join(map(str, sizes))}" if len(sizes) > 1 else ""
@@ -526,9 +528,9 @@ class Variable:
                          "-" if corrected is None else with_error(corrected[index].item(), value_error),
                          "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
                          *("-" if error is None else f"{error[index]:.2g}" for error in errors.values()),
-                         "-" if result is None else log.format_paren(result.tau_int[index].item(),
-                                                                     result.error_tau_int[index].item()),
-                         "-" if result is None else str(result.window[index]),
+                         "-" if result is None else log.format_paren(result.tau_int[ensemble][index].item(),
+                                                                     result.error_tau_int[ensemble][index].item()),
+                         "-" if result is None else str(result.window[ensemble][index]),
                          "-" if q_value is None else f"{q_value[index]:.2f}"])
         columns = [i for i in range(len(rows[0])) if any(row[i] not in ("-", "") for row in rows[1:])]
         rows = [[row[i] for i in columns] for row in rows]

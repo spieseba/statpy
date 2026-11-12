@@ -40,3 +40,21 @@ def test_delayed_binning_uses_the_bin_size_of_each_ensemble():
     y_bins = bin_data(y, 5, np.ones(len(y)))
     variance = np.var(x_bins, ddof=1) / len(x_bins) + 4 * np.var(y_bins, axis=0, ddof=1) / len(y_bins)
     np.testing.assert_allclose(z.jackknife_variance({"A": 4, "B": 5}), variance, rtol=1e-12)
+
+
+def test_gamma_method_adds_the_variances_of_the_ensembles():
+    x, y = _data()
+    z = _sum(x, y)
+    result = z.gamma_method()
+    x_result = Variable.from_data(x, Layout("A", np.arange(len(x)))).gamma_method()
+    y_result = Variable.from_data(y, Layout("B", np.arange(len(y)))).gamma_method()
+
+    # z = x + 2 y: errors add in quadrature, tau_int and window are those of each ensemble
+    error = np.sqrt(x_result.error**2 + 4 * y_result.error**2)
+    np.testing.assert_allclose(result.error, error, rtol=1e-12)
+    np.testing.assert_allclose(result.tau_int["A"], np.full(2, x_result.tau_int["A"]), rtol=1e-12)
+    np.testing.assert_allclose(result.tau_int["B"], y_result.tau_int["B"], rtol=1e-12)
+    # error of the error from independent ensembles: sqrt(sum_e sigma_e^2 dsigma_e^2) / sigma
+    error_of_error = np.sqrt(x_result.error**2 * x_result.error_of_error**2
+                             + (2 * y_result.error)**2 * (2 * y_result.error_of_error)**2) / error
+    np.testing.assert_allclose(result.error_of_error, error_of_error, rtol=1e-12)
