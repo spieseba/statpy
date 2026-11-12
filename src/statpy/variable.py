@@ -126,12 +126,12 @@ class Variable:
 
     def __repr__(self) -> str:
         layout = self.layout
-        labels = np.unique(layout.replicas)
+        names = layout.ensemble_names
         reweighted = ", reweighted" if np.any(layout.weights != 1) else ""
-        lines = [(f"Variable of shape {np.shape(self.central_value)} on ensemble {', '.join(layout.ensemble_names)}, "
-                  f"{len(layout.replicas)} configurations{reweighted}")]
-        for label in labels:
-            times = layout.monte_carlo_times[layout.replicas == label]
+        lines = [(f"Variable of shape {np.shape(self.central_value)} on ensemble{'s' if len(names) > 1 else ''} "
+                  f"{', '.join(names)}, {len(layout.replicas)} configurations{reweighted}")]
+        for name, replica, rows in _replica_rows(layout):
+            times = layout.monte_carlo_times[rows]
             if len(times) == 1:
                 line = f"Monte Carlo time {times[0]}"
             else:
@@ -139,7 +139,8 @@ class Variable:
                 missing = (times[-1] - times[0]) // step + 1 - len(times)
                 line = f"Monte Carlo times {times[0]} to {times[-1]} in steps of {step}"
                 line += f", {missing} missing" if missing else ""
-            lines.append(line if len(labels) == 1 else f"replica {label}: {len(times)} configurations, {line}")
+            label = ", ".join(([name] if name else []) + ([f"replica {replica}"] if replica is not None else []))
+            lines.append(f"{label}: {len(times)} configurations, {line}" if label else line)
         bootstrap = "bootstrap" if self.bootstrap_replicates is None else f"bootstrap (B = {len(self.bootstrap_replicates)})"
         stored = [name for name, value in (("observations", self.observations),
                                            ("replica central values", self.replica_central_values),
@@ -615,7 +616,9 @@ class Variable:
                                     central_value, "central value + fluctuation")
 
     def plot_weights(self, ax: Axes) -> Axes:
-        """Plot the weights into ``ax`` against Monte Carlo time with their mean."""
+        """Plot the weights into ``ax`` against Monte Carlo time with their mean; one ensemble only."""
+        if len(self.layout.ensemble_names) > 1:
+            raise ValueError("plot_weights: variable has multiple ensembles")
         weights = self.layout.weights
         mean = np.mean(weights)
         return _monte_carlo_history(ax, weights, self.layout, mean, "weight", reference_name="mean")
@@ -630,21 +633,34 @@ def _row_ensembles(layout: Layout, field: str) -> np.ndarray:
                            for name in layout.ensemble_names])
 
 
+def _replica_rows(layout: Layout) -> list[tuple[str | None, int | None, np.ndarray]]:
+    """Name, replica and rows of every replica of every ensemble, in layout order. The name is None for one
+    ensemble, the replica is None if its ensemble has one replica."""
+    names = layout.ensemble_names
+    replica_rows = []
+    for name in names:
+        in_ensemble = layout.ensembles == name
+        replicas = np.unique(layout.replicas[in_ensemble])
+        for replica in replicas:
+            replica_rows.append((name if len(names) > 1 else None, replica if len(replicas) > 1 else None,
+                                 in_ensemble & (layout.replicas == replica)))
+    return replica_rows
+
+
 def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference: float, ylabel: str,
                          reference_name: str = "central value") -> Axes:
-    """Plot ``values`` into ``ax`` against Monte Carlo time, replicas one after another, with a line at ``reference``;
-    legend of the replicas (if more than one) and the reference line."""
+    """Plot ``values`` into ``ax`` against Monte Carlo time, the replicas of every ensemble one after another, with
+    a line at ``reference``; legend of the ensembles and replicas (if more than one) and the reference line."""
     offset = 0
-    several_replicas = len(np.unique(layout.replicas)) > 1
-    for replica in np.unique(layout.replicas):
-        in_replica = layout.replicas == replica
-        times = layout.monte_carlo_times[in_replica] - layout.monte_carlo_times[in_replica][0]
+    for name, replica, rows in _replica_rows(layout):
+        times = layout.monte_carlo_times[rows] - layout.monte_carlo_times[rows][0]
         if offset:
             ax.axvline(offset - 0.5, color="0.6", linewidth=0.8)
         # NaN at gaps, so the line breaks there
         gaps = np.flatnonzero(np.diff(times) > np.diff(times).min()) + 1
-        ax.plot(np.insert((times + offset).astype(float), gaps, np.nan), np.insert(values[in_replica], gaps, np.nan),
-                linewidth=0.7, label=f"replica {replica}" if several_replicas else None)
+        label = " ".join(([name] if name else []) + ([f"replica {replica}"] if replica is not None else []))
+        ax.plot(np.insert((times + offset).astype(float), gaps, np.nan), np.insert(values[rows], gaps, np.nan),
+                linewidth=0.7, label=label or None)
         offset += times[-1] + 1
     ax.axhline(reference, color="0.15", linewidth=1, label=f"{reference_name} = {reference:.4g}")
     legend_above(ax, *ax.get_legend_handles_labels())
