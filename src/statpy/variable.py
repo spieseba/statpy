@@ -214,32 +214,32 @@ class Variable:
 
     @classmethod
     def derive(cls, func: Callable[..., np.ndarray | jax.Array], *variables: Variable,
-               jacobian: Literal["jax"] | Sequence[np.ndarray] | None = "jax", use_vmap: bool = True) -> Self:
+               jacobians: Literal["jax"] | Sequence[np.ndarray] | None = "jax", use_vmap: bool = True) -> Self:
         """Variable for ``func`` of the inputs: central value, replica central values, fluctuations and replicates.
 
         The result has the configurations of all ensembles of the inputs; inputs with the same ensemble must have
         the same configurations of it. On an ensemble an input does not have, the input enters at its central value.
-        ``jacobian`` sets how fluctuations are propagated: ``"jax"`` computes the Jacobian, a list supplies it (one
+        ``jacobians`` sets how fluctuations are propagated: ``"jax"`` computes the Jacobian, a list supplies it (one
         array per input, shape output + input), ``None`` propagates none. ``use_vmap`` evaluates the replicates in
         one jax batch, else in a loop. If jax cannot trace ``func`` (it needs jax.numpy), the loop is used and
         ``"jax"`` gives no fluctuations. Parts that cannot be propagated are dropped with a warning.
         """
-        if isinstance(jacobian, str) and jacobian != "jax":
-            raise ValueError(f'derive: jacobian must be "jax", a list of arrays or None, not {jacobian!r}')
+        if isinstance(jacobians, str) and jacobians != "jax":
+            raise ValueError(f'derive: jacobians must be "jax", a list of arrays or None, not {jacobians!r}')
         layout = Layout.merge(*(variable.layout for variable in variables))
         central_values = [variable.central_value for variable in variables]
-        compatible = (jacobian == "jax" or use_vmap) and cls._is_jax_compatible(func, central_values, use_vmap)
+        compatible = (jacobians == "jax" or use_vmap) and cls._is_jax_compatible(func, central_values, use_vmap)
         input_fluctuations = cls._field_on_merged_layout(variables, "fluctuations", layout)
-        jacobians = None if jacobian == "jax" else jacobian
-        if jacobian == "jax" and compatible and input_fluctuations is not None:
-            central_value, jacobians = gamma.value_and_jacobians(func, central_values)
+        input_jacobians = None if jacobians == "jax" else jacobians
+        if jacobians == "jax" and compatible and input_fluctuations is not None:
+            central_value, input_jacobians = gamma.value_and_jacobians(func, central_values)
         else:
             central_value = np.asarray(func(*central_values))
-        if input_fluctuations is not None and jacobians is not None:
-            fluctuations = gamma.project_fluctuations(jacobians, input_fluctuations)
+        if input_fluctuations is not None and input_jacobians is not None:
+            fluctuations = gamma.project_fluctuations(input_jacobians, input_fluctuations)
         else:
             fluctuations = None
-            if jacobian is not None and any(variable.fluctuations is not None for variable in variables):
+            if jacobians is not None and any(variable.fluctuations is not None for variable in variables):
                 warnings.warn("derive: gamma-method fluctuations not propagated", stacklevel=2)
         replicates = cls._derive_replicates(func, variables, layout, use_vmap and compatible)
         return cls.from_results(layout=layout, central_value=central_value, fluctuations=fluctuations, **replicates)
