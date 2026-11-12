@@ -9,6 +9,7 @@ statpy is a Python library for statistical analysis, error propagation and autoc
   - Data storage and core statistical calculations with NumPy
   - Function transformations with JAX: automatic differentiation (autodiff) for gamma-method error propagation, vectorized evaluation of jackknife and bootstrap replicates (`vmap`), and just-in-time compilation (`jit`)
 - Nonlinear least-squares fits with error propagation by all three methods, optionally with numba-compiled models
+- Quantities that combine multiple independent ensembles: autocorrelations and errors are estimated per ensemble
 - Delayed binning (Spiegel, Lehner, [Phys. Rev. D 111](https://doi.org/10.1103/mj3d-yq87)): jackknife errors of derived quantities at any bin size, without repeating the analysis
 
 statpy enables JAX's 64-bit mode on import.
@@ -179,13 +180,41 @@ for bin_size in (1, 8, 16, 32, 64):
 64 2.5e-04
 ```
 
-### Example 3: real lattice data
+### Example 3: combining ensembles
+
+Variables from independent ensembles are combined with `derive`. With the gamma method and jackknife, the error is computed for each ensemble on its own and the variances are added; `summarize` shows the contribution of each ensemble. We form the ratio of the means of two chains with means 1 and 2, standard deviation 0.1, and different lengths and autocorrelation times.
+
+```python
+import numpy as np
+import statpy as sp
+
+rng = np.random.default_rng(0)
+chain_a = 1 + 0.1 * sp.simulation.ar1.generate_chains(tau=2.0, num_configurations=4000, rng=rng)
+chain_b = 2 + 0.1 * sp.simulation.ar1.generate_chains(tau=8.0, num_configurations=2000, rng=rng)
+a = sp.Variable.from_data(observations=chain_a, layout=sp.Layout("Ensemble-A", monte_carlo_times=np.arange(4000)))
+b = sp.Variable.from_data(observations=chain_b, layout=sp.Layout("Ensemble-B", monte_carlo_times=np.arange(2000)))
+
+ratio = sp.Variable.derive(lambda a, b: a / b, a, b)
+ratio.summarize()
+```
+
+```text
+Ensemble-A: N = 4000; Ensemble-B: N = 2000, shape (), S = 1.5
+ensemble    value       gamma_error (variance share)  jackknife_error (variance share)  tau_int   W
+total       0.4960(29)  0.0029 (100.0%)               0.00095 (100.0%)
+Ensemble-A              0.0016 (29.7%)                0.00078 (67.6%)                   1.96(21)  13
+Ensemble-B              0.0024 (70.3%)                0.00054 (32.4%)                   9.7(24)   43
+```
+
+The exact errors are 0.0016 from ensemble A and 0.0022 from ensemble B, 0.0027 in total. The jackknife errors are shown without binning and are too small, as in Example 1.
+
+### Example 4: real lattice data
 
 A more involved example can be found in [caa-control-variates](https://github.com/spieseba/caa-control-variates), which applies covariant approximation averaging, a control-variates technique, to real lattice QCD correlator data and reduces the statistical error by up to an order of magnitude.
 
 ## Roadmap
 
-- Quantities from several ensembles, external inputs and systematic errors, with an error budget
+- External inputs and systematic errors, with an error budget
 - Gamma-method covariance, with bias correction of its inverse for correlated fits
 - Expected chi-squared for uncorrelated fits (Bruno, Sommer, [arXiv:2209.14188](https://arxiv.org/abs/2209.14188))
 - Exponential tail correction (Schaefer, Sommer, Virotta, [arXiv:1009.5228](https://arxiv.org/abs/1009.5228))
