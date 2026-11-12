@@ -9,12 +9,11 @@ import statpy
 from statpy.log import message
 from statpy.variable import Layout, Variable
 
-# Database file: HDF5 with root attributes ``format`` and ``statpy_commit``; one group per tag with attribute
-# ``ensemble`` and one dataset per field that is not None. Change ``_FORMAT`` when the meaning of a field changes.
-_FORMAT = "statpy-database-1"
+# Database file: HDF5 with root attribute ``statpy_commit``; one group per tag with one dataset per field that is
+# not None, ``ensembles`` as UTF-8 bytes. A field whose meaning changes gets a new name.
 _VARIABLE_FIELDS = ("observations", "central_value", "replica_central_values", "fluctuations",
                     "jackknife_replicates", "bootstrap_replicates")
-_LAYOUT_FIELDS = ("monte_carlo_times", "replicas", "weights")
+_LAYOUT_FIELDS = ("ensembles", "monte_carlo_times", "replicas", "weights")
 # Scalar datasets cannot carry filters
 _DATASET_FILTERS = {"fletcher32": True, "shuffle": True, "compression": "gzip", "compression_opts": 4}
 _commit_logged = False
@@ -64,8 +63,8 @@ class Database(Mapping[str, Variable]):
         if not src.is_file():
             raise FileNotFoundError(f"{src} not found")
         with h5py.File(src, "r") as f:
-            if f.attrs.get("format") != _FORMAT:
-                raise ValueError(f"{src}: not a statpy database file, or another format (expected {_FORMAT})")
+            if "statpy_commit" not in f.attrs:
+                raise ValueError(f"{src}: not a statpy database file")
             self._check_new_tags(f, f"load({src})")
             variables = {}
             for tag, group in f.items():
@@ -73,9 +72,13 @@ class Database(Mapping[str, Variable]):
                 if unknown:
                     warnings.warn(f"{src}: {tag}: fields unknown to this statpy version ignored: {unknown}",
                                   stacklevel=2)
+                missing = sorted({"central_value", *_LAYOUT_FIELDS} - set(group))
+                if missing:
+                    raise ValueError(f"{src}: {tag}: no {missing}; written by statpy commit "
+                                     f"{f.attrs['statpy_commit']}, which this version cannot read")
                 fields = {name: group[name][...] for name in group if name not in unknown}
-                layout = Layout(group.attrs["ensemble"], fields.pop("monte_carlo_times"),
-                                replicas=fields.pop("replicas", None), weights=fields.pop("weights", None))
+                layout = Layout(np.char.decode(fields.pop("ensembles"), "utf-8"), fields.pop("monte_carlo_times"),
+                                replicas=fields.pop("replicas"), weights=fields.pop("weights"))
                 variables[tag] = Variable(layout=layout, **fields)
         self._variables.update(variables)
 
@@ -93,13 +96,12 @@ class Database(Mapping[str, Variable]):
     def save(self, dst: Path) -> None:
         """Write the entire database (all fields, including observations) to ``dst``."""
         with h5py.File(dst, "w") as f:
-            f.attrs["format"] = _FORMAT
             f.attrs["statpy_commit"] = statpy.__commit__ or "unknown"
             for tag, variable in self._variables.items():
                 group = f.create_group(tag)
-                (group.attrs["ensemble"],) = variable.layout.ensemble_names
                 fields = ({name: getattr(variable, name) for name in _VARIABLE_FIELDS}
                           | {name: getattr(variable.layout, name) for name in _LAYOUT_FIELDS})
+                fields["ensembles"] = np.char.encode(variable.layout.ensembles, "utf-8")
                 for name, value in fields.items():
                     if value is not None:
                         group.create_dataset(name, data=value, **(_DATASET_FILTERS if np.ndim(value) > 0 else {}))
