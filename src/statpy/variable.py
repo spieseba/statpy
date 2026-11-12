@@ -422,22 +422,37 @@ class Variable:
     # Error analysis
     # ---------------------------------------------------------------------------
 
-    def jackknife_variance(self, bin_size: int = 1) -> np.ndarray:
-        """Return the jackknife variance; delayed binning (one replica only) for ``bin_size > 1``."""
-        return jackknife.variance(self._jackknife_replicates(bin_size))
+    def jackknife_variance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
+        """Return the jackknife variance, the sum of the variances from each ensemble.
 
-    def jackknife_covariance(self, bin_size: int = 1) -> np.ndarray:
-        """Return the jackknife covariance; delayed binning (one replica only) for ``bin_size > 1``."""
-        return jackknife.covariance(self._jackknife_replicates(bin_size))
+        ``bin_size > 1`` applies delayed binning (ensembles with one replica only); a dict gives the bin size
+        per ensemble name, 1 for names it does not contain.
+        """
+        return np.sum([jackknife.variance(replicates) for replicates in self._jackknife_replicates(bin_size)], axis=0)
 
-    def _jackknife_replicates(self, bin_size: int) -> np.ndarray:
+    def jackknife_covariance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
+        """Return the jackknife covariance, the sum of the covariances from each ensemble; ``bin_size`` as in
+        ``jackknife_variance``."""
+        return np.sum([jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)], axis=0)
+
+    def _jackknife_replicates(self, bin_size: int | Mapping[str, int]) -> list[np.ndarray]:
+        """Jackknife replicates of each ensemble, delayed-binned where its bin size is not 1."""
         if self.jackknife_replicates is None:
             raise ValueError("jackknife: variable has no jackknife replicates")
-        if bin_size == 1:
-            return self.jackknife_replicates
-        if len(np.unique(self.layout.replicas)) > 1:
-            raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
-        return jackknife.delayed_binning(self.jackknife_replicates, bin_size, self.layout.weights)
+        layout = self.layout
+        names = layout.ensemble_names
+        ensemble_replicates = []
+        for name in names:
+            # one ensemble: all rows, without a copy
+            rows = slice(None) if len(names) == 1 else layout.ensembles == name
+            replicates = self.jackknife_replicates[rows]
+            ensemble_bin_size = bin_size.get(name, 1) if isinstance(bin_size, Mapping) else bin_size
+            if ensemble_bin_size != 1:
+                if len(np.unique(layout.replicas[rows])) > 1:
+                    raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
+                replicates = jackknife.delayed_binning(replicates, ensemble_bin_size, layout.weights[rows])
+            ensemble_replicates.append(replicates)
+        return ensemble_replicates
 
     def bootstrap_variance(self) -> np.ndarray:
         """Return the bootstrap variance."""
