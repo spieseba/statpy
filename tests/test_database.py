@@ -25,3 +25,19 @@ def test_save_load_keeps_every_field(tmp_path, monte_carlo_times, replicas):
                 np.testing.assert_array_equal(getattr(loaded.layout, field), array)
         else:
             np.testing.assert_array_equal(getattr(loaded, name), value)
+
+
+def test_save_load_keeps_external_inputs(tmp_path):
+    c = Variable.from_external("c", [1.0, 2.0], [[0.04, 0.01], [0.01, 0.09]], num_bootstraps=4)
+    db = Database()
+    db["propagated"] = Variable.derive(lambda c: c[0] * c, c)
+    db["unpropagated"] = Variable.derive(lambda c: c[0] * c, c, jacobians=None)
+    db.save(tmp_path / "db")
+    loaded = Database(tmp_path / "db")
+    for tag, variable in db.items():
+        external, loaded_external = variable.external_inputs["c"], loaded[tag].external_inputs["c"]
+        np.testing.assert_array_equal(loaded_external.covariance, external.covariance)
+        np.testing.assert_array_equal(loaded_external.jacobian, external.jacobian)
+        np.testing.assert_array_equal(loaded[tag].bootstrap_replicates, variable.bootstrap_replicates)
+    np.testing.assert_array_equal(loaded["propagated"].jackknife_variance(), db["propagated"].jackknife_variance())
+    assert loaded["unpropagated"].external_inputs["c"].jacobian is None

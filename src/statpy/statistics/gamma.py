@@ -100,9 +100,11 @@ class GammaErrorAnalysis:
 
 
 def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_carlo_times: NDArray[np.integer],
-                   replicas: NDArray[np.integer], S: float | Mapping[str, float]) -> GammaErrorAnalysis:
+                   replicas: NDArray[np.integer], S: float | Mapping[str, float],
+                   external_variance: np.ndarray | float = 0.0) -> GammaErrorAnalysis:
     """Gamma-method error analysis of ``fluctuations`` per component (Wolff): each ensemble is analysed on its own
-    and the variances are added. ``S`` is one value or a dict by ensemble name, 1.5 for names it does not contain."""
+    and the variances are added. ``S`` is one value or a dict by ensemble name, 1.5 for names it does not contain.
+    ``external_variance`` (variance from external inputs) is added to the total variance."""
     names = np.unique(ensembles).tolist()
     fields = {field: {} for field in ("ensemble_errors", "tau_int", "error_tau_int", "window", "autocovariance",
                                       "tau_ints", "error_tau_ints")}
@@ -128,9 +130,12 @@ def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_
         fields["tau_ints"][name] = tau_ints
         fields["error_tau_ints"][name] = error_tau_ints
         sizes[name] = num_configurations
-    total_error = np.sqrt(np.sum(np.square(errors), axis=0))
+    # one row per ensemble; the component shape is kept without ensembles
+    errors = np.reshape(errors, (-1, *fluctuations.shape[1:]))
+    errors_of_errors = np.reshape(errors_of_errors, errors.shape)
+    total_error = np.sqrt(np.sum(np.square(errors), axis=0) + external_variance)
     # each ensemble's share of the total error; 0 where the total is 0
-    shares = np.divide(errors, total_error, out=np.zeros_like(np.asarray(errors)), where=total_error != 0)
+    shares = np.divide(errors, total_error, out=np.zeros_like(errors), where=total_error != 0)
     return GammaErrorAnalysis(
         error=total_error,
         error_of_error=np.sqrt(np.sum(np.square(shares * errors_of_errors), axis=0)),

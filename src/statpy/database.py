@@ -7,10 +7,11 @@ import numpy as np
 
 import statpy
 from statpy.log import message
-from statpy.variable import Layout, Variable
+from statpy.variable import ExternalInput, Layout, Variable
 
 # Database file: HDF5 with root attribute ``statpy_commit``; one group per tag with one dataset per field that is
-# not None, ``ensembles`` as UTF-8 bytes. A field whose meaning changes gets a new name.
+# not None, ``ensembles`` as UTF-8 bytes. A field whose meaning changes gets a new name. External inputs are in the
+# subgroups ``external_inputs/<name>`` with the datasets ``covariance`` and, if not None, ``jacobian``.
 _VARIABLE_FIELDS = ("observations", "central_value", "replica_central_values", "fluctuations",
                     "jackknife_replicates", "bootstrap_replicates")
 _LAYOUT_FIELDS = ("ensembles", "monte_carlo_times", "replicas", "weights")
@@ -68,7 +69,7 @@ class Database(Mapping[str, Variable]):
             self._check_new_tags(f, f"load({src})")
             variables = {}
             for tag, group in f.items():
-                unknown = sorted(set(group) - set(_VARIABLE_FIELDS) - set(_LAYOUT_FIELDS))
+                unknown = sorted(set(group) - set(_VARIABLE_FIELDS) - set(_LAYOUT_FIELDS) - {"external_inputs"})
                 if unknown:
                     warnings.warn(f"{src}: {tag}: fields unknown to this statpy version ignored: {unknown}",
                                   stacklevel=2)
@@ -76,10 +77,15 @@ class Database(Mapping[str, Variable]):
                 if missing:
                     raise ValueError(f"{src}: {tag}: no {missing}; written by statpy commit "
                                      f"{f.attrs['statpy_commit']}, which this version cannot read")
-                fields = {name: group[name][...] for name in group if name not in unknown}
+                fields = {name: group[name][...] for name in group if name not in (*unknown, "external_inputs")}
                 layout = Layout(np.char.decode(fields.pop("ensembles"), "utf-8"), fields.pop("monte_carlo_times"),
                                 replicas=fields.pop("replicas"), weights=fields.pop("weights"))
-                variables[tag] = Variable(layout=layout, **fields)
+                external_inputs = {}
+                if "external_inputs" in group:
+                    for name, external in group["external_inputs"].items():
+                        jacobian = external["jacobian"][...] if "jacobian" in external else None
+                        external_inputs[name] = ExternalInput(external["covariance"][...], jacobian)
+                variables[tag] = Variable(layout=layout, external_inputs=external_inputs, **fields)
         self._variables.update(variables)
 
     def _check_new_tags(self, tags: Iterable[str], context: str) -> None:
@@ -95,6 +101,10 @@ class Database(Mapping[str, Variable]):
 
     def save(self, dst: Path) -> None:
         """Write the entire database (all fields, including observations) to ``dst``."""
+        for tag, variable in self._variables.items():
+            for name in variable.external_inputs:
+                if "/" in name:
+                    raise ValueError(f"save: {tag}: external input name {name!r} contains '/'")
         with h5py.File(dst, "w") as f:
             f.attrs["statpy_commit"] = statpy.__commit__ or "unknown"
             for tag, variable in self._variables.items():
@@ -105,6 +115,11 @@ class Database(Mapping[str, Variable]):
                 for name, value in fields.items():
                     if value is not None:
                         group.create_dataset(name, data=value, **(_DATASET_FILTERS if np.ndim(value) > 0 else {}))
+                for name, external in variable.external_inputs.items():
+                    external_group = group.create_group(f"external_inputs/{name}")
+                    external_group.create_dataset("covariance", data=external.covariance, **_DATASET_FILTERS)
+                    if external.jacobian is not None:
+                        external_group.create_dataset("jacobian", data=external.jacobian, **_DATASET_FILTERS)
 
     # ---------------------------------------------------------------------------
     # Mapping interface

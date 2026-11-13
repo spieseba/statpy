@@ -1,5 +1,6 @@
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self
 
 import jax
@@ -86,8 +87,19 @@ class Layout:
                     if not np.array_equal(values, reference_values):
                         raise ValueError(f"Layout.merge: layout {index} {field} differ in ensemble {name}")
             parts.append(reference)
+        if not parts:
+            return Layout("", np.array([], dtype=int))
         ensembles, monte_carlo_times, replicas, weights = (np.concatenate(values) for values in zip(*parts))
         return Layout(ensembles, monte_carlo_times, replicas=replicas, weights=weights)
+
+
+@dataclass(frozen=True)
+class ExternalInput:
+    """Dependence of a variable on an external input with n values: ``covariance`` of the input, shape (n, n), and
+    ``jacobian`` of the variable with respect to the input, shape variable shape + (n,), or None if it was not
+    propagated."""
+    covariance: np.ndarray
+    jacobian: np.ndarray | None
 
 
 class Variable:
@@ -102,6 +114,8 @@ class Variable:
     - ``fluctuations``: per-configuration fluctuations for the gamma method.
     - ``jackknife_replicates``: delete-one replicates, one per configuration.
     - ``bootstrap_replicates``: one replicate per bootstrap sample.
+    - ``external_inputs``: dict by name of the ``ExternalInput`` the variable depends on, never ``None``; their
+      variance J C J^T is added to the jackknife and gamma-method variances.
 
     A data variable (made by ``from_data``) has observations, replica central values and fluctuations.
     ``derive`` and ``from_results`` return variables without observations; ``derive`` propagates
@@ -114,7 +128,8 @@ class Variable:
 
     def __init__(self, *, observations: np.ndarray | None = None, layout: Layout, central_value: np.ndarray,
                  replica_central_values: np.ndarray | None = None, fluctuations: np.ndarray | None = None,
-                 jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None) -> None:
+                 jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None,
+                 external_inputs: Mapping[str, ExternalInput] | None = None) -> None:
         """Internal constructor; create variables with the classmethods."""
         self.observations = observations
         self.layout = layout
@@ -123,13 +138,15 @@ class Variable:
         self.fluctuations = fluctuations
         self.jackknife_replicates = jackknife_replicates
         self.bootstrap_replicates = bootstrap_replicates
+        self.external_inputs = dict(external_inputs or {})
 
     def __repr__(self) -> str:
         layout = self.layout
         names = layout.ensemble_names
         reweighted = ", reweighted" if np.any(layout.weights != 1) else ""
-        lines = [(f"Variable of shape {np.shape(self.central_value)} on ensemble{'s' if len(names) > 1 else ''} "
-                  f"{', '.join(names)}, {len(layout.replicas)} configurations{reweighted}")]
+        configurations = (f"on ensemble{'s' if len(names) > 1 else ''} {', '.join(names)}, "
+                          f"{len(layout.replicas)} configurations{reweighted}") if names else "without configurations"
+        lines = [f"Variable of shape {np.shape(self.central_value)} {configurations}"]
         for name, replica, rows in _replica_rows(layout):
             times = layout.monte_carlo_times[rows]
             if len(times) == 1:
@@ -148,6 +165,8 @@ class Variable:
                                            (bootstrap, self.bootstrap_replicates))
                   if value is not None]
         lines.append(f"stored: {', '.join(stored) or 'central value only'}")
+        if self.external_inputs:
+            lines.append(f"external inputs: {', '.join(self.external_inputs)}")
         return "\n  ".join(lines)
 
     @classmethod
@@ -188,9 +207,10 @@ class Variable:
     @classmethod
     def from_results(cls, *, layout: Layout, central_value: np.ndarray,
                      replica_central_values: np.ndarray | None = None, fluctuations: np.ndarray | None = None,
-                     jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None) -> Self:
-        """Return a variable from a computed central value, replica central values, fluctuations and replicates,
-        stored unchanged."""
+                     jackknife_replicates: np.ndarray | None = None, bootstrap_replicates: np.ndarray | None = None,
+                     external_inputs: Mapping[str, ExternalInput] | None = None) -> Self:
+        """Return a variable from a computed central value, replica central values, fluctuations, replicates and
+        external inputs, stored unchanged."""
         num_configurations = len(layout.monte_carlo_times)
         num_replicas = len(_row_ensembles(layout, "replica_central_values"))
         for name, values, expected in (("replica_central_values", replica_central_values, num_replicas),
@@ -207,7 +227,64 @@ class Variable:
                 raise ValueError(f"from_results: {name} have shape {replicates.shape[1:]}, expected {shape}")
         return cls(layout=layout, central_value=central_value,
                    replica_central_values=replica_central_values, fluctuations=fluctuations,
-                   jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates)
+                   jackknife_replicates=jackknife_replicates, bootstrap_replicates=bootstrap_replicates,
+                   external_inputs=external_inputs)
+
+    @classmethod
+    def from_external(cls, name: str, mean: ArrayLike, covariance: ArrayLike | None = None,
+                      num_bootstraps: int | None = None, seed: int | None = None) -> Self:
+        """Return a variable without configurations for the external input ``name`` with central value ``mean``.
+
+        Without ``covariance`` it is a constant: its jackknife and gamma-method errors are 0. ``covariance`` of
+        ``mean.reshape(-1)``, shape (n, n), is propagated by ``derive`` and fits to the jackknife and gamma-method
+        errors. ``num_bootstraps`` also draws that many Gaussian samples with ``mean`` and ``covariance`` as
+        bootstrap replicates; ``seed`` defaults to a seed from ``name``, so the same name gives the same samples.
+        """
+        central_value = np.asarray(mean, dtype=float)
+        if covariance is None:
+            if num_bootstraps is not None:
+                raise ValueError("from_external: num_bootstraps needs a covariance")
+            return cls._from_external(name, central_value, None, None)
+        covariance = np.asarray(covariance, dtype=float)
+        size = central_value.size
+        if covariance.shape != (size, size):
+            raise ValueError(f"from_external: covariance has shape {covariance.shape}, expected {(size, size)}")
+        eigenvalues = np.linalg.eigvalsh(covariance)
+        if not np.allclose(covariance, covariance.T, rtol=1e-10, atol=0) or eigenvalues[0] < -1e-10 * eigenvalues[-1]:
+            raise ValueError("from_external: covariance must be symmetric and positive semi-definite, "
+                             f"eigenvalues from {eigenvalues[0]:.3g} to {eigenvalues[-1]:.3g}")
+        bootstrap_replicates = None
+        if num_bootstraps is not None:
+            rng = np.random.default_rng(list(name.encode()) if seed is None else seed)
+            samples = rng.multivariate_normal(central_value.reshape(-1), covariance, size=num_bootstraps,
+                                              method="eigh", check_valid="ignore")
+            bootstrap_replicates = samples.reshape(num_bootstraps, *central_value.shape)
+        return cls._from_external(name, central_value, covariance, bootstrap_replicates)
+
+    @classmethod
+    def from_external_replicates(cls, name: str, bootstrap_replicates: np.ndarray,
+                                 mean: ArrayLike | None = None) -> Self:
+        """Return a variable without configurations for the external input ``name`` from its bootstrap replicates,
+        shape (num_bootstraps,) + value shape, stored unchanged.
+
+        ``mean`` is the central value, default the mean of the replicates. The covariance of the replicates is
+        propagated by ``derive`` and fits to the jackknife and gamma-method errors.
+        """
+        central_value = np.mean(bootstrap_replicates, axis=0) if mean is None else np.asarray(mean, dtype=float)
+        return cls._from_external(name, central_value, bootstrap.covariance(bootstrap_replicates), bootstrap_replicates)
+
+    @classmethod
+    def _from_external(cls, name: str, central_value: np.ndarray, covariance: np.ndarray | None,
+                       bootstrap_replicates: np.ndarray | None) -> Self:
+        """Variable without configurations; with ``covariance`` it depends on the external input ``name``."""
+        no_rows = np.zeros((0, *central_value.shape))
+        external_inputs = {}
+        if covariance is not None:
+            size = central_value.size
+            external_inputs[name] = ExternalInput(covariance, np.eye(size).reshape(*central_value.shape, size))
+        return cls.from_results(layout=Layout("", np.array([], dtype=int)), central_value=central_value,
+                                replica_central_values=no_rows, fluctuations=no_rows, jackknife_replicates=no_rows,
+                                bootstrap_replicates=bootstrap_replicates, external_inputs=external_inputs)
 
     # ---------------------------------------------------------------------------
     # Transformations
@@ -223,7 +300,8 @@ class Variable:
         ``jacobians`` sets how fluctuations are propagated: ``"jax"`` computes the Jacobian, a list supplies it (one
         array per input, shape output + input), ``None`` propagates none. ``use_vmap`` evaluates the replicates in
         one jax batch, else in a loop. If jax cannot trace ``func`` (it needs jax.numpy), the loop is used and
-        ``"jax"`` gives no fluctuations. Parts that cannot be propagated are dropped with a warning.
+        ``"jax"`` gives no fluctuations. Parts that cannot be propagated are dropped with a warning. External inputs
+        are propagated with the same Jacobian; without it they are kept with ``jacobian=None``.
         """
         if isinstance(jacobians, str) and jacobians != "jax":
             raise ValueError(f'derive: jacobians must be "jax", a list of arrays or None, not {jacobians!r}')
@@ -232,7 +310,8 @@ class Variable:
         compatible = (jacobians == "jax" or use_vmap) and cls._is_jax_compatible(func, central_values, use_vmap)
         input_fluctuations = cls._field_on_merged_layout(variables, "fluctuations", layout)
         input_jacobians = None if jacobians == "jax" else jacobians
-        if jacobians == "jax" and compatible and input_fluctuations is not None:
+        has_external_inputs = any(variable.external_inputs for variable in variables)
+        if jacobians == "jax" and compatible and (input_fluctuations is not None or has_external_inputs):
             central_value, input_jacobians = gamma.value_and_jacobians(func, central_values)
         else:
             central_value = np.asarray(func(*central_values))
@@ -242,8 +321,34 @@ class Variable:
             fluctuations = None
             if jacobians is not None and any(variable.fluctuations is not None for variable in variables):
                 warnings.warn("derive: gamma-method fluctuations not propagated", stacklevel=2)
+        if has_external_inputs and input_jacobians is None and jacobians is not None:
+            warnings.warn("derive: external inputs not propagated to the jackknife and gamma-method errors",
+                          stacklevel=2)
+        external_inputs = cls._derive_external_inputs(variables, input_jacobians)
         replicates = cls._derive_replicates(func, variables, layout, use_vmap and compatible)
-        return cls.from_results(layout=layout, central_value=central_value, fluctuations=fluctuations, **replicates)
+        return cls.from_results(layout=layout, central_value=central_value, fluctuations=fluctuations,
+                                external_inputs=external_inputs, **replicates)
+
+    @staticmethod
+    def _derive_external_inputs(variables: tuple[Variable, ...],
+                                jacobians: Sequence[np.ndarray] | None) -> dict[str, ExternalInput]:
+        """External inputs of the result: per name the unchanged covariance and the sum over the inputs of
+        ``jacobians[k]`` applied to the Jacobian of input k; None if one of them is missing."""
+        external_inputs: dict[str, ExternalInput] = {}
+        for index, variable in enumerate(variables):
+            for name, external in variable.external_inputs.items():
+                jacobian = None
+                if jacobians is not None and external.jacobian is not None:
+                    # term k of the chain rule: (d result / d input k) (d input k / d external input)
+                    jacobian = np.tensordot(jacobians[index], external.jacobian, axes=np.ndim(variable.central_value))
+                if name in external_inputs:
+                    previous = external_inputs[name]
+                    if not np.array_equal(previous.covariance, external.covariance):
+                        raise ValueError(f"derive: inputs have different covariances of external input {name}")
+                    # sum of the terms over the inputs k
+                    jacobian = None if previous.jacobian is None or jacobian is None else previous.jacobian + jacobian
+                external_inputs[name] = ExternalInput(external.covariance, jacobian)
+        return external_inputs
 
     @staticmethod
     def _is_jax_compatible(func: Callable[..., np.ndarray | jax.Array], central_values: Sequence[np.ndarray],
@@ -282,8 +387,15 @@ class Variable:
     def _field_on_merged_layout(variables: tuple[Variable, ...], field: str,
                                 merged_layout: Layout) -> list[np.ndarray] | None:
         """``field`` of each input with the rows of ``merged_layout``, or None if an input lacks it. For an ensemble
-        an input does not have, its rows are the central value (fluctuations: zero)."""
+        an input does not have, its rows are the central value (fluctuations: zero); so are the bootstrap replicates
+        of an input without configurations and external inputs."""
         values = [getattr(variable, field) for variable in variables]
+        num_bootstraps = next((len(value) for value in values if value is not None), None)
+        if field == "bootstrap_replicates" and num_bootstraps is not None:
+            values = [np.broadcast_to(variable.central_value, (num_bootstraps, *np.shape(variable.central_value)))
+                      if value is None and not variable.layout.ensemble_names and not variable.external_inputs
+                      else value
+                      for variable, value in zip(variables, values)]
         if any(value is None for value in values):
             return None
         if field == "bootstrap_replicates":
@@ -367,10 +479,10 @@ class Variable:
         with the same ``weight_matrix``.
 
         ``numba_model``, the same function in numba, e.g. from ``statpy.qcd.correlator.numba_models``, replaces
-        ``model`` in the fits to speed them up. Fluctuations present are propagated with ``model``. ``weight_matrix``
-        defaults to the inverse jackknife variance on ``fit_range``. Observations are not used. Returns a
-        ``LeastSquaresFit``; its parameters have this variable's layout. ``tolerance`` is Migrad's; its default of
-        0.1 makes jackknife refits too small at large sample sizes.
+        ``model`` in the fits to speed them up. Fluctuations and external inputs are propagated with ``model``.
+        ``weight_matrix`` defaults to the inverse jackknife variance on ``fit_range``, without external inputs.
+        Observations are not used. Returns a ``LeastSquaresFit``; its parameters have this variable's layout.
+        ``tolerance`` is Migrad's; its default of 0.1 makes jackknife refits too small at large sample sizes.
         """
         fit_range = np.asarray(fit_range)
         initial_parameters = np.asarray(initial_parameters, dtype=float)
@@ -378,7 +490,7 @@ class Variable:
         if dof <= 0:
             raise ValueError(f"least_squares_fit: {len(fit_range)} points for {len(initial_parameters)} parameters, dof = {dof}")
         if weight_matrix is None:
-            weight_matrix = np.diag(1.0 / self.jackknife_variance()[fit_range])
+            weight_matrix = np.diag(1.0 / self.jackknife_variance(external=False)[fit_range])
 
         chi2_function = least_squares.chi2(model if numba_model is None else numba_model)
 
@@ -396,9 +508,15 @@ class Variable:
         if not np.isfinite(chi2_value):
             raise least_squares.ConvergenceError(f"least_squares_fit: non-finite chi^2 = {chi2_value}")
         replica_central_values = fluctuations = jackknife_replicates = bootstrap_replicates = None
-        if self.fluctuations is not None:
+        external_inputs = {}
+        if self.fluctuations is not None or self.external_inputs:
             jacobian = least_squares.parameter_jacobian(model, fit_range, self.central_value[fit_range], parameters, weight_matrix)
-            fluctuations = gamma.project_fluctuations([jacobian], [self.fluctuations[:, fit_range]])
+            if self.fluctuations is not None:
+                fluctuations = gamma.project_fluctuations([jacobian], [self.fluctuations[:, fit_range]])
+            external_inputs = {
+                name: ExternalInput(external.covariance,
+                                    None if external.jacobian is None else jacobian @ external.jacobian[fit_range])
+                for name, external in self.external_inputs.items()}
         if self.replica_central_values is not None:
             replica_central_values = least_squares.fit_replicates(
                 objective, self.replica_central_values[:, fit_range], parameters,
@@ -415,7 +533,7 @@ class Variable:
                                        replica_central_values=replica_central_values,
                                        fluctuations=fluctuations,
                                        jackknife_replicates=jackknife_replicates,
-                                       bootstrap_replicates=bootstrap_replicates)
+                                       bootstrap_replicates=bootstrap_replicates, external_inputs=external_inputs)
         return least_squares.LeastSquaresFit(fitted, chi2_value, dof, least_squares.p_value(chi2_value, dof),
                                              model, fit_range, self)
 
@@ -423,18 +541,45 @@ class Variable:
     # Error analysis
     # ---------------------------------------------------------------------------
 
-    def jackknife_variance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
-        """Return the jackknife variance, the sum of the variances from each ensemble.
+    def jackknife_variance(self, bin_size: int | Mapping[str, int] = 1, external: bool = True) -> np.ndarray:
+        """Return the jackknife variance, the sum of the variances from each ensemble, plus the variance from the
+        external inputs.
 
         ``bin_size > 1`` applies delayed binning (ensembles with one replica only); a dict gives the bin size
-        per ensemble name, 1 for names it does not contain.
+        per ensemble name, 1 for names it does not contain. ``external=False`` leaves out the external inputs.
         """
-        return np.sum([jackknife.variance(replicates) for replicates in self._jackknife_replicates(bin_size)], axis=0)
+        variance = sum((jackknife.variance(replicates) for replicates in self._jackknife_replicates(bin_size)),
+                       np.zeros(np.shape(self.central_value)))
+        return variance + self._linear_external_variance() if external else variance
 
-    def jackknife_covariance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
-        """Return the jackknife covariance, the sum of the covariances from each ensemble; ``bin_size`` as in
-        ``jackknife_variance``."""
-        return np.sum([jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)], axis=0)
+    def jackknife_covariance(self, bin_size: int | Mapping[str, int] = 1, external: bool = True) -> np.ndarray:
+        """Return the jackknife covariance, the sum of the covariances from each ensemble, plus the covariance from
+        the external inputs; ``bin_size`` and ``external`` as in ``jackknife_variance``."""
+        size = np.size(self.central_value)
+        covariance = sum((jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)),
+                         np.zeros((size, size)))
+        if external:
+            for jacobian, input_covariance in self._external_jacobians():
+                covariance = covariance + jacobian @ input_covariance @ jacobian.T
+        return covariance
+
+    def _external_jacobians(self) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Jacobian, shape (components, n), and covariance of each external input."""
+        size = np.size(self.central_value)
+        jacobians = []
+        for name, external in self.external_inputs.items():
+            if external.jacobian is None:
+                raise ValueError(f"variable has no Jacobian for the external input {name}; "
+                                 "external=False gives the jackknife error without external inputs")
+            jacobians.append((external.jacobian.reshape(size, -1), external.covariance))
+        return jacobians
+
+    def _linear_external_variance(self) -> np.ndarray:
+        """Variance from the external inputs, the diagonal of J C J^T summed over them."""
+        shape = np.shape(self.central_value)
+        # diagonal of J C J^T, without building the matrix
+        return sum((np.sum((jacobian @ covariance) * jacobian, axis=1).reshape(shape)
+                    for jacobian, covariance in self._external_jacobians()), np.zeros(shape))
 
     def _jackknife_replicates(self, bin_size: int | Mapping[str, int]) -> list[np.ndarray]:
         """Jackknife replicates of each ensemble, delayed-binned where its bin size is not 1."""
@@ -468,7 +613,8 @@ class Variable:
         return bootstrap.covariance(self.bootstrap_replicates)
 
     def gamma_method(self, S: float | Mapping[str, float] = 1.5) -> gamma.GammaErrorAnalysis:
-        """Return the gamma-method error analysis per component; the variances from each ensemble are added.
+        """Return the gamma-method error analysis per component; the variances from each ensemble and from the
+        external inputs are added.
 
         ``S`` sets the automatic summation window; a larger ``S`` gives a larger window. A dict gives ``S`` per
         ensemble name, 1.5 for names it does not contain. Fields: see ``GammaErrorAnalysis``. The variable is
@@ -477,7 +623,8 @@ class Variable:
         if self.fluctuations is None:
             raise ValueError("gamma_method: variable has no fluctuations")
         layout = self.layout
-        return gamma.error_analysis(self.fluctuations, layout.ensembles, layout.monte_carlo_times, layout.replicas, S)
+        return gamma.error_analysis(self.fluctuations, layout.ensembles, layout.monte_carlo_times, layout.replicas, S,
+                                    self._linear_external_variance())
 
     def bias_corrected_value(self) -> np.ndarray:
         """Return the central value with the replica bias correction, which cancels the leading
@@ -513,7 +660,7 @@ class Variable:
                                + (f" = {' + '.join(map(str, ensemble_sizes))}" if len(ensemble_sizes) > 1 else "")
                                for name, ensemble_sizes in sizes.items())
         S_text = "" if self.fluctuations is None else f", S = {S}"
-        print(f"{sizes_text}, shape {shape}{S_text}")
+        print(f"{sizes_text or 'no configurations'}, shape {shape}{S_text}")
         result = None if self.fluctuations is None else self.gamma_method(S)
         corrected = bias_over_error = None
         q_values = {}
@@ -532,7 +679,10 @@ class Variable:
             errors["gamma"], ensemble_errors["gamma"] = result.error, result.ensemble_errors
         if self.jackknife_replicates is not None:
             variances = [jackknife.variance(replicates) for replicates in self._jackknife_replicates(1)]
-            errors["jackknife"] = np.sqrt(np.sum(variances, axis=0))
+            unpropagated = [name for name, external in self.external_inputs.items() if external.jacobian is None]
+            if unpropagated:
+                print(f"jackknife_error without the external inputs {', '.join(unpropagated)} (no Jacobian)")
+            errors["jackknife"] = np.sqrt(self.jackknife_variance(external=not unpropagated))
             ensemble_errors["jackknife"] = dict(zip(sizes, np.sqrt(variances)))
         if self.bootstrap_replicates is not None:
             errors["bootstrap"] = np.sqrt(self.bootstrap_variance())
@@ -578,7 +728,7 @@ class Variable:
                          "-" if corrected is None else with_error(corrected[index].item(), value_error),
                          "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
                          *error_cells(index),
-                         *([""] * 3 if multiple else diagnostics(next(iter(sizes)), index))])
+                         *(diagnostics(next(iter(sizes)), index) if len(sizes) == 1 else [""] * 3)])
             for name in sizes if multiple else ():
                 # no row for an ensemble with variance shares below 0.05%: the component does not depend on it
                 if any(method_errors[name][index]**2 > 5e-4 * errors[method][index]**2
@@ -629,8 +779,10 @@ def _row_ensembles(layout: Layout, field: str) -> np.ndarray:
     one per configuration."""
     if field != "replica_central_values":
         return layout.ensembles
-    return np.concatenate([np.full(len(np.unique(layout.replicas[layout.ensembles == name])), name)
-                           for name in layout.ensemble_names])
+    # the empty first array keeps this defined without configurations
+    return np.concatenate([layout.ensembles[:0]]
+                          + [np.full(len(np.unique(layout.replicas[layout.ensembles == name])), name)
+                             for name in layout.ensemble_names])
 
 
 def _replica_rows(layout: Layout) -> list[tuple[str | None, int | None, np.ndarray]]:

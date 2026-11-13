@@ -9,7 +9,7 @@ statpy is a Python library for statistical analysis, error propagation and autoc
   - Data storage and core statistical calculations with NumPy
   - Function transformations with JAX: automatic differentiation (autodiff) for gamma-method error propagation, vectorized evaluation of jackknife and bootstrap replicates (`vmap`), and just-in-time compilation (`jit`)
 - Nonlinear least-squares fits with error propagation by all three methods, optionally with numba-compiled models
-- Quantities that combine multiple independent ensembles: autocorrelations and errors are estimated per ensemble
+- Quantities that combine multiple independent ensembles and external inputs: autocorrelations and errors are estimated per ensemble
 - Delayed binning (Spiegel, Lehner, [Phys. Rev. D 111](https://doi.org/10.1103/mj3d-yq87)): jackknife errors of derived quantities at any bin size, without repeating the analysis
 
 statpy enables JAX's 64-bit mode on import.
@@ -214,7 +214,7 @@ A more involved example can be found in [caa-control-variates](https://github.co
 
 ## Roadmap
 
-- External inputs and systematic errors, with an error budget
+- Error budget with the contributions of each ensemble and external input
 - Gamma-method covariance, with bias correction of its inverse for correlated fits
 - Expected chi-squared for uncorrelated fits (Bruno, Sommer, [arXiv:2209.14188](https://arxiv.org/abs/2209.14188))
 - Exponential tail correction (Schaefer, Sommer, Virotta, [arXiv:1009.5228](https://arxiv.org/abs/1009.5228))
