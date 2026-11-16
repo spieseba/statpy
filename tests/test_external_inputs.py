@@ -36,9 +36,8 @@ def test_linear_function_of_an_external_input_has_covariance_a_c_a_transpose():
     z = Variable.derive(lambda c: jnp.asarray(A) @ c, c)
 
     covariance = A.reshape(4, 3) @ C @ A.reshape(4, 3).T
-    np.testing.assert_allclose(z.jackknife_covariance(), covariance, rtol=1e-12)
-    np.testing.assert_allclose(z.jackknife_variance(), np.diag(covariance).reshape(2, 2), rtol=1e-12)
-    np.testing.assert_allclose(z.gamma_method().error**2, np.diag(covariance).reshape(2, 2), rtol=1e-12)
+    np.testing.assert_allclose(z.external_covariance(), covariance, rtol=1e-12)
+    np.testing.assert_allclose(z.external_variances()["c"], np.diag(covariance).reshape(2, 2), rtol=1e-12)
 
 
 def test_jacobians_of_the_same_external_input_are_added_before_the_variance():
@@ -50,8 +49,8 @@ def test_jacobians_of_the_same_external_input_are_added_before_the_variance():
     difference = Variable.derive(lambda a, b: a - 2 * b, doubled, c)
     total = Variable.derive(lambda a, b: a + b, doubled, c)
 
-    np.testing.assert_allclose(difference.jackknife_variance(), 0, atol=1e-14)
-    np.testing.assert_allclose(total.jackknife_covariance(), 9 * C, rtol=1e-12)
+    np.testing.assert_allclose(difference.external_variances()["c"], 0, atol=1e-14)
+    np.testing.assert_allclose(total.external_covariance(), 9 * C, rtol=1e-12)
 
 
 def test_external_variance_is_added_to_the_variance_from_the_configurations():
@@ -65,9 +64,11 @@ def test_external_variance_is_added_to_the_variance_from_the_configurations():
     constant = Variable.derive(lambda x, c: x * c, data, Variable.from_external("c", mean))
 
     external_variance = data.central_value**2 * variance
-    np.testing.assert_allclose(z.jackknife_variance(external=False), constant.jackknife_variance(), rtol=1e-12)
-    np.testing.assert_allclose(z.jackknife_variance(), constant.jackknife_variance() + external_variance, rtol=1e-12)
-    np.testing.assert_allclose(z.gamma_method().error**2, constant.gamma_method().error**2 + external_variance,
+    np.testing.assert_allclose(z.jackknife_variance(), constant.jackknife_variance(), rtol=1e-12)
+    np.testing.assert_allclose(z.gamma_method().error, constant.gamma_method().error, rtol=1e-12)
+    np.testing.assert_allclose(z.total_variance("jackknife"), constant.jackknife_variance() + external_variance,
+                               rtol=1e-12)
+    np.testing.assert_allclose(z.total_variance("gamma"), constant.gamma_method().error**2 + external_variance,
                                rtol=1e-12)
 
 
@@ -86,8 +87,7 @@ def test_fit_of_a_constant_to_data_shifted_by_an_external_input():
     parameters = shifted.least_squares_fit(model, np.arange(2, 6), [6.0]).parameters
 
     # the fitted constant is a weighted mean of the time slices 2 to 5, so it shifts by c[1] alone
-    np.testing.assert_allclose(parameters.jackknife_variance() - parameters.jackknife_variance(external=False),
-                               C[1, 1], rtol=1e-10)
+    np.testing.assert_allclose(parameters.external_variances()["c"], C[1, 1], rtol=1e-10)
 
 
 def test_drawn_bootstrap_replicates_have_the_given_mean_and_covariance():
@@ -127,4 +127,4 @@ def test_given_bootstrap_replicates_set_the_mean_and_the_covariance():
 
     np.testing.assert_allclose(c.central_value, np.mean(samples, axis=0), rtol=1e-14)
     # for a linear function the linear propagation of the sample covariance equals the bootstrap covariance
-    np.testing.assert_allclose(z.jackknife_covariance(), z.bootstrap_covariance(), rtol=1e-10)
+    np.testing.assert_allclose(z.external_covariance(), z.bootstrap_covariance(), rtol=1e-10)

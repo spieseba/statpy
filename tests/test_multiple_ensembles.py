@@ -76,3 +76,23 @@ def test_bias_correction_adds_the_corrections_of_the_ensembles():
              + 50 * x_mean / y[200:].mean(axis=0)) / 250
     corrected = value - (x_bar - value) / (2 - 1) - (y_bar - value) / (3 - 1)
     np.testing.assert_allclose(z.bias_corrected_value(), corrected, rtol=1e-12)
+
+
+def test_error_budget_of_an_ensemble_is_the_error_with_the_other_sources_as_constants():
+    rng = np.random.default_rng(8)
+    # three ensembles, not in sorted order
+    x = {name: Variable.from_data(mean + ar1.generate_chains(np.array([tau]), size, rng),
+                                  Layout(name, np.arange(size)))
+         for name, mean, tau, size in (("C", 5.0, 1.0, 300), ("A", 3.0, 4.0, 200), ("B", 2.0, 2.0, 250))}
+    c = Variable.from_external("c", 2.0, [[0.09]])
+
+    z = Variable.derive(lambda a, b, c_, c: a * c / b + c_, x["A"], x["B"], x["C"], c)
+
+    means = {name: variable.central_value for name, variable in x.items()}
+    alone = {"A": Variable.derive(lambda a: a * 2.0 / means["B"] + means["C"], x["A"]),
+             "B": Variable.derive(lambda b: means["A"] * 2.0 / b + means["C"], x["B"]),
+             "C": Variable.derive(lambda c_: means["A"] * 2.0 / means["B"] + c_, x["C"])}
+    for name, variable in alone.items():
+        np.testing.assert_allclose(z.error_budget("jackknife")[name], np.sqrt(variable.jackknife_variance()),
+                                   rtol=1e-10)
+        np.testing.assert_allclose(z.error_budget("gamma")[name], variable.gamma_method().error, rtol=1e-10)

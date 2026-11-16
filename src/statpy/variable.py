@@ -480,7 +480,7 @@ class Variable:
 
         ``numba_model``, the same function in numba, e.g. from ``statpy.qcd.correlator.numba_models``, replaces
         ``model`` in the fits to speed them up. Fluctuations and external inputs are propagated with ``model``.
-        ``weight_matrix`` defaults to the inverse jackknife variance on ``fit_range``, without external inputs.
+        ``weight_matrix`` defaults to the inverse jackknife variance on ``fit_range``.
         Observations are not used. Returns a ``LeastSquaresFit``; its parameters have this variable's layout.
         ``tolerance`` is Migrad's; its default of 0.1 makes jackknife refits too small at large sample sizes.
         """
@@ -490,7 +490,7 @@ class Variable:
         if dof <= 0:
             raise ValueError(f"least_squares_fit: {len(fit_range)} points for {len(initial_parameters)} parameters, dof = {dof}")
         if weight_matrix is None:
-            weight_matrix = np.diag(1.0 / self.jackknife_variance(external=False)[fit_range])
+            weight_matrix = np.diag(1.0 / self.jackknife_variance()[fit_range])
 
         chi2_function = least_squares.chi2(model if numba_model is None else numba_model)
 
@@ -541,45 +541,71 @@ class Variable:
     # Error analysis
     # ---------------------------------------------------------------------------
 
-    def jackknife_variance(self, bin_size: int | Mapping[str, int] = 1, external: bool = True) -> np.ndarray:
-        """Return the jackknife variance, the sum of the variances from each ensemble, plus the variance from the
-        external inputs.
+    def jackknife_variance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
+        """Return the jackknife variance, the sum of the variances from each ensemble, without external inputs.
 
         ``bin_size > 1`` applies delayed binning (ensembles with one replica only); a dict gives the bin size
-        per ensemble name, 1 for names it does not contain. ``external=False`` leaves out the external inputs.
+        per ensemble name, 1 for names it does not contain.
         """
-        variance = sum((jackknife.variance(replicates) for replicates in self._jackknife_replicates(bin_size)),
-                       np.zeros(np.shape(self.central_value)))
-        return variance + self._linear_external_variance() if external else variance
+        return sum((jackknife.variance(replicates) for replicates in self._jackknife_replicates(bin_size)),
+                   np.zeros(np.shape(self.central_value)))
 
-    def jackknife_covariance(self, bin_size: int | Mapping[str, int] = 1, external: bool = True) -> np.ndarray:
-        """Return the jackknife covariance, the sum of the covariances from each ensemble, plus the covariance from
-        the external inputs; ``bin_size`` and ``external`` as in ``jackknife_variance``."""
+    def jackknife_covariance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
+        """Return the jackknife covariance, the sum of the covariances from each ensemble, without external inputs;
+        ``bin_size`` as in ``jackknife_variance``."""
         size = np.size(self.central_value)
-        covariance = sum((jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)),
-                         np.zeros((size, size)))
-        if external:
-            for jacobian, input_covariance in self._external_jacobians():
-                covariance = covariance + jacobian @ input_covariance @ jacobian.T
-        return covariance
+        return sum((jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)),
+                   np.zeros((size, size)))
 
-    def _external_jacobians(self) -> list[tuple[np.ndarray, np.ndarray]]:
-        """Jacobian, shape (components, n), and covariance of each external input."""
-        size = np.size(self.central_value)
-        jacobians = []
-        for name, external in self.external_inputs.items():
-            if external.jacobian is None:
-                raise ValueError(f"variable has no Jacobian for the external input {name}; "
-                                 "external=False gives the jackknife error without external inputs")
-            jacobians.append((external.jacobian.reshape(size, -1), external.covariance))
-        return jacobians
-
-    def _linear_external_variance(self) -> np.ndarray:
-        """Variance from the external inputs, the diagonal of J C J^T summed over them."""
+    def external_variances(self) -> dict[str, np.ndarray]:
+        """Return the variance from each external input, the diagonal of J C J^T, by input name."""
         shape = np.shape(self.central_value)
         # diagonal of J C J^T, without building the matrix
-        return sum((np.sum((jacobian @ covariance) * jacobian, axis=1).reshape(shape)
-                    for jacobian, covariance in self._external_jacobians()), np.zeros(shape))
+        return {name: np.sum((jacobian @ covariance) * jacobian, axis=1).reshape(shape)
+                for name, (jacobian, covariance) in self._external_jacobians().items()}
+
+    def external_covariance(self) -> np.ndarray:
+        """Return the covariance from the external inputs, J C J^T summed over them."""
+        size = np.size(self.central_value)
+        return sum((jacobian @ covariance @ jacobian.T for jacobian, covariance in self._external_jacobians().values()),
+                   np.zeros((size, size)))
+
+    def _external_jacobians(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        """Jacobian, shape (components, n), and covariance of each external input, by input name."""
+        size = np.size(self.central_value)
+        jacobians = {}
+        for name, external in self.external_inputs.items():
+            if external.jacobian is None:
+                raise ValueError(f"variable has no Jacobian for the external input {name}")
+            jacobians[name] = (external.jacobian.reshape(size, -1), external.covariance)
+        return jacobians
+
+    def total_variance(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,
+                       bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
+        """Return the variance from the Monte Carlo data and the external inputs. ``method`` is "gamma" (at ``S``),
+        "jackknife" (at ``bin_size``) or "bootstrap"."""
+        if method == "bootstrap":
+            # the replicates already contain the external inputs
+            return self.bootstrap_variance()
+        if method not in ("gamma", "jackknife"):
+            raise ValueError(f"method must be gamma, jackknife or bootstrap, got {method!r}")
+        return sum((np.square(error) for error in self.error_budget(method, S, bin_size).values()),
+                   np.zeros(np.shape(self.central_value)))
+
+    def error_budget(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,
+                     bin_size: int | Mapping[str, int] = 1) -> dict[str, np.ndarray]:
+        """Return the error from each source: the ensembles by name, then the external inputs as
+        ``external <name>``. Their squares add up to ``total_variance``. ``method`` is "gamma" (at ``S``) or
+        "jackknife" (at ``bin_size``)."""
+        if method == "gamma":
+            ensembles = self.gamma_method(S).ensemble_errors
+        elif method == "jackknife":
+            ensembles = {name: np.sqrt(jackknife.variance(replicates))
+                         for name, replicates in zip(self.layout.ensemble_names, self._jackknife_replicates(bin_size))}
+        else:
+            raise ValueError(f"method must be gamma or jackknife, got {method!r}")
+        return ensembles | {f"external {name}": np.sqrt(variance)
+                            for name, variance in self.external_variances().items()}
 
     def _jackknife_replicates(self, bin_size: int | Mapping[str, int]) -> list[np.ndarray]:
         """Jackknife replicates of each ensemble, delayed-binned where its bin size is not 1."""
@@ -613,8 +639,8 @@ class Variable:
         return bootstrap.covariance(self.bootstrap_replicates)
 
     def gamma_method(self, S: float | Mapping[str, float] = 1.5) -> gamma.GammaErrorAnalysis:
-        """Return the gamma-method error analysis per component; the variances from each ensemble and from the
-        external inputs are added.
+        """Return the gamma-method error analysis per component, without external inputs; the variances from each
+        ensemble are added.
 
         ``S`` sets the automatic summation window; a larger ``S`` gives a larger window. A dict gives ``S`` per
         ensemble name, 1.5 for names it does not contain. Fields: see ``GammaErrorAnalysis``. The variable is
@@ -623,8 +649,7 @@ class Variable:
         if self.fluctuations is None:
             raise ValueError("gamma_method: variable has no fluctuations")
         layout = self.layout
-        return gamma.error_analysis(self.fluctuations, layout.ensembles, layout.monte_carlo_times, layout.replicas, S,
-                                    self._linear_external_variance())
+        return gamma.error_analysis(self.fluctuations, layout.ensembles, layout.monte_carlo_times, layout.replicas, S)
 
     def bias_corrected_value(self) -> np.ndarray:
         """Return the central value with the replica bias correction, which cancels the leading
@@ -646,13 +671,18 @@ class Variable:
         return {name: np.unique(layout.replicas[layout.ensembles == name], return_counts=True)[1]
                 for name in layout.ensemble_names}
 
+    # ---------------------------------------------------------------------------
+    # Summary
+    # ---------------------------------------------------------------------------
+
     def summarize(self, S: float | Mapping[str, float] = 1.5,
                   components: Mapping[str, int | tuple[int, ...]] | Iterable[int | tuple[int, ...]] | None = None) -> None:
         """Print ensembles, configurations and replicas, then per component the central value, its bias-corrected
         value and the correction in units of the gamma error, the errors (gamma method at ``S``, jackknife,
-        bootstrap), tau_int, window W and replica Q-value; columns without values are left out. With multiple
-        ensembles, a row follows for each ensemble the component depends on, with its gamma and jackknife errors,
-        their shares of the total variance, tau_int, W and replica Q-value. ``components`` lists the rows to show
+        bootstrap), tau_int, window W and replica Q-value; columns without values are left out. The gamma and
+        jackknife errors include the external inputs. With more than one source (ensemble or external input), a row
+        follows for each source the component depends on, with its gamma and jackknife errors and their shares of
+        the total variance, for an ensemble also tau_int, W and replica Q-value. ``components`` lists the rows to show
         (ints or index tuples), default all; a dict names them, e.g. ``{"A": 0, "m": 1}``."""
         sizes = self._replica_sizes()
         shape = np.shape(self.central_value)
@@ -673,33 +703,37 @@ class Variable:
                 q_values = {name: gamma.replica_q_value(self.replica_central_values[row_ensembles == name],
                                                         ensemble_sizes, result.ensemble_errors[name])
                             for name, ensemble_sizes in sizes.items() if len(ensemble_sizes) > 1}
-        # total error of each available method and, where the method has it, the error from each ensemble alone
-        errors, ensemble_errors = {}, {}
+        unpropagated = [name for name, external in self.external_inputs.items() if external.jacobian is None]
+        if unpropagated:
+            print(f"gamma and jackknife errors without the external inputs {', '.join(unpropagated)} (no Jacobian)")
+        external_variances = {} if unpropagated else self.external_variances()
+        external_variance = sum(external_variances.values(), 0.0)
+        external_errors = {f"external {name}": np.sqrt(variance) for name, variance in external_variances.items()}
+        # total error of each available method and, where the method has it, the error from each source alone
+        errors, source_errors = {}, {}
         if result is not None:
-            errors["gamma"], ensemble_errors["gamma"] = result.error, result.ensemble_errors
+            errors["gamma"] = np.sqrt(np.square(result.error) + external_variance)
+            source_errors["gamma"] = result.ensemble_errors | external_errors
         if self.jackknife_replicates is not None:
             variances = [jackknife.variance(replicates) for replicates in self._jackknife_replicates(1)]
-            unpropagated = [name for name, external in self.external_inputs.items() if external.jacobian is None]
-            if unpropagated:
-                print(f"jackknife_error without the external inputs {', '.join(unpropagated)} (no Jacobian)")
-            errors["jackknife"] = np.sqrt(self.jackknife_variance(external=not unpropagated))
-            ensemble_errors["jackknife"] = dict(zip(sizes, np.sqrt(variances)))
+            errors["jackknife"] = np.sqrt(sum(variances, external_variance))
+            source_errors["jackknife"] = dict(zip(sizes, np.sqrt(variances))) | external_errors
         if self.bootstrap_replicates is not None:
             errors["bootstrap"] = np.sqrt(self.bootstrap_variance())
-        multiple = len(sizes) > 1
+        multiple = len(sizes) + len(external_errors) > 1
 
         def with_error(value: float, error: float | None) -> str:
             return f"{value:.6g}" if error is None else log.format_paren(value, error)
 
         def error_cells(index: tuple, name: str | None = None) -> list[str]:
-            """Error of each method, total or from ensemble ``name``; with multiple ensembles and its share of the
+            """Error of each method, total or from source ``name``; with multiple sources and its share of the
             total variance in percent."""
             cells = []
             for method, total in errors.items():
-                error = total if name is None else ensemble_errors.get(method, {}).get(name)
+                error = total if name is None else source_errors.get(method, {}).get(name)
                 if error is None:
                     cells.append("")
-                elif multiple and method in ensemble_errors and total[index] != 0:
+                elif multiple and method in source_errors and total[index] != 0:
                     cells.append(f"{error[index]:.2g} ({100 * (error[index] / total[index])**2:.1f}%)")
                 else:
                     cells.append(f"{error[index]:.2g}")
@@ -712,8 +746,8 @@ class Variable:
                     "-" if result is None else str(result.window[name][index]),
                     f"{q_values[name][index]:.2f}" if name in q_values else "-"]
 
-        rows = [["component", "ensemble", "value", "corrected", "bias/σ",
-                 *(f"{method}_error" + (" (variance share)" if multiple and method in ensemble_errors else "")
+        rows = [["component", "source", "value", "corrected", "bias/σ",
+                 *(f"{method}_error" + (" (variance share)" if multiple and method in source_errors else "")
                    for method in errors),
                  "tau_int", "W", "replica Q"]]
         if isinstance(components, Mapping):
@@ -728,12 +762,13 @@ class Variable:
                          "-" if corrected is None else with_error(corrected[index].item(), value_error),
                          "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
                          *error_cells(index),
-                         *(diagnostics(next(iter(sizes)), index) if len(sizes) == 1 else [""] * 3)])
-            for name in sizes if multiple else ():
-                # no row for an ensemble with variance shares below 0.05%: the component does not depend on it
+                         *(diagnostics(next(iter(sizes)), index) if len(sizes) == 1 and not multiple else [""] * 3)])
+            for name in (*sizes, *external_errors) if multiple else ():
+                # no row for a source with variance shares below 0.05%: the component does not depend on it
                 if any(method_errors[name][index]**2 > 5e-4 * errors[method][index]**2
-                       for method, method_errors in ensemble_errors.items()):
-                    rows.append(["", name, "", "", "", *error_cells(index, name), *diagnostics(name, index)])
+                       for method, method_errors in source_errors.items()):
+                    rows.append(["", name, "", "", "", *error_cells(index, name),
+                                 *(diagnostics(name, index) if name in sizes else [""] * 3)])
         columns = [i for i in range(len(rows[0])) if any(row[i] not in ("-", "") for row in rows[1:])]
         rows = [[row[i] for i in columns] for row in rows]
         widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]

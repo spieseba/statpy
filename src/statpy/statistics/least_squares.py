@@ -82,13 +82,7 @@ class LeastSquaresFit:
 
 def _variable_error(variable: Variable, error: str) -> np.ndarray:
     """Return the ``"gamma"``, ``"jackknife"`` or ``"bootstrap"`` error of ``variable``; raises ``ValueError`` if absent."""
-    if error == "gamma":
-        return variable.gamma_method().error
-    if error == "jackknife":
-        return np.sqrt(variable.jackknife_variance())
-    if error == "bootstrap":
-        return np.sqrt(variable.bootstrap_variance())
-    raise ValueError(f"Unknown error: {error}")
+    return np.sqrt(variable.total_variance(error))
 
 
 # ---------------------------------------------------------------------------
