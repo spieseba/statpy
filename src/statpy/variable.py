@@ -600,12 +600,20 @@ class Variable:
         if method == "gamma":
             ensembles = self.gamma_method(S).ensemble_errors
         elif method == "jackknife":
-            ensembles = {name: np.asarray(np.sqrt(jackknife.variance(replicates)))
-                         for name, replicates in zip(self.layout.ensemble_names, self._jackknife_replicates(bin_size))}
+            ensembles = self._jackknife_errors(bin_size)
         else:
             raise ValueError(f"method must be gamma or jackknife, got {method!r}")
-        return ensembles | {f"external {name}": np.asarray(np.sqrt(variance))
-                            for name, variance in self.external_variances().items()}
+        return _merge_sources(ensembles, self._external_errors())
+
+    def _jackknife_errors(self, bin_size: int | Mapping[str, int]) -> dict[str, np.ndarray]:
+        """Jackknife error from each ensemble, by ensemble name."""
+        return {name: np.asarray(np.sqrt(jackknife.variance(replicates)))
+                for name, replicates in zip(self.layout.ensemble_names, self._jackknife_replicates(bin_size))}
+
+    def _external_errors(self) -> dict[str, np.ndarray]:
+        """Error from each external input, by ``external <name>``."""
+        return {f"external {name}": np.asarray(np.sqrt(variance))
+                for name, variance in self.external_variances().items()}
 
     def _jackknife_replicates(self, bin_size: int | Mapping[str, int]) -> list[np.ndarray]:
         """Jackknife replicates of each ensemble, delayed-binned where its bin size is not 1."""
@@ -706,31 +714,26 @@ class Variable:
         unpropagated = [name for name, external in self.external_inputs.items() if external.jacobian is None]
         if unpropagated:
             print(f"gamma and jackknife errors without the external inputs {', '.join(unpropagated)} (no Jacobian)")
-        external_variances = {} if unpropagated else self.external_variances()
-        external_variance = sum(external_variances.values(), 0.0)
-        external_errors = {f"external {name}": np.sqrt(variance) for name, variance in external_variances.items()}
-        # total error of each available method and, where the method has it, the error from each source alone
-        errors, source_errors = {}, {}
+        external_errors = {} if unpropagated else self._external_errors()
+        # error from each source, for the methods that have it
+        source_errors = {}
         if result is not None:
-            errors["gamma"] = np.sqrt(np.square(result.error) + external_variance)
-            source_errors["gamma"] = result.ensemble_errors | external_errors
+            source_errors["gamma"] = _merge_sources(result.ensemble_errors, external_errors)
         if self.jackknife_replicates is not None:
-            variances = [jackknife.variance(replicates) for replicates in self._jackknife_replicates(1)]
-            errors["jackknife"] = np.sqrt(sum(variances, external_variance))
-            source_errors["jackknife"] = dict(zip(sizes, np.sqrt(variances))) | external_errors
+            source_errors["jackknife"] = _merge_sources(self._jackknife_errors(1), external_errors)
+        # total error of each available method
+        errors = {method: np.sqrt(sum(map(np.square, sources.values()), np.zeros(shape)))
+                  for method, sources in source_errors.items()}
         if self.bootstrap_replicates is not None:
             errors["bootstrap"] = np.sqrt(self.bootstrap_variance())
         multiple = len(sizes) + len(external_errors) > 1
 
-        def with_error(value: float, error: float | None) -> str:
-            return f"{value:.6g}" if error is None else log.format_paren(value, error)
-
-        def error_cells(index: tuple, name: str | None = None) -> list[str]:
-            """Error of each method, total or from source ``name``; with multiple sources and its share of the
-            total variance in percent."""
+        def error_cells(index: tuple, source: str | None = None) -> list[str]:
+            """Error of each method, total or from ``source``; with multiple sources and its share of the total
+            variance in percent."""
             cells = []
             for method, total in errors.items():
-                error = total if name is None else source_errors.get(method, {}).get(name)
+                error = total if source is None else source_errors.get(method, {}).get(source)
                 if error is None:
                     cells.append("")
                 elif multiple and method in source_errors and total[index] != 0:
@@ -750,30 +753,21 @@ class Variable:
                  *(f"{method}_error" + (" (variance share)" if multiple and method in source_errors else "")
                    for method in errors),
                  "tau_int", "W", "replica Q"]]
-        if isinstance(components, Mapping):
-            selected = [(name, np.index_exp[component]) for name, component in components.items()]
-        else:
-            indices = np.ndindex(shape) if components is None else [np.index_exp[component] for component in components]
-            selected = [(", ".join(map(str, index)), index) for index in indices]
-        for label, index in selected:
+        for label, index in _selected_components(shape, components):
             value_error = next(iter(errors.values()))[index].item() if errors else None
-            rows.append([str(label), "total" if multiple else "-",
-                         with_error(self.central_value[index].item(), value_error),
-                         "-" if corrected is None else with_error(corrected[index].item(), value_error),
+            rows.append([label, "total" if multiple else "-",
+                         _with_error(self.central_value[index].item(), value_error),
+                         "-" if corrected is None else _with_error(corrected[index].item(), value_error),
                          "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
                          *error_cells(index),
                          *(diagnostics(next(iter(sizes)), index) if len(sizes) == 1 and not multiple else [""] * 3)])
-            for name in (*sizes, *external_errors) if multiple else ():
+            for source in (*sizes, *external_errors) if multiple else ():
                 # no row for a source with variance shares below 0.05%: the component does not depend on it
-                if any(method_errors[name][index]**2 > 5e-4 * errors[method][index]**2
+                if any(method_errors[source][index]**2 > 5e-4 * errors[method][index]**2
                        for method, method_errors in source_errors.items()):
-                    rows.append(["", name, "", "", "", *error_cells(index, name),
-                                 *(diagnostics(name, index) if name in sizes else [""] * 3)])
-        columns = [i for i in range(len(rows[0])) if any(row[i] not in ("-", "") for row in rows[1:])]
-        rows = [[row[i] for i in columns] for row in rows]
-        widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
-        for row in rows:
-            print("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
+                    rows.append(["", source, "", "", "", *error_cells(index, source),
+                                 *(diagnostics(source, index) if source in sizes else [""] * 3)])
+        _print_table(rows)
 
     # ---------------------------------------------------------------------------
     # Plots
@@ -807,6 +801,42 @@ class Variable:
         weights = self.layout.weights
         mean = np.mean(weights)
         return _monte_carlo_history(ax, weights, self.layout, mean, "weight", reference_name="mean")
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+def _merge_sources(ensembles: dict[str, np.ndarray], external: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Errors by source, the ensembles then the external inputs; raises if two sources have the same name."""
+    clash = ensembles.keys() & external.keys()
+    if clash:
+        raise ValueError(f"an ensemble and an external input have the same source name: {', '.join(sorted(clash))}")
+    return ensembles | external
+
+
+def _selected_components(shape: tuple[int, ...], components: Mapping[str, int | tuple[int, ...]]
+                         | Iterable[int | tuple[int, ...]] | None) -> list[tuple[str, tuple]]:
+    """Label and index of each component to show: all of ``shape`` for None, the listed ones, or the named ones
+    of a dict."""
+    if isinstance(components, Mapping):
+        return [(str(name), np.index_exp[component]) for name, component in components.items()]
+    indices = np.ndindex(shape) if components is None else [np.index_exp[component] for component in components]
+    return [(", ".join(map(str, index)), index) for index in indices]
+
+
+def _with_error(value: float, error: float | None) -> str:
+    """``value(error)``, or the value with six digits without an error."""
+    return f"{value:.6g}" if error is None else log.format_paren(value, error)
+
+
+def _print_table(rows: list[list[str]]) -> None:
+    """Print ``rows`` (the first is the header) in aligned columns, without the columns that have no values."""
+    columns = [i for i in range(len(rows[0])) if any(row[i] not in ("-", "") for row in rows[1:])]
+    rows = [[row[i] for i in columns] for row in rows]
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    for row in rows:
+        print("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
 
 
 def _row_ensembles(layout: Layout, field: str) -> np.ndarray:
