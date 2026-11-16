@@ -48,7 +48,7 @@ x.summarize()
 ```
 
 ```text
-Ensemble-E: N = 100000, shape (), S = 1.5
+Ensemble-E: N = 100000, shape (), gamma S = 1.5
 value      gamma_error  jackknife_error  bootstrap_error  tau_int   W
 0.012(13)  0.013        0.0032           0.0034           8.31(40)  67
 ```
@@ -80,19 +80,19 @@ for bin_size in (4, 16, 64, 128):
 
 ```text
 bin size 4:
-Ensemble-E: N = 25000, shape (), S = 1.5
+Ensemble-E: N = 25000, shape (), gamma S = 1.5
 value      gamma_error  jackknife_error  bootstrap_error  tau_int   W
 0.012(13)  0.013        0.0059           0.006            2.44(13)  19
 bin size 16:
-Ensemble-E: N = 6250, shape (), S = 1.5
+Ensemble-E: N = 6250, shape (), gamma S = 1.5
 value      gamma_error  jackknife_error  bootstrap_error  tau_int    W
 0.012(13)  0.013        0.0096           0.0094           0.927(60)  7
 bin size 64:
-Ensemble-E: N = 1562, shape (), S = 1.5
+Ensemble-E: N = 1562, shape (), gamma S = 1.5
 value      gamma_error  jackknife_error  bootstrap_error  tau_int    W
 0.012(14)  0.014        0.012            0.012            0.680(67)  4
 bin size 128:
-Ensemble-E: N = 781, shape (), S = 1.5
+Ensemble-E: N = 781, shape (), gamma S = 1.5
 value      gamma_error  jackknife_error  bootstrap_error  tau_int    W
 0.012(14)  0.014        0.012            0.012            0.641(89)  4
 ```
@@ -157,7 +157,7 @@ fit.summarize(components={"A": 0, "m": 1})
 
 ```text
 fit range 2..15 (14 points), chi2/dof = 1.08/12 = 0.0902, p-value = 1.00
-Ensemble-E: N = 6400, shape (2,), S = 1.5
+Ensemble-E: N = 6400, shape (2,), gamma S = 1.5
 component  value        gamma_error  jackknife_error  bootstrap_error  tau_int   W
 A          1.99988(28)  0.00028      0.00011          0.00011          2.99(31)  20
 m          0.30001(22)  0.00022      0.00011          0.0001           2.04(18)  14
@@ -200,7 +200,7 @@ result.summarize()
 ```
 
 ```text
-Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), S = 1.5
+Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), gamma S = 1.5
 source      value        gamma_error (variance share)  jackknife_error (variance share)  tau_int    W
 total       0.75048(67)  0.00067 (100.0%)              0.00045 (100.0%)
 Ensemble-A               0.00053 (62.7%)               0.00038 (71.1%)                   0.988(29)  9
@@ -236,7 +236,7 @@ result.summarize()
 ```
 
 ```text
-Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), S = 1.5
+Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), gamma S = 1.5
 source               value        gamma_error (variance share)  jackknife_error (variance share)  tau_int    W
 total                0.75048(70)  0.0007 (100.0%)               0.00049 (100.0%)
 Ensemble-A                        0.00053 (57.6%)               0.00038 (59.1%)                   0.988(29)  9

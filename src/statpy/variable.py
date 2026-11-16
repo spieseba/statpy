@@ -683,11 +683,14 @@ class Variable:
     # Summary
     # ---------------------------------------------------------------------------
 
-    def summarize(self, S: float | Mapping[str, float] = 1.5,
+    def summarize(self, gamma_S: float | Mapping[str, float] = 1.5,
+                  jackknife_bin_size: int | Mapping[str, int] = 1,
                   components: Mapping[str, int | tuple[int, ...]] | Iterable[int | tuple[int, ...]] | None = None) -> None:
         """Print ensembles, configurations and replicas, then per component the central value, its bias-corrected
-        value and the correction in units of the gamma error, the errors (gamma method at ``S``, jackknife,
-        bootstrap), tau_int, window W and replica Q-value; columns without values are left out. The gamma and
+        value and the correction in units of the gamma error, the errors (gamma method at ``gamma_S``, jackknife at
+        ``jackknife_bin_size``, bootstrap), tau_int, window W and replica Q-value; columns without values are left
+        out. ``gamma_S`` and ``jackknife_bin_size`` are as ``S`` in ``gamma_method`` and ``bin_size`` in
+        ``jackknife_variance``; each applies to its own column only. The gamma and
         jackknife errors include the external inputs. With more than one source (ensemble or external input), a row
         follows for each source the component depends on, with its gamma and jackknife errors and their shares of
         the total variance, for an ensemble also tau_int, W and replica Q-value. ``components`` lists the rows to show
@@ -697,9 +700,11 @@ class Variable:
         sizes_text = "; ".join(f"{name}: N = {np.sum(ensemble_sizes)}"
                                + (f" = {' + '.join(map(str, ensemble_sizes))}" if len(ensemble_sizes) > 1 else "")
                                for name, ensemble_sizes in sizes.items())
-        S_text = "" if self.fluctuations is None else f", S = {S}"
-        print(f"{sizes_text or 'no configurations'}, shape {shape}{S_text}")
-        result = None if self.fluctuations is None else self.gamma_method(S)
+        S_text = "" if self.fluctuations is None else f", gamma S = {gamma_S}"
+        bin_size_text = ("" if self.jackknife_replicates is None or jackknife_bin_size == 1
+                         else f", jackknife bin size = {jackknife_bin_size}")
+        print(f"{sizes_text or 'no configurations'}, shape {shape}{S_text}{bin_size_text}")
+        result = None if self.fluctuations is None else self.gamma_method(gamma_S)
         corrected = bias_over_error = None
         q_values = {}
         if self.replica_central_values is not None and any(len(ensemble_sizes) > 1 for ensemble_sizes in sizes.values()):
@@ -720,7 +725,7 @@ class Variable:
         if result is not None:
             source_errors["gamma"] = _merge_sources(result.ensemble_errors, external_errors)
         if self.jackknife_replicates is not None:
-            source_errors["jackknife"] = _merge_sources(self._jackknife_errors(1), external_errors)
+            source_errors["jackknife"] = _merge_sources(self._jackknife_errors(jackknife_bin_size), external_errors)
         # total error of each available method
         errors = {method: np.sqrt(sum(map(np.square, sources.values()), np.zeros(shape)))
                   for method, sources in source_errors.items()}
