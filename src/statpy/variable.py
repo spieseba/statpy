@@ -749,10 +749,10 @@ class Variable:
 
         def diagnostics(name: str, index: tuple) -> list[str]:
             """tau_int, W and replica Q-value of one ensemble."""
-            return ["-" if result is None else log.format_paren(result.tau_int[name][index].item(),
-                                                                result.error_tau_int[name][index].item()),
-                    "-" if result is None else str(result.window[name][index]),
-                    f"{q_values[name][index]:.2f}" if name in q_values else "-"]
+            return ["" if result is None else log.format_paren(result.tau_int[name][index].item(),
+                                                               result.error_tau_int[name][index].item()),
+                    "" if result is None else str(result.window[name][index]),
+                    f"{q_values[name][index]:.2f}" if name in q_values else ""]
 
         rows = [["component", "source", "value", "corrected", "bias/σ",
                  *(f"{method}_error" + (" (variance share)" if multiple and method in source_errors else "")
@@ -760,10 +760,10 @@ class Variable:
                  "tau_int", "W", "replica Q"]]
         for label, index in _selected_components(shape, components):
             value_error = next(iter(errors.values()))[index].item() if errors else None
-            rows.append([label, "total" if multiple else "-",
+            rows.append([label, "total" if multiple else "",
                          _with_error(self.central_value[index].item(), value_error),
-                         "-" if corrected is None else _with_error(corrected[index].item(), value_error),
-                         "-" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
+                         "" if corrected is None else _with_error(corrected[index].item(), value_error),
+                         "" if bias_over_error is None else f"{bias_over_error[index]:.2f}",
                          *error_cells(index),
                          *(diagnostics(next(iter(sizes)), index) if len(sizes) == 1 and not multiple else [""] * 3)])
             for source in (*sizes, *external_errors) if multiple else ():
@@ -837,7 +837,7 @@ def _with_error(value: float, error: float | None) -> str:
 
 def _print_table(rows: list[list[str]]) -> None:
     """Print ``rows`` (the first is the header) in aligned columns, without the columns that have no values."""
-    columns = [i for i in range(len(rows[0])) if any(row[i] not in ("-", "") for row in rows[1:])]
+    columns = [i for i in range(len(rows[0])) if any(row[i] for row in rows[1:])]
     rows = [[row[i] for i in columns] for row in rows]
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     for row in rows:
