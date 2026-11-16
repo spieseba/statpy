@@ -196,53 +196,40 @@ b = sp.Variable.from_data(observations=chain_b, layout=sp.Layout("Ensemble-B", m
 Z = sp.Variable.from_external("Z", mean=1.5, covariance=[[0.0003**2]])
 
 result = sp.Variable.derive(lambda a, b, Z: Z * a / b, a, b, Z)
-result.summarize()
+result.summarize(jackknife_bin_size=32)
 ```
 
 ```text
-Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), gamma S = 1.5
+Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), gamma S = 1.5, jackknife bin size = 32
 source      value        gamma_error (variance share)  jackknife_error (variance share)  tau_int    W
-total       0.75048(67)  0.00067 (100.0%)              0.00045 (100.0%)
-Ensemble-A               0.00053 (62.7%)               0.00038 (71.1%)                   0.988(29)  9
-Ensemble-B               0.00038 (32.2%)               0.00019 (17.6%)                   2.047(80)  17
-external Z               0.00015 (5.1%)                0.00015 (11.4%)
+total       0.75048(67)  0.00067 (100.0%)              0.00066 (100.0%)
+Ensemble-A               0.00053 (62.7%)               0.00053 (64.7%)                   0.988(29)  9
+Ensemble-B               0.00038 (32.2%)               0.00036 (30.2%)                   2.047(80)  17
+external Z               0.00015 (5.1%)                0.00015 (5.1%)
 ```
+
+The jackknife errors are computed at bin size 32, where a bin-size study as in Example 1 shows that they no longer grow.
 
 By error propagation, each source contributes its error times the derivative of `Z a / b` with respect to it. The means of the chains have the errors `0.1 sqrt(2 tau / N)` of Example 1, which gives 0.00053 from ensemble A and 0.00038 from ensemble B; Z contributes 0.0003 × 0.5 = 0.00015. The expected total is 0.00067.
 
 `summarize` shows the total error. `gamma_method` and `jackknife_variance` return the statistical error alone; `total_variance` adds the external inputs, and `error_budget` returns the error from each source.
-
-The jackknife errors of the ensembles are shown without binning and are too small, as in Example 1. `error_budget` gives them at any bin size:
-
-```python
-for bin_size in (1, 4, 16, 32):
-    budget = result.error_budget("jackknife", bin_size=bin_size)
-    print(bin_size, "  ".join(f"{source}: {error:.2g}" for source, error in budget.items()))
-```
-
-```text
-1 Ensemble-A: 0.00038  Ensemble-B: 0.00019  external Z: 0.00015
-4 Ensemble-A: 0.00048  Ensemble-B: 0.00029  external Z: 0.00015
-16 Ensemble-A: 0.00052  Ensemble-B: 0.00035  external Z: 0.00015
-32 Ensemble-A: 0.00053  Ensemble-B: 0.00036  external Z: 0.00015
-```
 
 A systematic error that is given as a variance can be entered in the same way, as an external input with mean 0 that is added to the result:
 
 ```python
 systematic = sp.Variable.from_external("systematic", mean=0.0, covariance=[[0.0002**2]])
 result = sp.Variable.derive(lambda result, systematic: result + systematic, result, systematic)
-result.summarize()
+result.summarize(jackknife_bin_size=32)
 ```
 
 ```text
-Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), gamma S = 1.5
+Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), gamma S = 1.5, jackknife bin size = 32
 source               value        gamma_error (variance share)  jackknife_error (variance share)  tau_int    W
-total                0.75048(70)  0.0007 (100.0%)               0.00049 (100.0%)
-Ensemble-A                        0.00053 (57.6%)               0.00038 (59.1%)                   0.988(29)  9
-Ensemble-B                        0.00038 (29.5%)               0.00019 (14.6%)                   2.047(80)  17
-external Z                        0.00015 (4.7%)                0.00015 (9.4%)
-external systematic               0.0002 (8.3%)                 0.0002 (16.8%)
+total                0.75048(70)  0.0007 (100.0%)               0.00069 (100.0%)
+Ensemble-A                        0.00053 (57.6%)               0.00053 (59.3%)                   0.988(29)  9
+Ensemble-B                        0.00038 (29.5%)               0.00036 (27.7%)                   2.047(80)  17
+external Z                        0.00015 (4.7%)                0.00015 (4.7%)
+external systematic               0.0002 (8.3%)                 0.0002 (8.3%)
 ```
 
 ### Example 4: real lattice data
