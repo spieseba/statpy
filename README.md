@@ -53,7 +53,7 @@ value      gamma_error  jackknife_error  bootstrap_error  tau_int   W
 0.012(13)  0.013        0.0032           0.0034           8.31(40)  67
 ```
 
-The AR(1) chain has unit variance, so the exact error of its mean is `sqrt(2 tau / num_configs)` = 0.0126. The gamma method estimates it correctly (within margin of errors), and also estimates `tau_int` close to the exact value of 8. Jackknife and bootstrap ignore autocorrelations, so their errors are too small by roughly a factor of four.
+The AR(1) chain has unit variance, so for a sufficiently long chain the expected error of its mean is `sqrt(2 tau / num_configs)` = 0.0126. The gamma method estimates it correctly (within margin of errors), and also estimates `tau_int` close to the exact value of 8. Jackknife and bootstrap ignore autocorrelations, so their errors are too small by roughly a factor of four.
 
 The left plot shows the first 500 samples of the Monte Carlo history. The right plot shows the integrated autocorrelation time against the summation window `W`:
 
@@ -97,7 +97,7 @@ value      gamma_error  jackknife_error  bootstrap_error  tau_int    W
 0.012(14)  0.014        0.012            0.012            0.641(89)  4
 ```
 
-Jackknife and bootstrap errors grow with the bin size and approach the exact 0.0126 at bin sizes well above `tau`. The gamma-method error stays about the same. `tau_int` is then understood in units of bins and approaches 1/2 because the bins become independent.
+Jackknife and bootstrap errors grow with the bin size and approach the expected 0.0126 at bin sizes well above `tau`. The gamma-method error stays about the same. `tau_int` is then understood in units of bins and approaches 1/2 because the bins become independent.
 
 ### Example 2: a lattice QCD correlator
 
@@ -180,33 +180,52 @@ for bin_size in (1, 8, 16, 32, 64):
 64 2.5e-04
 ```
 
-### Example 3: combining ensembles
+### Example 3: combining ensembles and external inputs
 
-Variables from independent ensembles are combined with `derive`. With the gamma method and jackknife, the error is computed for each ensemble on its own and the variances are added; `summarize` shows the contribution of each ensemble. We form the ratio of the means of two chains with means 1 and 2, standard deviation 0.1, and different lengths and autocorrelation times.
+Variables from independent ensembles are combined with `derive`. With the gamma method and jackknife, the error is computed for each ensemble on its own and the variances are added. An external input is a number with a covariance that does not come from the Monte Carlo data, such as a renormalization constant from a publication; its variance is propagated to first order. `summarize` shows the contribution of each ensemble and external input. We form the ratio of the means of two chains with means 1 and 2, standard deviation 0.1, and different autocorrelation times, and multiply it by an external input Z = 1.5000(3).
 
 ```python
 import numpy as np
 import statpy as sp
 
 rng = np.random.default_rng(0)
-chain_a = 1 + 0.1 * sp.simulation.ar1.generate_chains(tau=2.0, num_configurations=4000, rng=rng)
-chain_b = 2 + 0.1 * sp.simulation.ar1.generate_chains(tau=8.0, num_configurations=2000, rng=rng)
-a = sp.Variable.from_data(observations=chain_a, layout=sp.Layout("Ensemble-A", monte_carlo_times=np.arange(4000)))
-b = sp.Variable.from_data(observations=chain_b, layout=sp.Layout("Ensemble-B", monte_carlo_times=np.arange(2000)))
+chain_a = 1 + 0.1 * sp.simulation.ar1.generate_chains(tau=1.0, num_configurations=40000, rng=rng)
+chain_b = 2 + 0.1 * sp.simulation.ar1.generate_chains(tau=2.0, num_configurations=40000, rng=rng)
+a = sp.Variable.from_data(observations=chain_a, layout=sp.Layout("Ensemble-A", monte_carlo_times=np.arange(40000)))
+b = sp.Variable.from_data(observations=chain_b, layout=sp.Layout("Ensemble-B", monte_carlo_times=np.arange(40000)))
+Z = sp.Variable.from_external("Z", mean=1.5, covariance=[[0.0003**2]])
 
-ratio = sp.Variable.derive(lambda a, b: a / b, a, b)
-ratio.summarize()
+result = sp.Variable.derive(lambda a, b, Z: Z * a / b, a, b, Z)
+result.summarize()
 ```
 
 ```text
-Ensemble-A: N = 4000; Ensemble-B: N = 2000, shape (), S = 1.5
-source      value       gamma_error (variance share)  jackknife_error (variance share)  tau_int   W
-total       0.4960(29)  0.0029 (100.0%)               0.00095 (100.0%)
-Ensemble-A              0.0016 (29.7%)                0.00078 (67.6%)                   1.96(21)  13
-Ensemble-B              0.0024 (70.3%)                0.00054 (32.4%)                   9.7(24)   43
+Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), S = 1.5
+source      value        gamma_error (variance share)  jackknife_error (variance share)  tau_int    W
+total       0.75048(67)  0.00067 (100.0%)              0.00045 (100.0%)
+Ensemble-A               0.00053 (62.7%)               0.00038 (71.1%)                   0.988(29)  9
+Ensemble-B               0.00038 (32.2%)               0.00019 (17.6%)                   2.047(80)  17
+external Z               0.00015 (5.1%)                0.00015 (11.4%)
 ```
 
-The exact errors are 0.0016 from ensemble A and 0.0022 from ensemble B, 0.0027 in total. The jackknife errors are shown without binning and are too small, as in Example 1.
+By error propagation, each source contributes its error times the derivative of `Z a / b` with respect to it. The means of the chains have the errors `0.1 sqrt(2 tau / N)` of Example 1, which gives 0.00053 from ensemble A and 0.00038 from ensemble B; Z contributes 0.0003 × 0.5 = 0.00015. The expected total is 0.00067.
+
+`summarize` shows the total error. `gamma_method` and `jackknife_variance` return the statistical error alone; `total_variance` adds the external inputs, and `error_budget` returns the error from each source.
+
+The jackknife errors of the ensembles are shown without binning and are too small, as in Example 1. `error_budget` gives them at any bin size:
+
+```python
+for bin_size in (1, 4, 16, 32):
+    budget = result.error_budget("jackknife", bin_size=bin_size)
+    print(bin_size, "  ".join(f"{source}: {error:.2g}" for source, error in budget.items()))
+```
+
+```text
+1 Ensemble-A: 0.00038  Ensemble-B: 0.00019  external Z: 0.00015
+4 Ensemble-A: 0.00048  Ensemble-B: 0.00029  external Z: 0.00015
+16 Ensemble-A: 0.00052  Ensemble-B: 0.00035  external Z: 0.00015
+32 Ensemble-A: 0.00053  Ensemble-B: 0.00036  external Z: 0.00015
+```
 
 ### Example 4: real lattice data
 
