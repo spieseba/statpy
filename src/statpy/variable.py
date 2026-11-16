@@ -547,8 +547,8 @@ class Variable:
         ``bin_size > 1`` applies delayed binning (ensembles with one replica only); a dict gives the bin size
         per ensemble name, 1 for names it does not contain.
         """
-        return sum((jackknife.variance(replicates) for replicates in self._jackknife_replicates(bin_size)),
-                   np.zeros(np.shape(self.central_value)))
+        return np.asarray(sum((jackknife.variance(replicates) for replicates in self._jackknife_replicates(bin_size)),
+                              np.zeros(np.shape(self.central_value))))
 
     def jackknife_covariance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
         """Return the jackknife covariance, the sum of the covariances from each ensemble, without external inputs;
@@ -589,8 +589,8 @@ class Variable:
             return self.bootstrap_variance()
         if method not in ("gamma", "jackknife"):
             raise ValueError(f"method must be gamma, jackknife or bootstrap, got {method!r}")
-        return sum((np.square(error) for error in self.error_budget(method, S, bin_size).values()),
-                   np.zeros(np.shape(self.central_value)))
+        return np.asarray(sum((np.square(error) for error in self.error_budget(method, S, bin_size).values()),
+                              np.zeros(np.shape(self.central_value))))
 
     def error_budget(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,
                      bin_size: int | Mapping[str, int] = 1) -> dict[str, np.ndarray]:
@@ -600,11 +600,11 @@ class Variable:
         if method == "gamma":
             ensembles = self.gamma_method(S).ensemble_errors
         elif method == "jackknife":
-            ensembles = {name: np.sqrt(jackknife.variance(replicates))
+            ensembles = {name: np.asarray(np.sqrt(jackknife.variance(replicates)))
                          for name, replicates in zip(self.layout.ensemble_names, self._jackknife_replicates(bin_size))}
         else:
             raise ValueError(f"method must be gamma or jackknife, got {method!r}")
-        return ensembles | {f"external {name}": np.sqrt(variance)
+        return ensembles | {f"external {name}": np.asarray(np.sqrt(variance))
                             for name, variance in self.external_variances().items()}
 
     def _jackknife_replicates(self, bin_size: int | Mapping[str, int]) -> list[np.ndarray]:
@@ -630,7 +630,7 @@ class Variable:
         """Return the bootstrap variance."""
         if self.bootstrap_replicates is None:
             raise ValueError("bootstrap_variance: variable has no bootstrap replicates")
-        return bootstrap.variance(self.bootstrap_replicates)
+        return np.asarray(bootstrap.variance(self.bootstrap_replicates))
 
     def bootstrap_covariance(self) -> np.ndarray:
         """Return the bootstrap covariance."""
@@ -663,7 +663,7 @@ class Variable:
                                                 ensemble_sizes)
                      for name, ensemble_sizes in sizes.items() if len(ensemble_sizes) >= 2]
         # central value plus the correction of each ensemble
-        return np.sum(corrected, axis=0) - (len(corrected) - 1) * self.central_value
+        return np.asarray(np.sum(corrected, axis=0) - (len(corrected) - 1) * self.central_value)
 
     def _replica_sizes(self) -> dict[str, np.ndarray]:
         """Number of configurations of each replica, by ensemble name."""

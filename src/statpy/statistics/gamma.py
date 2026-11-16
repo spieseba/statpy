@@ -131,12 +131,12 @@ def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_
     # one row per ensemble; the component shape is kept without ensembles
     errors = np.reshape(errors, (-1, *fluctuations.shape[1:]))
     errors_of_errors = np.reshape(errors_of_errors, errors.shape)
-    total_error = np.sqrt(np.sum(np.square(errors), axis=0))
+    total_error = np.asarray(np.sqrt(np.sum(np.square(errors), axis=0)))
     # each ensemble's share of the total error; 0 where the total is 0
     shares = np.divide(errors, total_error, out=np.zeros_like(errors), where=total_error != 0)
     return GammaErrorAnalysis(
         error=total_error,
-        error_of_error=np.sqrt(np.sum(np.square(shares * errors_of_errors), axis=0)),
+        error_of_error=np.asarray(np.sqrt(np.sum(np.square(shares * errors_of_errors), axis=0))),
         num_configurations=sizes,
         **fields,
     )
