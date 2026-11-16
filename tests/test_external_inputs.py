@@ -72,6 +72,21 @@ def test_external_variance_is_added_to_the_variance_from_the_configurations():
                                rtol=1e-12)
 
 
+def test_total_covariance_adds_the_covariance_from_a_shared_external_input():
+    rng = np.random.default_rng(9)
+    x = 5.0 + ar1.generate_chains(np.array([1.0, 4.0]), 300, rng)
+    data = Variable.from_data(x, Layout("A", np.arange(len(x))))
+    variance = 0.09
+    c = Variable.from_external("c", 2.0, [[variance]])
+
+    z = Variable.derive(lambda x, c: x * c, data, c)
+    constant = Variable.derive(lambda x, c: x * c, data, Variable.from_external("c", 2.0))
+
+    # both components are proportional to c, so they share its variance
+    external_covariance = variance * np.outer(data.central_value, data.central_value)
+    np.testing.assert_allclose(z.total_covariance(), constant.jackknife_covariance() + external_covariance, rtol=1e-12)
+
+
 def test_fit_of_a_constant_to_data_shifted_by_an_external_input():
     rng = np.random.default_rng(4)
     x = 5.0 + ar1.generate_chains(np.full(6, 1.0), 300, rng)

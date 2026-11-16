@@ -592,6 +592,18 @@ class Variable:
         return np.asarray(sum((np.square(error) for error in self.error_budget(method, S, bin_size).values()),
                               np.zeros(np.shape(self.central_value))))
 
+    def total_covariance(self, method: str = "jackknife", bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
+        """Return the covariance from the Monte Carlo data and the external inputs. ``method`` is "jackknife" (at
+        ``bin_size``) or "bootstrap"; "gamma" is not implemented yet."""
+        if method == "gamma":
+            raise NotImplementedError("total_covariance: the gamma-method covariance is not implemented yet")
+        if method == "bootstrap":
+            # the replicates already contain the external inputs
+            return self.bootstrap_covariance()
+        if method != "jackknife":
+            raise ValueError(f"method must be jackknife or bootstrap, got {method!r}")
+        return self.jackknife_covariance(bin_size) + self.external_covariance()
+
     def error_budget(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,
                      bin_size: int | Mapping[str, int] = 1) -> dict[str, np.ndarray]:
         """Return the error from each source: the ensembles by name, then the external inputs as
