@@ -325,7 +325,7 @@ class Variable:
             warnings.warn("derive: external inputs not propagated to the jackknife and gamma-method errors",
                           stacklevel=2)
         external_inputs = cls._derive_external_inputs(variables, input_jacobians)
-        replicates = cls._derive_replicates(func, variables, layout, use_vmap and compatible)
+        replicates = cls._derive_replicates(func, variables, layout, use_vmap and compatible, central_value.shape)
         return cls.from_results(layout=layout, central_value=central_value, fluctuations=fluctuations,
                                 external_inputs=external_inputs, **replicates)
 
@@ -364,7 +364,7 @@ class Variable:
 
     @classmethod
     def _derive_replicates(cls, func: Callable[..., np.ndarray | jax.Array], variables: tuple[Variable, ...],
-                           layout: Layout, compatible: bool) -> dict[str, np.ndarray]:
+                           layout: Layout, compatible: bool, shape: tuple[int, ...]) -> dict[str, np.ndarray]:
         replicates = {field: cls._field_on_merged_layout(variables, field, layout)
                       for field in ("replica_central_values", "jackknife_replicates", "bootstrap_replicates")}
         dropped = [field for field, values in replicates.items()
@@ -378,7 +378,8 @@ class Variable:
         if compatible:
             batched_output = np.asarray(jax.vmap(func)(*batched_inputs))
         else:
-            batched_output = np.array([func(*row) for row in zip(*batched_inputs)])
+            # reshape: without rows the list is empty and has no component axes
+            batched_output = np.array([func(*row) for row in zip(*batched_inputs)]).reshape(-1, *shape)
         sizes = [len(values[0]) for values in present.values()]
         pieces = np.split(batched_output, np.cumsum(sizes)[:-1])
         return dict(zip(present.keys(), pieces))
@@ -807,17 +808,21 @@ class Variable:
         """Plot central value + fluctuations of one ``component`` into ``ax`` against Monte Carlo time."""
         if self.fluctuations is None:
             raise ValueError("plot_fluctuations: variable has no fluctuations")
+        if not self.layout.ensemble_names:
+            raise ValueError("plot_fluctuations: variable has no configurations")
         central_value = self.central_value[np.index_exp[component]].item()
         return _monte_carlo_history(ax, central_value + select_component(self.fluctuations, component), self.layout,
                                     central_value, "central value + fluctuation")
 
     def plot_weights(self, ax: Axes) -> Axes:
-        """Plot the weights into ``ax`` against Monte Carlo time with their mean; one ensemble only."""
-        if len(self.layout.ensemble_names) > 1:
-            raise ValueError("plot_weights: variable has multiple ensembles")
+        """Plot the weights into ``ax`` against Monte Carlo time with their mean per ensemble."""
+        names = self.layout.ensemble_names
+        if not names:
+            raise ValueError("plot_weights: variable has no configurations")
         weights = self.layout.weights
-        mean = np.mean(weights)
-        return _monte_carlo_history(ax, weights, self.layout, mean, "weight", reference_name="mean")
+        means = {name: np.mean(weights[self.layout.ensembles == name]).item() for name in names}
+        return _monte_carlo_history(ax, weights, self.layout, means if len(names) > 1 else means[names[0]], "weight",
+                                    reference_name="mean")
 
 
 # ---------------------------------------------------------------------------
@@ -881,11 +886,13 @@ def _replica_rows(layout: Layout) -> list[tuple[str | None, int | None, np.ndarr
     return replica_rows
 
 
-def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference: float, ylabel: str,
-                         reference_name: str = "central value") -> Axes:
+def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference: float | Mapping[str, float],
+                         ylabel: str, reference_name: str = "central value") -> Axes:
     """Plot ``values`` into ``ax`` against Monte Carlo time, the replicas of every ensemble one after another, with
-    a line at ``reference``; legend of the ensembles and replicas (if more than one) and the reference line."""
+    a line at ``reference`` (a dict by ensemble name: one line per ensemble, over its replicas); legend of the
+    ensembles and replicas (if more than one) and the reference line."""
     offset = 0
+    segments = []
     for name, replica, rows in _replica_rows(layout):
         times = layout.monte_carlo_times[rows] - layout.monte_carlo_times[rows][0]
         if offset:
@@ -895,8 +902,13 @@ def _monte_carlo_history(ax: Axes, values: np.ndarray, layout: Layout, reference
         label = " ".join(([name] if name else []) + ([f"replica {replica}"] if replica is not None else []))
         ax.plot(np.insert((times + offset).astype(float), gaps, np.nan), np.insert(values[rows], gaps, np.nan),
                 linewidth=0.7, label=label or None)
+        segments.append((name, offset, offset + times[-1]))
         offset += times[-1] + 1
-    ax.axhline(reference, color="0.15", linewidth=1, label=f"{reference_name} = {reference:.4g}")
+    if isinstance(reference, Mapping):
+        names, starts, ends = zip(*segments)
+        ax.hlines([reference[name] for name in names], starts, ends, color="0.15", linewidth=1, label=reference_name)
+    else:
+        ax.axhline(reference, color="0.15", linewidth=1, label=f"{reference_name} = {reference:.4g}")
     legend_above(ax, *ax.get_legend_handles_labels())
     ax.set(xlabel="Monte Carlo time", ylabel=ylabel)
     style_axes(ax)
