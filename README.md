@@ -227,6 +227,24 @@ for bin_size in (1, 4, 16, 32):
 32 Ensemble-A: 0.00053  Ensemble-B: 0.00036  external Z: 0.00015
 ```
 
+A systematic error that is given as a variance can be entered in the same way, as an external input with mean 0 that is added to the result:
+
+```python
+systematic = sp.Variable.from_external("systematic", mean=0.0, covariance=[[0.0002**2]])
+result = sp.Variable.derive(lambda result, systematic: result + systematic, result, systematic)
+result.summarize()
+```
+
+```text
+Ensemble-A: N = 40000; Ensemble-B: N = 40000, shape (), S = 1.5
+source               value        gamma_error (variance share)  jackknife_error (variance share)  tau_int    W
+total                0.75048(70)  0.0007 (100.0%)               0.00049 (100.0%)
+Ensemble-A                        0.00053 (57.6%)               0.00038 (59.1%)                   0.988(29)  9
+Ensemble-B                        0.00038 (29.5%)               0.00019 (14.6%)                   2.047(80)  17
+external Z                        0.00015 (4.7%)                0.00015 (9.4%)
+external systematic               0.0002 (8.3%)                 0.0002 (16.8%)
+```
+
 ### Example 4: real lattice data
 
 A more involved example can be found in [caa-control-variates](https://github.com/spieseba/caa-control-variates), which applies covariant approximation averaging, a control-variates technique, to real lattice QCD correlator data and reduces the statistical error by up to an order of magnitude.
