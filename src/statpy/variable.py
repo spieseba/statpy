@@ -464,8 +464,8 @@ class Variable:
 
         weights = self.layout.weights
         num_bins = len(self.observations) // bin_size
-        observations = statistics.bin(self.observations, bin_size, weights=weights)
-        bin_weights = statistics.bin(weights, bin_size, weights=np.ones(len(weights)))
+        bin_weights = statistics.bin(weights, bin_size)
+        observations = statistics.bin(self.observations, bin_size, weights)
         replicas = np.full(num_bins, self.layout.replicas[0])
         (ensemble,) = self.layout.ensemble_names
         layout = Layout(ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)

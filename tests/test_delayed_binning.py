@@ -37,7 +37,7 @@ def _uniform_formula(jks, bin_size):
 def _variances(x, bin_size, g):
     """Binned variance of g(x): delayed binning vs. binning the raw data up front."""
     delayed = jackknife.delayed_binning(g(_sample(x)), bin_size, np.ones(len(x)))
-    upfront = g(_sample(bin_data(x, bin_size, np.ones(len(x)))))
+    upfront = g(_sample(bin_data(x, bin_size)))
     return jackknife.variance(delayed), jackknife.variance(upfront)
 
 
@@ -76,7 +76,7 @@ def test_exact_when_bin_size_divides():
     # identity pipeline: the delayed-binned sample equals the up-front binned one
     for bin_size in (2, 4, 5, 8):  # all divide 1000
         delayed = jackknife.delayed_binning(_sample(x), bin_size, np.ones(len(x)))
-        upfront = _sample(bin_data(x, bin_size, np.ones(len(x))))
+        upfront = _sample(bin_data(x, bin_size))
         np.testing.assert_allclose(delayed, upfront, rtol=1e-10, atol=0)
     # linear pipeline: variances are exact too
     for bin_size in (2, 4, 5, 8):

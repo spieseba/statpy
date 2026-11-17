@@ -1,17 +1,15 @@
 import numpy as np
 
 
-def bin(data: np.ndarray, bin_size: int, weights: np.ndarray) -> np.ndarray:
-    assert bin_size is not None
-    if bin_size == 1:
-        return data
-    N = len(data)
-    Nb = N // bin_size  # cut off data of last incomplete bin
-    keep = Nb * bin_size
-    bcast = (1,) * (np.ndim(data) - 1)
-    d = np.asarray(data)[:keep].reshape((Nb, bin_size) + np.shape(data)[1:])
-    wb = np.asarray(weights)[:keep].reshape(Nb, bin_size)
-    return (d * wb.reshape((Nb, bin_size) + bcast)).sum(axis=1) / wb.sum(axis=1).reshape((-1,) + bcast)
+def bin(data: np.ndarray, bin_size: int, weights: np.ndarray | None = None) -> np.ndarray:
+    """Means of consecutive blocks of ``bin_size`` rows of ``data``, weighted by ``weights`` (one per row) if
+    given: sum(w x) / sum(w) per block. A trailing incomplete block is dropped."""
+    num_bins = len(data) // bin_size
+    blocks = data[:num_bins * bin_size].reshape((num_bins, bin_size) + data.shape[1:])
+    if weights is None:
+        return blocks.mean(axis=1)
+    w = weights[:num_bins * bin_size].reshape((num_bins, bin_size) + (1,) * (data.ndim - 1))
+    return (w * blocks).sum(axis=1) / w.sum(axis=1)
 
 
 def normalize_covariance(cov: np.ndarray) -> np.ndarray:

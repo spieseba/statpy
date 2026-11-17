@@ -36,8 +36,8 @@ def test_delayed_binning_uses_the_bin_size_of_each_ensemble():
     z = _sum(x, y)
 
     # bin sizes divide N: the same as binning the data of each ensemble up front
-    x_bins = bin_data(x, 4, np.ones(len(x)))
-    y_bins = bin_data(y, 5, np.ones(len(y)))
+    x_bins = bin_data(x, 4)
+    y_bins = bin_data(y, 5)
     variance = np.var(x_bins, ddof=1) / len(x_bins) + 4 * np.var(y_bins, axis=0, ddof=1) / len(y_bins)
     np.testing.assert_allclose(z.jackknife_variance({"A": 4, "B": 5}), variance, rtol=1e-12)
 
