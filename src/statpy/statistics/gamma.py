@@ -55,6 +55,13 @@ class GammaErrorAnalysis:
     tau_ints: dict[str, np.ndarray]         # all W, for plateau plot
     error_tau_ints: dict[str, np.ndarray]   # all W
     num_configurations: dict[str, int]      # N, for the errors of the autocorrelation
+    fluctuations: dict[str, np.ndarray]     # rows of the ensemble, for the cross terms of two components
+    monte_carlo_times: dict[str, np.ndarray]
+    replicas: dict[str, np.ndarray]
+
+    def common_window(self, ensemble: str | None = None) -> int:
+        """Largest window of the components of ``ensemble``: the window of the direct covariance."""
+        return int(np.max(self.window[self._ensemble(ensemble)]))
 
     def _ensemble(self, ensemble: str | None) -> str:
         """``ensemble``, or the only ensemble if None."""
@@ -99,6 +106,36 @@ class GammaErrorAnalysis:
         ax.set(xlabel="window $W$", ylabel=r"$\tau_\mathrm{int}(W)$")
         return ax
 
+    def plot_integrated_cross_correlation_time(self, ax: Axes, component_a: int | tuple[int, ...],
+                                               component_b: int | tuple[int, ...], max_window: int | None = None,
+                                               ensemble: str | None = None) -> Axes:
+        """Plot tau_int,ab(W) = C_ab(W) / (2 sqrt(Gamma_aa(0) Gamma_bb(0))) of two components into ``ax`` for windows 0
+        to ``max_window`` (default max(10, 2W)), with C_ab(W) = Gamma_ab(0) + sum_{t=1}^{W} [Gamma_ab(t) + Gamma_ba(t)],
+        shading windows 0 to the common window W; the value of the rescaled covariance, rho_ab(0)
+        sqrt(tau_int,a tau_int,b), as a line. The curve is not bias-corrected; NaN if a component is constant.
+        ``ensemble`` selects one of multiple ensembles."""
+        ensemble = self._ensemble(ensemble)
+        a = select_component(self.fluctuations[ensemble], component_a)
+        b = select_component(self.fluctuations[ensemble], component_b)
+        times, replicas = self.monte_carlo_times[ensemble], self.replicas[ensemble]
+        max_lag = len(self.autocovariance[ensemble]) - 1
+        gamma_ab = cross_covariance(a, b, times, replicas, max_lag=max_lag)
+        gamma_ba = cross_covariance(b, a, times, replicas, max_lag=max_lag)
+        variances = [select_component(self.autocovariance[ensemble], component)[0] for component in (component_a, component_b)]
+        scale = np.sqrt(np.prod(variances)) if min(variances) > 0 else np.nan
+        tau_ints = (np.cumsum(gamma_ab + gamma_ba) - gamma_ab[0]) / (2 * scale)
+        tau_a, tau_b = (self.tau_int[ensemble][np.index_exp[component]].item() for component in (component_a, component_b))
+        rescaled = gamma_ab[0] / scale * np.sqrt(tau_a * tau_b)
+        W = self.common_window(ensemble)
+        windows = np.arange(_plot_range(W, len(tau_ints), max_window) + 1)
+        _window_axes(ax, W, windows[-1])
+        line = ax.axhline(rescaled, color="C1", linewidth=1.2, zorder=2)
+        points = ax.plot(windows, tau_ints[windows], "o", color="C0", markersize=4, markeredgecolor="white",
+                         markeredgewidth=0.6, zorder=3)[0]
+        legend_above(ax, [points, line], [r"$\tau_\mathrm{int,ab}(W)$", "rescaled"])
+        ax.set(xlabel="window $W$", ylabel=r"$\tau_\mathrm{int,ab}(W)$")
+        return ax
+
 
 def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_carlo_times: NDArray[np.integer],
                    replicas: NDArray[np.integer], S: float | Mapping[str, float]) -> GammaErrorAnalysis:
@@ -106,13 +143,14 @@ def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_
     and the variances are added. ``S`` is one value or a dict by ensemble name, 1.5 for names it does not contain."""
     names = np.unique(ensembles).tolist()
     fields = {field: {} for field in ("ensemble_errors", "tau_int", "error_tau_int", "window", "autocovariance",
-                                      "tau_ints", "error_tau_ints")}
+                                      "tau_ints", "error_tau_ints", "fluctuations", "monte_carlo_times", "replicas")}
     sizes: dict[str, int] = {}
     errors, errors_of_errors = [], []
     for name in names:
         rows = ensembles == name
         num_configurations = int(np.sum(rows))
-        gamma = autocovariance(fluctuations[rows], monte_carlo_times[rows], replicas[rows])
+        ensemble_fluctuations, ensemble_times, ensemble_replicas = fluctuations[rows], monte_carlo_times[rows], replicas[rows]
+        gamma = autocovariance(ensemble_fluctuations, ensemble_times, ensemble_replicas)
         tau_ints = integrated_autocorrelation_times(gamma)
         error_tau_ints = error_integrated_autocorrelation_times(tau_ints, num_configurations)
         W = window(tau_ints, num_configurations, S.get(name, 1.5) if isinstance(S, Mapping) else S)
@@ -128,6 +166,9 @@ def error_analysis(fluctuations: np.ndarray, ensembles: NDArray[np.str_], monte_
         fields["autocovariance"][name] = gamma
         fields["tau_ints"][name] = tau_ints
         fields["error_tau_ints"][name] = error_tau_ints
+        fields["fluctuations"][name] = ensemble_fluctuations
+        fields["monte_carlo_times"][name] = ensemble_times
+        fields["replicas"][name] = ensemble_replicas
         sizes[name] = num_configurations
     # one row per ensemble; the component shape is kept without ensembles
     errors = np.reshape(errors, (-1, *fluctuations.shape[1:]))

@@ -578,7 +578,7 @@ class Variable:
                 total += gamma.rescaled_covariance(self.fluctuations[rows], analysis.ensemble_errors[name])
             else:
                 total += gamma.covariance(self.fluctuations[rows], layout.monte_carlo_times[rows], layout.replicas[rows],
-                                          int(np.max(analysis.window[name])))
+                                          analysis.common_window(name))
         return total
 
     def external_variances(self) -> dict[str, np.ndarray]:
