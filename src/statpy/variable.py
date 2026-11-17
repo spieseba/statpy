@@ -561,16 +561,25 @@ class Variable:
     def gamma_covariance(self, S: float | Mapping[str, float] = 1.5, *, covariance_method: str = "rescaled") -> np.ndarray:
         """Return the gamma-method covariance, the sum of the covariances from each ensemble, without external inputs;
         ``S`` as in ``gamma_method``. "rescaled": correlations of Gamma(0) scaled with the gamma errors (exact if all
-        components share one normalized autocorrelation function); "direct" is not implemented yet."""
-        if covariance_method != "rescaled":
-            raise NotImplementedError(f"gamma_covariance: covariance_method {covariance_method!r} is not implemented")
+        components share one normalized autocorrelation function; positive semidefinite). "direct": cross-covariances
+        summed up to one window per ensemble, the largest automatic window of its components (not guaranteed
+        positive semidefinite)."""
+        if covariance_method not in ("rescaled", "direct"):
+            raise ValueError(f"gamma_covariance: covariance_method must be rescaled or direct, got {covariance_method!r}")
         if self.fluctuations is None:
             raise ValueError("gamma_covariance: variable has no fluctuations")
-        errors = self.gamma_method(S).ensemble_errors
+        analysis = self.gamma_method(S)
         layout = self.layout
         size = np.size(self.central_value)
-        return sum((gamma.rescaled_covariance(self.fluctuations[layout.ensembles == name], errors[name])
-                    for name in layout.ensemble_names), np.zeros((size, size)))
+        total = np.zeros((size, size))
+        for name in layout.ensemble_names:
+            rows = layout.ensembles == name
+            if covariance_method == "rescaled":
+                total += gamma.rescaled_covariance(self.fluctuations[rows], analysis.ensemble_errors[name])
+            else:
+                total += gamma.covariance(self.fluctuations[rows], layout.monte_carlo_times[rows], layout.replicas[rows],
+                                          int(np.max(analysis.window[name])))
+        return total
 
     def external_variances(self) -> dict[str, np.ndarray]:
         """Return the variance from each external input, the diagonal of J C J^T, by input name."""

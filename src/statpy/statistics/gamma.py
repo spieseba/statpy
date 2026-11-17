@@ -268,7 +268,10 @@ def _lag_sum(values_a: np.ndarray, values_b: np.ndarray, max_lag: int, fft: bool
     """Sums of ``values_a[i] * values_b[i + t]`` over i for lags t = 0, ..., ``max_lag``."""
     length = len(values_a)
     if not fft:
-        return np.array([np.sum(values_a[:max(length - lag, 0)] * values_b[lag:], axis=0) for lag in range(max_lag + 1)])
+        # Sum the products over i. For inputs of shapes (L, n, 1) and (L, 1, n), einsum computes this as a
+        # matrix product and never builds the (L, n, n) array of all products.
+        return np.array([np.einsum("i...,i...->...", values_a[:max(length - lag, 0)], values_b[lag:], optimize=True)
+                         for lag in range(max_lag + 1)])
     padded_length = next_fast_len(length + max_lag)
     transform_a = rfft(values_a, padded_length, axis=0)
     transform_b = rfft(values_b, padded_length, axis=0)
@@ -343,6 +346,17 @@ def variance(gamma: np.ndarray, tau_ints: np.ndarray, W: NDArray[np.integer], nu
     return 2 * tau_int * gamma[0] / num_configurations
 
 
+def covariance(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integer], replicas: NDArray[np.integer],
+               W: int) -> np.ndarray:
+    """Covariance of the estimate from one ensemble, components flattened: ``C(W) (1 + (2W+1)/N) / N`` with
+    ``C(W) = Gamma(0) + sum_{t=1}^{W} [Gamma(t) + Gamma(t)^T]``, Gamma the cross-covariance of all pairs of
+    components."""
+    flat = fluctuations.reshape(len(fluctuations), -1)
+    gamma = cross_covariance(flat[:, :, None], flat[:, None, :], monte_carlo_times, replicas, max_lag=W, fft=False)
+    summed = gamma[0] + np.sum(gamma[1:] + np.swapaxes(gamma[1:], 1, 2), axis=0)
+    return summed * _tau_int_bias_correction(W, len(flat)) / len(flat)
+
+
 def rescaled_covariance(fluctuations: np.ndarray, errors: np.ndarray) -> np.ndarray:
     """Covariance of the estimate from one ensemble, components flattened: the correlations of Gamma(0) of
     ``fluctuations`` scaled with the gamma-method ``errors`` per component (``core.rescale_covariance``)."""
@@ -355,7 +369,7 @@ def _at_window(values: np.ndarray, W: NDArray[np.integer]) -> np.ndarray:
     return np.take_along_axis(values, W[np.newaxis], axis=0)[0]
 
 
-def _tau_int_bias_correction(W: NDArray[np.integer], num_configurations: int) -> np.ndarray:
+def _tau_int_bias_correction(W: int | NDArray[np.integer], num_configurations: int) -> float | np.ndarray:
     """Factor ``1 + (2W+1)/N`` correcting the bias of ``tau_int(W)``, i.e. of ``C_F(W)`` (Wolff eq. 49)."""
     return 1 + (2 * W + 1) / num_configurations
 
