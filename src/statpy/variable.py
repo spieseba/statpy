@@ -616,17 +616,22 @@ class Variable:
         return np.asarray(sum((np.square(error) for error in self.error_budget(method, S, bin_size).values()),
                               np.zeros(np.shape(self.central_value))))
 
-    def total_covariance(self, method: str = "jackknife", bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
-        """Return the covariance from the Monte Carlo data and the external inputs. ``method`` is "jackknife" (at
-        ``bin_size``) or "bootstrap"; "gamma" is not implemented yet."""
-        if method == "gamma":
-            raise NotImplementedError("total_covariance: the gamma-method covariance is not implemented yet")
+    def total_covariance(self, method: str = "jackknife", S: float | Mapping[str, float] = 1.5,
+                         bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
+        """Return the covariance from the Monte Carlo data and the external inputs. ``method`` is "gamma_direct" or
+        "gamma_rescaled" (at ``S``, see ``gamma_covariance``), "jackknife" (at ``bin_size``) or "bootstrap"."""
         if method == "bootstrap":
             # the replicates already contain the external inputs
             return self.bootstrap_covariance()
-        if method != "jackknife":
-            raise ValueError(f"method must be jackknife or bootstrap, got {method!r}")
-        return self.jackknife_covariance(bin_size) + self.external_covariance()
+        if method == "gamma_direct":
+            statistical = self.gamma_covariance(S, covariance_method="direct")
+        elif method == "gamma_rescaled":
+            statistical = self.gamma_covariance(S, covariance_method="rescaled")
+        elif method == "jackknife":
+            statistical = self.jackknife_covariance(bin_size)
+        else:
+            raise ValueError(f"method must be gamma_direct, gamma_rescaled, jackknife or bootstrap, got {method!r}")
+        return statistical + self.external_covariance()
 
     def error_budget(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,
                      bin_size: int | Mapping[str, int] = 1) -> dict[str, np.ndarray]:

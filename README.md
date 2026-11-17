@@ -236,8 +236,7 @@ external systematic               0.0002 (8.3%)                 0.0002 (8.3%)
 
 A more involved example can be found in [caa-control-variates](https://github.com/spieseba/caa-control-variates), which applies covariant approximation averaging, a control-variates technique, to real lattice QCD correlator data and reduces the statistical error by up to an order of magnitude.
 
-## Roadmap
+## Planned features
 
-- Gamma-method covariance, with bias correction of its inverse for correlated fits
 - Expected chi-squared for uncorrelated fits (Bruno, Sommer, [arXiv:2209.14188](https://arxiv.org/abs/2209.14188))
 - Exponential tail correction (Schaefer, Sommer, Virotta, [arXiv:1009.5228](https://arxiv.org/abs/1009.5228))
