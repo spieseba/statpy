@@ -233,37 +233,45 @@ def step_sizes_from_fluctuations(fluctuations: np.ndarray) -> np.ndarray:
 # Analysis steps
 # ---------------------------------------------------------------------------
 
-def autocovariance(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integer], replicas: NDArray[np.integer], max_lag: int | None = None, fft: bool = True) -> np.ndarray:
-    """Autocovariance of ``fluctuations`` for lags 0 to ``max_lag``, using only
-    pairs within the same replica. Lags are in units of the greatest common divisor of the Monte Carlo
-    time differences. Default ``max_lag``: half the longest replica span minus 1.
+def cross_covariance(fluctuations_a: np.ndarray, fluctuations_b: np.ndarray, monte_carlo_times: NDArray[np.integer],
+                     replicas: NDArray[np.integer], max_lag: int | None = None, fft: bool = True) -> np.ndarray:
+    """Cross-covariance Gamma_ab(t), the average of ``fluctuations_a[i] * fluctuations_b[i + t]``, for lags 0
+    to ``max_lag``, using only pairs within the same replica. Lags are in units of the greatest common divisor of
+    the Monte Carlo time differences. Default ``max_lag``: half the longest replica span minus 1.
     ``fft=False`` sums the products directly instead of via FFT."""
     differences = [np.diff(monte_carlo_times[replicas == replica]) for replica in np.unique(replicas)]
     monte_carlo_times = monte_carlo_times // (np.gcd.reduce(np.concatenate(differences)) or 1)
     if max_lag is None:
         spans = [np.ptp(monte_carlo_times[replicas == replica]) + 1 for replica in np.unique(replicas)]
         max_lag = max(spans) // 2 - 1
-    product_sums = np.zeros((max_lag + 1,) + fluctuations.shape[1:])
+    product_sums = np.zeros((max_lag + 1,) + np.broadcast_shapes(fluctuations_a.shape[1:], fluctuations_b.shape[1:]))
     num_pairs = np.zeros(max_lag + 1)
     for replica in np.unique(replicas):
         in_replica = (replicas == replica)
-        replica_fluctuations, measured = _insert_gaps(fluctuations[in_replica], monte_carlo_times[in_replica])
-        product_sums += _lag_sum(replica_fluctuations, max_lag, fft)
-        num_pairs += np.rint(_lag_sum(measured, max_lag, fft))
+        replica_fluctuations_a, measured = _insert_gaps(fluctuations_a[in_replica], monte_carlo_times[in_replica])
+        replica_fluctuations_b, _ = _insert_gaps(fluctuations_b[in_replica], monte_carlo_times[in_replica])
+        product_sums += _lag_sum(replica_fluctuations_a, replica_fluctuations_b, max_lag, fft)
+        num_pairs += np.rint(_lag_sum(measured, measured, max_lag, fft))
     lags_without_pairs = np.flatnonzero(num_pairs == 0)
     if lags_without_pairs.size:
         raise ValueError(f"No pairs at lag {lags_without_pairs[0]}; check monte_carlo_times or max_lag.")
     return product_sums / num_pairs.reshape((-1,) + (1,) * (product_sums.ndim - 1))
 
 
-def _lag_sum(values: np.ndarray, max_lag: int, fft: bool = True) -> np.ndarray:
-    """Sums of ``values[i] * values[i + t]`` over i for lags t = 0, ..., ``max_lag``."""
-    length = len(values)
+def autocovariance(fluctuations: np.ndarray, monte_carlo_times: NDArray[np.integer], replicas: NDArray[np.integer], max_lag: int | None = None, fft: bool = True) -> np.ndarray:
+    """Autocovariance of ``fluctuations``: ``cross_covariance`` of ``fluctuations`` with itself."""
+    return cross_covariance(fluctuations, fluctuations, monte_carlo_times, replicas, max_lag, fft)
+
+
+def _lag_sum(values_a: np.ndarray, values_b: np.ndarray, max_lag: int, fft: bool = True) -> np.ndarray:
+    """Sums of ``values_a[i] * values_b[i + t]`` over i for lags t = 0, ..., ``max_lag``."""
+    length = len(values_a)
     if not fft:
-        return np.array([np.sum(values[:max(length - lag, 0)] * values[lag:], axis=0) for lag in range(max_lag + 1)])
+        return np.array([np.sum(values_a[:max(length - lag, 0)] * values_b[lag:], axis=0) for lag in range(max_lag + 1)])
     padded_length = next_fast_len(length + max_lag)
-    transform = rfft(values, padded_length, axis=0)
-    return irfft(np.abs(transform)**2, padded_length, axis=0)[:max_lag+1]
+    transform_a = rfft(values_a, padded_length, axis=0)
+    transform_b = rfft(values_b, padded_length, axis=0)
+    return irfft(np.conj(transform_a) * transform_b, padded_length, axis=0)[:max_lag+1]
 
 
 def _insert_gaps(values: np.ndarray, monte_carlo_times: NDArray[np.integer]) -> tuple[np.ndarray, np.ndarray]:
