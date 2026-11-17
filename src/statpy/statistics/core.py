@@ -13,13 +13,17 @@ def bin(data: np.ndarray, bin_size: int, weights: np.ndarray | None = None) -> n
 
 
 def correlation_matrix(covariance: np.ndarray) -> np.ndarray:
-    """Correlation matrix of ``covariance``: ``covariance_ij / (sigma_i sigma_j)``, ones on the diagonal."""
+    """Correlation matrix of ``covariance``: ``covariance_ij / (sigma_i sigma_j)``, ones on the diagonal; NaN where
+    sigma_i or sigma_j is 0."""
     sigmas = np.sqrt(np.diag(covariance))
-    return covariance / np.outer(sigmas, sigmas)
+    is_zero = sigmas == 0
+    return np.divide(covariance, np.outer(sigmas, sigmas), out=np.full(covariance.shape, np.nan),
+                     where=~(is_zero[:, None] | is_zero[None, :]))
 
 
 def rescale_covariance(covariance: np.ndarray, errors: np.ndarray) -> np.ndarray:
     """Covariance with the correlations of ``covariance`` and the standard deviations ``errors``:
-    ``corr_ij errors_i errors_j``. If ``errors`` include autocorrelations and ``covariance`` does not, this
-    assumes tau_int,ij = sqrt(tau_int,i tau_int,j)."""
-    return np.outer(errors, errors) * correlation_matrix(covariance)
+    ``corr_ij errors_i errors_j``; rows and columns of components with error 0 are 0. If ``errors`` include
+    autocorrelations and ``covariance`` does not, this assumes tau_int,ij = sqrt(tau_int,i tau_int,j)."""
+    is_zero = errors == 0
+    return np.where(is_zero[:, None] | is_zero[None, :], 0.0, np.outer(errors, errors) * correlation_matrix(covariance))
