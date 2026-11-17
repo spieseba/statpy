@@ -12,14 +12,14 @@ def bin(data: np.ndarray, bin_size: int, weights: np.ndarray | None = None) -> n
     return (w * blocks).sum(axis=1) / w.sum(axis=1)
 
 
-def normalize_covariance(cov: np.ndarray) -> np.ndarray:
-    """Divide a covariance matrix by the outer product of its diagonal stds,
-    yielding a correlation matrix with ones on the diagonal."""
-    stds = np.sqrt(np.diag(cov))
-    return cov / np.outer(stds, stds)
+def correlation_matrix(covariance: np.ndarray) -> np.ndarray:
+    """Correlation matrix of ``covariance``: ``covariance_ij / (sigma_i sigma_j)``, ones on the diagonal."""
+    sigmas = np.sqrt(np.diag(covariance))
+    return covariance / np.outer(sigmas, sigmas)
 
 
-def inflated_covariance(jk_cov: np.ndarray, bs_std: np.ndarray) -> np.ndarray:
-    """Re-scale a (binned) jackknife covariance to match a bootstrap-std scale."""
-    cov_n = normalize_covariance(jk_cov)
-    return np.outer(bs_std, bs_std) * cov_n
+def rescale_covariance(covariance: np.ndarray, errors: np.ndarray) -> np.ndarray:
+    """Covariance with the correlations of ``covariance`` and the standard deviations ``errors``:
+    ``corr_ij errors_i errors_j``. If ``errors`` include autocorrelations and ``covariance`` does not, this
+    assumes tau_int,ij = sqrt(tau_int,i tau_int,j)."""
+    return np.outer(errors, errors) * correlation_matrix(covariance)
