@@ -17,6 +17,7 @@ from scipy.fft import irfft, next_fast_len, rfft
 
 from statpy.log import format_paren
 from statpy.plot import label_top, legend_above, select_component, style_axes
+from statpy.statistics.core import rescale_covariance
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -340,6 +341,13 @@ def variance(gamma: np.ndarray, tau_ints: np.ndarray, W: NDArray[np.integer], nu
     """Variance of the estimate, ``2 tau_int(W) gamma[0] / N`` per component, bias-corrected (Wolff eqs. 44, 49)."""
     tau_int = _at_window(tau_ints, W) * _tau_int_bias_correction(W, num_configurations)
     return 2 * tau_int * gamma[0] / num_configurations
+
+
+def rescaled_covariance(fluctuations: np.ndarray, errors: np.ndarray) -> np.ndarray:
+    """Covariance of the estimate from one ensemble, components flattened: the correlations of Gamma(0) of
+    ``fluctuations`` scaled with the gamma-method ``errors`` per component (``core.rescale_covariance``)."""
+    flat = fluctuations.reshape(len(fluctuations), -1)
+    return rescale_covariance(flat.T @ flat / len(flat), errors.reshape(-1))
 
 
 def _at_window(values: np.ndarray, W: NDArray[np.integer]) -> np.ndarray:

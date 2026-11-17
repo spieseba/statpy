@@ -558,6 +558,20 @@ class Variable:
         return sum((jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)),
                    np.zeros((size, size)))
 
+    def gamma_covariance(self, S: float | Mapping[str, float] = 1.5, *, covariance_method: str = "rescaled") -> np.ndarray:
+        """Return the gamma-method covariance, the sum of the covariances from each ensemble, without external inputs;
+        ``S`` as in ``gamma_method``. "rescaled": correlations of Gamma(0) scaled with the gamma errors (exact if all
+        components share one normalized autocorrelation function); "direct" is not implemented yet."""
+        if covariance_method != "rescaled":
+            raise NotImplementedError(f"gamma_covariance: covariance_method {covariance_method!r} is not implemented")
+        if self.fluctuations is None:
+            raise ValueError("gamma_covariance: variable has no fluctuations")
+        errors = self.gamma_method(S).ensemble_errors
+        layout = self.layout
+        size = np.size(self.central_value)
+        return sum((gamma.rescaled_covariance(self.fluctuations[layout.ensembles == name], errors[name])
+                    for name in layout.ensemble_names), np.zeros((size, size)))
+
     def external_variances(self) -> dict[str, np.ndarray]:
         """Return the variance from each external input, the diagonal of J C J^T, by input name."""
         shape = np.shape(self.central_value)

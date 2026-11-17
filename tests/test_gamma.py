@@ -86,6 +86,20 @@ def test_error_analysis_matches_exact_ar1():
     assert np.all(np.abs(result.error - error) < 3 * result.error_of_error)
 
 
+def test_rescaled_covariance_matches_exact_ar1():
+    # a = x, b = 0.6 x + 0.8 y with independent unit-variance AR(1) chains x, y of tau_int 4: both components share one
+    # normalized autocorrelation function, so the rescaled covariance is exact, C / N = 2 tau [[1, 0.6], [0.6, 1]] / N
+    num_configurations = 100_000
+    x, y = ar1.generate_chains(np.full(2, 4.0), num_configurations, np.random.default_rng(0)).T
+    _, fluctuations = gamma.mean_and_fluctuations(np.stack([x, 0.6 * x + 0.8 * y], axis=1), np.ones(num_configurations))
+    result = gamma.error_analysis(fluctuations, np.full(num_configurations, "E"), np.arange(num_configurations),
+                                  np.zeros(num_configurations, int), 1.5)
+    expected = 8 * np.array([[1.0, 0.6], [0.6, 1.0]]) / num_configurations
+    # 3 sigma; covariance entries scale like error^2: relative error about 2 * error_of_error / error (Wolff eq. 40)
+    rtol = 3 * 2 * np.max(result.error_of_error / result.error)
+    np.testing.assert_allclose(gamma.rescaled_covariance(fluctuations, result.ensemble_errors["E"]), expected, rtol=rtol)
+
+
 @pytest.mark.filterwarnings("error")
 def test_replica_q_value_by_hand():
     # replica central values 1 and -1 (mean 0), N_r = 2, N = 4, error 1: chi^2 = (2 + 2) / 4 = 1 with 1 dof,
