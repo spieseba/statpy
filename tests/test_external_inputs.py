@@ -84,7 +84,9 @@ def test_total_covariance_adds_the_covariance_from_a_shared_external_input():
 
     # both components are proportional to c, so they share its variance
     external_covariance = variance * np.outer(data.central_value, data.central_value)
-    np.testing.assert_allclose(z.total_covariance(), constant.jackknife_covariance() + external_covariance, rtol=1e-12)
+    np.testing.assert_allclose(z.total_covariance(), constant.gamma_covariance() + external_covariance, rtol=1e-12)
+    np.testing.assert_allclose(z.total_covariance("jackknife"), constant.jackknife_covariance() + external_covariance,
+                               rtol=1e-12)
 
 
 def test_fit_of_a_constant_to_data_shifted_by_an_external_input():

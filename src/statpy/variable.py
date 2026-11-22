@@ -558,28 +558,17 @@ class Variable:
         return sum((jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)),
                    np.zeros((size, size)))
 
-    def gamma_covariance(self, S: float | Mapping[str, float] = 1.5, *, covariance_method: str = "rescaled") -> np.ndarray:
-        """Return the gamma-method covariance, the sum of the covariances from each ensemble, without external inputs;
-        ``S`` as in ``gamma_method``. "rescaled": correlations of Gamma(0) scaled with the gamma errors (exact if all
-        components share one normalized autocorrelation function; positive semidefinite). "direct": cross-covariances
-        summed up to one window per ensemble, the largest automatic window of its components (not guaranteed
-        positive semidefinite)."""
-        if covariance_method not in ("rescaled", "direct"):
-            raise ValueError(f"gamma_covariance: covariance_method must be rescaled or direct, got {covariance_method!r}")
+    def gamma_covariance(self, S: float | Mapping[str, float] = 1.5) -> np.ndarray:
+        """Return the gamma-method covariance, the sum of the covariances from each ensemble, without external inputs:
+        per ensemble, the correlations of Gamma(0) scaled with the gamma errors at ``S`` (exact if all components share
+        one normalized autocorrelation function; positive semidefinite)."""
         if self.fluctuations is None:
             raise ValueError("gamma_covariance: variable has no fluctuations")
-        analysis = self.gamma_method(S)
+        errors = self.gamma_method(S).ensemble_errors
         layout = self.layout
         size = np.size(self.central_value)
-        total = np.zeros((size, size))
-        for name in layout.ensemble_names:
-            rows = layout.ensembles == name
-            if covariance_method == "rescaled":
-                total += gamma.rescaled_covariance(self.fluctuations[rows], analysis.ensemble_errors[name])
-            else:
-                total += gamma.covariance(self.fluctuations[rows], layout.monte_carlo_times[rows], layout.replicas[rows],
-                                          analysis.common_window(name))
-        return total
+        return sum((gamma.rescaled_covariance(self.fluctuations[layout.ensembles == name], errors[name])
+                    for name in layout.ensemble_names), np.zeros((size, size)))
 
     def external_variances(self) -> dict[str, np.ndarray]:
         """Return the variance from each external input, the diagonal of J C J^T, by input name."""
@@ -616,21 +605,19 @@ class Variable:
         return np.asarray(sum((np.square(error) for error in self.error_budget(method, S, bin_size).values()),
                               np.zeros(np.shape(self.central_value))))
 
-    def total_covariance(self, method: str = "jackknife", S: float | Mapping[str, float] = 1.5,
+    def total_covariance(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,
                          bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
-        """Return the covariance from the Monte Carlo data and the external inputs. ``method`` is "gamma_direct" or
-        "gamma_rescaled" (at ``S``, see ``gamma_covariance``), "jackknife" (at ``bin_size``) or "bootstrap"."""
+        """Return the covariance from the Monte Carlo data and the external inputs. ``method`` is "gamma" (at ``S``,
+        see ``gamma_covariance``), "jackknife" (at ``bin_size``) or "bootstrap"."""
         if method == "bootstrap":
             # the replicates already contain the external inputs
             return self.bootstrap_covariance()
-        if method == "gamma_direct":
-            statistical = self.gamma_covariance(S, covariance_method="direct")
-        elif method == "gamma_rescaled":
-            statistical = self.gamma_covariance(S, covariance_method="rescaled")
+        if method == "gamma":
+            statistical = self.gamma_covariance(S)
         elif method == "jackknife":
             statistical = self.jackknife_covariance(bin_size)
         else:
-            raise ValueError(f"method must be gamma_direct, gamma_rescaled, jackknife or bootstrap, got {method!r}")
+            raise ValueError(f"method must be gamma, jackknife or bootstrap, got {method!r}")
         return statistical + self.external_covariance()
 
     def error_budget(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,

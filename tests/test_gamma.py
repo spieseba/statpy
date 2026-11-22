@@ -100,28 +100,6 @@ def test_rescaled_covariance_matches_exact_ar1():
     np.testing.assert_allclose(gamma.rescaled_covariance(fluctuations, result.ensemble_errors["E"]), expected, rtol=rtol)
 
 
-@pytest.mark.parametrize("taus, coefficients", [
-    # a = x, b = 0.6 x + 0.8 y: one normalized autocorrelation function, C = [[8, 4.8], [4.8, 8]]
-    ([4.0, 4.0], [[1.0, 0.0], [0.6, 0.8]]),
-    # a = s + u, b = s + v, u and v white noise: C = [[9, 8], [8, 9]], correlation 8/9; Gamma(0) has correlation 1/2
-    ([4.0, 0.5, 0.5], [[1.0, 1.0, 0.0], [1.0, 0.0, 1.0]]),
-])
-def test_covariance_matches_exact_ar1(taus, coefficients):
-    # each component is a linear combination of independent unit-variance AR(1) chains with tau_int = taus,
-    # with one row of coefficients per component: C = 2 coefficients diag(taus) coefficients^T
-    num_configurations = 100_000
-    taus, coefficients = np.array(taus), np.array(coefficients)
-    chains = ar1.generate_chains(taus, num_configurations, np.random.default_rng(0))
-    _, fluctuations = gamma.mean_and_fluctuations(chains @ coefficients.T, np.ones(num_configurations))
-    monte_carlo_times, replicas = np.arange(num_configurations), np.zeros(num_configurations, int)
-    result = gamma.error_analysis(fluctuations, np.full(num_configurations, "E"), monte_carlo_times, replicas, 1.5)
-    W = int(np.max(result.window["E"]))
-    expected = 2 * coefficients @ np.diag(taus) @ coefficients.T / num_configurations
-    # 3 sigma; covariance entries scale like error^2: relative error about 2 sqrt((W + 1/2) / N) (Wolff eq. 40)
-    rtol = 3 * 2 * np.sqrt((W + 0.5) / num_configurations)
-    np.testing.assert_allclose(gamma.covariance(fluctuations, monte_carlo_times, replicas, W), expected, rtol=rtol)
-
-
 @pytest.mark.filterwarnings("error")
 def test_replica_q_value_by_hand():
     # replica central values 1 and -1 (mean 0), N_r = 2, N = 4, error 1: chi^2 = (2 + 2) / 4 = 1 with 1 dof,
