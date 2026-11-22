@@ -542,6 +542,35 @@ class Variable:
     # Error analysis
     # ---------------------------------------------------------------------------
 
+    # --- Gamma method ---
+
+    def gamma_method(self, S: float | Mapping[str, float] = 1.5) -> gamma.GammaErrorAnalysis:
+        """Return the gamma-method error analysis per component, without external inputs; the variances from each
+        ensemble are added.
+
+        ``S`` sets the automatic summation window; a larger ``S`` gives a larger window. A dict gives ``S`` per
+        ensemble name, 1.5 for names it does not contain. Fields: see ``GammaErrorAnalysis``. The variable is
+        unchanged.
+        """
+        if self.fluctuations is None:
+            raise ValueError("gamma_method: variable has no fluctuations")
+        layout = self.layout
+        return gamma.error_analysis(self.fluctuations, layout.ensembles, layout.monte_carlo_times, layout.replicas, S)
+
+    def gamma_covariance(self, S: float | Mapping[str, float] = 1.5) -> np.ndarray:
+        """Return the gamma-method covariance, the sum of the covariances from each ensemble, without external inputs:
+        per ensemble, the correlations of Gamma(0) scaled with the gamma errors at ``S`` (exact if all components share
+        one normalized autocorrelation function; positive semidefinite)."""
+        if self.fluctuations is None:
+            raise ValueError("gamma_covariance: variable has no fluctuations")
+        errors = self.gamma_method(S).ensemble_errors
+        layout = self.layout
+        size = np.size(self.central_value)
+        return sum((gamma.rescaled_covariance(self.fluctuations[layout.ensembles == name], errors[name])
+                    for name in layout.ensemble_names), np.zeros((size, size)))
+
+    # --- Jackknife ---
+
     def jackknife_variance(self, bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
         """Return the jackknife variance, the sum of the variances from each ensemble, without external inputs.
 
@@ -558,17 +587,40 @@ class Variable:
         return sum((jackknife.covariance(replicates) for replicates in self._jackknife_replicates(bin_size)),
                    np.zeros((size, size)))
 
-    def gamma_covariance(self, S: float | Mapping[str, float] = 1.5) -> np.ndarray:
-        """Return the gamma-method covariance, the sum of the covariances from each ensemble, without external inputs:
-        per ensemble, the correlations of Gamma(0) scaled with the gamma errors at ``S`` (exact if all components share
-        one normalized autocorrelation function; positive semidefinite)."""
-        if self.fluctuations is None:
-            raise ValueError("gamma_covariance: variable has no fluctuations")
-        errors = self.gamma_method(S).ensemble_errors
+    def _jackknife_replicates(self, bin_size: int | Mapping[str, int]) -> list[np.ndarray]:
+        """Jackknife replicates of each ensemble, delayed-binned where its bin size is not 1."""
+        if self.jackknife_replicates is None:
+            raise ValueError("jackknife: variable has no jackknife replicates")
         layout = self.layout
-        size = np.size(self.central_value)
-        return sum((gamma.rescaled_covariance(self.fluctuations[layout.ensembles == name], errors[name])
-                    for name in layout.ensemble_names), np.zeros((size, size)))
+        names = layout.ensemble_names
+        ensemble_replicates = []
+        for name in names:
+            # one ensemble: all rows, without a copy
+            rows = slice(None) if len(names) == 1 else layout.ensembles == name
+            replicates = self.jackknife_replicates[rows]
+            ensemble_bin_size = bin_size.get(name, 1) if isinstance(bin_size, Mapping) else bin_size
+            if ensemble_bin_size != 1:
+                if len(np.unique(layout.replicas[rows])) > 1:
+                    raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
+                replicates = jackknife.delayed_binning(replicates, ensemble_bin_size, layout.weights[rows])
+            ensemble_replicates.append(replicates)
+        return ensemble_replicates
+
+    # --- Bootstrap ---
+
+    def bootstrap_variance(self) -> np.ndarray:
+        """Return the bootstrap variance."""
+        if self.bootstrap_replicates is None:
+            raise ValueError("bootstrap_variance: variable has no bootstrap replicates")
+        return np.asarray(bootstrap.variance(self.bootstrap_replicates))
+
+    def bootstrap_covariance(self) -> np.ndarray:
+        """Return the bootstrap covariance."""
+        if self.bootstrap_replicates is None:
+            raise ValueError("bootstrap_covariance: variable has no bootstrap replicates")
+        return bootstrap.covariance(self.bootstrap_replicates)
+
+    # --- External inputs ---
 
     def external_variances(self) -> dict[str, np.ndarray]:
         """Return the variance from each external input, the diagonal of J C J^T, by input name."""
@@ -592,6 +644,8 @@ class Variable:
                 raise ValueError(f"variable has no Jacobian for the external input {name}")
             jacobians[name] = (external.jacobian.reshape(size, -1), external.covariance)
         return jacobians
+
+    # --- Totals and error budget ---
 
     def total_variance(self, method: str = "gamma", S: float | Mapping[str, float] = 1.5,
                        bin_size: int | Mapping[str, int] = 1) -> np.ndarray:
@@ -643,49 +697,7 @@ class Variable:
         return {f"external {name}": np.asarray(np.sqrt(variance))
                 for name, variance in self.external_variances().items()}
 
-    def _jackknife_replicates(self, bin_size: int | Mapping[str, int]) -> list[np.ndarray]:
-        """Jackknife replicates of each ensemble, delayed-binned where its bin size is not 1."""
-        if self.jackknife_replicates is None:
-            raise ValueError("jackknife: variable has no jackknife replicates")
-        layout = self.layout
-        names = layout.ensemble_names
-        ensemble_replicates = []
-        for name in names:
-            # one ensemble: all rows, without a copy
-            rows = slice(None) if len(names) == 1 else layout.ensembles == name
-            replicates = self.jackknife_replicates[rows]
-            ensemble_bin_size = bin_size.get(name, 1) if isinstance(bin_size, Mapping) else bin_size
-            if ensemble_bin_size != 1:
-                if len(np.unique(layout.replicas[rows])) > 1:
-                    raise ValueError("Delayed binning: more than one replica; binning across replicas is not supported")
-                replicates = jackknife.delayed_binning(replicates, ensemble_bin_size, layout.weights[rows])
-            ensemble_replicates.append(replicates)
-        return ensemble_replicates
-
-    def bootstrap_variance(self) -> np.ndarray:
-        """Return the bootstrap variance."""
-        if self.bootstrap_replicates is None:
-            raise ValueError("bootstrap_variance: variable has no bootstrap replicates")
-        return np.asarray(bootstrap.variance(self.bootstrap_replicates))
-
-    def bootstrap_covariance(self) -> np.ndarray:
-        """Return the bootstrap covariance."""
-        if self.bootstrap_replicates is None:
-            raise ValueError("bootstrap_covariance: variable has no bootstrap replicates")
-        return bootstrap.covariance(self.bootstrap_replicates)
-
-    def gamma_method(self, S: float | Mapping[str, float] = 1.5) -> gamma.GammaErrorAnalysis:
-        """Return the gamma-method error analysis per component, without external inputs; the variances from each
-        ensemble are added.
-
-        ``S`` sets the automatic summation window; a larger ``S`` gives a larger window. A dict gives ``S`` per
-        ensemble name, 1.5 for names it does not contain. Fields: see ``GammaErrorAnalysis``. The variable is
-        unchanged.
-        """
-        if self.fluctuations is None:
-            raise ValueError("gamma_method: variable has no fluctuations")
-        layout = self.layout
-        return gamma.error_analysis(self.fluctuations, layout.ensembles, layout.monte_carlo_times, layout.replicas, S)
+    # --- Replica bias correction ---
 
     def bias_corrected_value(self) -> np.ndarray:
         """Return the central value with the replica bias correction, which cancels the leading
