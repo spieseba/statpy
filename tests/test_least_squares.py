@@ -45,11 +45,32 @@ def test_fit_recovers_parameters_of_central_value_and_replicates(numba_model):
 def test_parameter_jacobian_matches_exact_reference_at_zero_residual():
     """At zero residual, dp/dy = (J^T W J)^-1 J^T W with J = dmodel/dp."""
     y = np.asarray(_jnp_model(T, TRUE_P))
-    weight_matrix = np.diag(1 / (0.01 * y) ** 2)
+    a = np.random.default_rng(0).normal(size=(len(T), len(T)))
+    weight_matrix = a @ a.T + np.eye(len(T))
+    factor = least_squares.weight_factor(weight_matrix)
+    residual = least_squares.weighted_residual(_jnp_model)
     J = np.stack([np.exp(-TRUE_P[1] * T), -TRUE_P[0] * T * np.exp(-TRUE_P[1] * T)], axis=1)
     expected = np.linalg.solve(J.T @ weight_matrix @ J, J.T @ weight_matrix)
-    np.testing.assert_allclose(least_squares.parameter_jacobian(_jnp_model, T, y, TRUE_P, weight_matrix), expected,
+    np.testing.assert_allclose(least_squares.parameter_jacobian(residual, TRUE_P, y, T, factor), expected,
                                rtol=1e-12)
+
+
+@pytest.mark.parametrize("numba_model", [None, _model])
+def test_correlated_fit_satisfies_normal_equations_and_quadratic_form(numba_model):
+    """At the minimum of (f(p) - y)^T W (f(p) - y), J(p)^T W (f(p) - y) = 0 and chi2 = (f(p) - y)^T W (f(p) - y)."""
+    rng = np.random.default_rng(1)
+    a = rng.normal(size=(len(T), len(T)))
+    weight_matrix = a @ a.T + np.eye(len(T))
+    y = _model(T, TRUE_P) * (1 + 0.02 * rng.normal(size=len(T)))
+    v = Variable.from_results(layout=Layout("test", np.arange(N_CFG)), central_value=y)
+    fit = v.least_squares_fit(_jnp_model, T, [1.0, 0.2], numba_model=numba_model, weight_matrix=weight_matrix,
+                              tolerance=1e-10)
+    p = fit.parameters.central_value
+    delta = _model(T, p) - y
+    J = np.stack([np.exp(-p[1] * T), -p[0] * T * np.exp(-p[1] * T)], axis=1)
+    # Migrad stops at EDM ~ g^T H^-1 g < 1e-3 * tol = 1e-13, so |J^T W delta| = O(sqrt(EDM * ||H||)) ~ 1e-6
+    np.testing.assert_allclose(J.T @ weight_matrix @ delta, 0.0, atol=1e-5)
+    np.testing.assert_allclose(fit.chi2, float(delta @ weight_matrix @ delta), rtol=1e-12)
 
 
 def test_fit_fluctuations_match_exact_error_and_tau_int():

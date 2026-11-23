@@ -14,7 +14,7 @@ from numba import njit
 from numba.core.registry import CPUDispatcher
 from numpy.typing import ArrayLike
 from scipy import stats
-from scipy.linalg import cho_factor, cho_solve
+from scipy.linalg import cho_factor, cho_solve, cholesky
 
 from statpy.plot import legend_above, style_axes
 
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 
 Model = Callable[[np.ndarray, np.ndarray], np.ndarray | jax.Array]
+Residual = Callable[..., np.ndarray | jax.Array]
 
 
 class ConvergenceError(Exception):
@@ -106,26 +107,52 @@ def inverse_covariance(cov: np.ndarray, num_samples: int) -> tuple[np.ndarray | 
     return cho_solve(factor, np.eye(len(cov))) / scale, None
 
 
+def weight_factor(weight_matrix: ArrayLike) -> np.ndarray:
+    """Return upper-triangular ``factor`` with ``factor.T @ factor = weight_matrix``, so
+    ``(factor @ r) @ (factor @ r) = r @ weight_matrix @ r``."""
+    matrix = np.asarray(weight_matrix, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+        raise ValueError(f"weight_factor: weight_matrix must be square, got shape {matrix.shape}")
+    diagonal = np.diag(matrix)
+    if not np.all(np.isfinite(matrix)) or not np.all(diagonal > 0):
+        raise ValueError("weight_factor: weight_matrix must be finite with a positive diagonal")
+    scale = np.sqrt(diagonal)
+    normalized = matrix / np.outer(scale, scale)
+    if np.max(np.abs(normalized - normalized.T), initial=0.0) > 1e-10:
+        raise ValueError("weight_factor: weight_matrix must be symmetric")
+    try:
+        return cholesky(0.5 * (normalized + normalized.T), lower=False, check_finite=False) * scale
+    except np.linalg.LinAlgError:
+        raise ValueError("weight_factor: weight_matrix must be positive definite") from None
+
+
 # ---------------------------------------------------------------------------
 # Minimization
 # ---------------------------------------------------------------------------
 
-@jax.jit(static_argnums=0)
-def chi2_gradient(model: Model, x: np.ndarray, y: np.ndarray, parameters: np.ndarray,
-                  weight_matrix: np.ndarray) -> jax.Array:
-    """Return d chi2 / dp, shape (parameters), compiled once per model and input shape."""
-    chi2_function = chi2(model)
-    return jax.grad(chi2_function, argnums=2)(x, y, parameters, weight_matrix)
+@functools.cache
+def weighted_residual(model: Model) -> Residual:
+    """Return ``residual(parameters, y, x, factor) = factor @ (model(x, parameters) - y)``, compiled with numba for
+    a numba ``model``."""
+    def residual(parameters: np.ndarray, y: np.ndarray, x: np.ndarray, factor: np.ndarray) -> np.ndarray | jax.Array:
+        return factor @ (model(x, parameters) - y)
+    return njit(residual) if isinstance(model, CPUDispatcher) else residual
 
 
 @functools.cache
-def chi2(model: Model) -> Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray | jax.Array]:
-    """Return ``chi2(x, y, parameters, weight_matrix) = r @ weight_matrix @ r`` with
-    ``r = model(x, parameters) - y``; compiled with numba for a numba ``model``, otherwise with ``jax.jit``."""
-    def model_chi2(x: np.ndarray, y: np.ndarray, parameters: np.ndarray, weight_matrix: np.ndarray) -> np.ndarray | jax.Array:
-        residuals = model(x, parameters) - y
-        return residuals @ weight_matrix @ residuals
-    return njit(model_chi2) if isinstance(model, CPUDispatcher) else jax.jit(model_chi2)
+def chi2(residual: Residual) -> Callable[..., np.ndarray | jax.Array]:
+    """Return ``chi2(parameters, *args) = r @ r`` with ``r = residual(parameters, *args)``; compiled with numba for
+    a numba ``residual``, otherwise with ``jax.jit``."""
+    def residual_chi2(parameters: np.ndarray, *args: np.ndarray) -> np.ndarray | jax.Array:
+        r = residual(parameters, *args)
+        return r @ r
+    return njit(residual_chi2) if isinstance(residual, CPUDispatcher) else jax.jit(residual_chi2)
+
+
+@jax.jit(static_argnums=0)
+def chi2_gradient(residual: Residual, parameters: np.ndarray, *args: np.ndarray) -> jax.Array:
+    """Return d chi2 / dp, shape (parameters,), compiled once per residual function and input shapes."""
+    return jax.grad(chi2(residual))(parameters, *args)
 
 
 def minimize(objective: Callable[[np.ndarray, np.ndarray], float], y: np.ndarray, initial_parameters: np.ndarray, *,
@@ -172,25 +199,24 @@ def aic(chi2_value: float, dof: int, num_parameters: int) -> float:
 # ---------------------------------------------------------------------------
 
 @jax.jit(static_argnums=0)
-def _chi2_second_derivatives(model: Model, x: np.ndarray, y: np.ndarray, parameters: np.ndarray,
-                             weight_matrix: np.ndarray) -> tuple[jax.Array, jax.Array]:
+def _chi2_second_derivatives(residual: Residual, parameters: np.ndarray,
+                             *args: np.ndarray) -> tuple[jax.Array, jax.Array]:
     """Return d^2 chi2 / dp^2, shape (parameters, parameters), and d^2 chi2 / dp dy, shape (parameters, data points),
-    compiled once per model and input shape."""
-    chi2_function = chi2(model)
-    hessian = jax.hessian(chi2_function, argnums=2)(x, y, parameters, weight_matrix)
-    mixed_derivatives = jax.jacfwd(jax.grad(chi2_function, argnums=2), argnums=1)(x, y, parameters, weight_matrix)
+    compiled once per residual function and input shapes."""
+    chi2_function = chi2(residual)
+    hessian = jax.hessian(chi2_function)(parameters, *args)
+    mixed_derivatives = jax.jacfwd(jax.grad(chi2_function), argnums=1)(parameters, *args)
     return hessian, mixed_derivatives
 
 
-def parameter_jacobian(model: Model, x: np.ndarray, y: np.ndarray, parameters: np.ndarray,
-                       weight_matrix: np.ndarray) -> np.ndarray:
-    """Return the Jacobian of the fitted ``parameters`` with respect to the data ``y``, shape (parameters, data
-    points), at the chi^2 minimum ``parameters``; ``model`` must be traceable by JAX.
+def parameter_jacobian(residual: Residual, parameters: np.ndarray, *args: np.ndarray) -> np.ndarray:
+    """Return the Jacobian of the fitted ``parameters`` with respect to the first argument after ``parameters``, shape
+    (parameters, data points), at the chi^2 minimum ``parameters``; ``residual`` must be traceable by JAX.
 
     Raises ``HessianNotPositiveDefiniteError`` if the chi^2 Hessian is not positive definite; warns if it is
     ill-conditioned.
     """
-    hessian, mixed_derivatives = _chi2_second_derivatives(model, x, y, parameters, weight_matrix)
+    hessian, mixed_derivatives = _chi2_second_derivatives(residual, parameters, *args)
     diagonal = jnp.diag(hessian)
     if jnp.any(diagonal <= 0):
         raise HessianNotPositiveDefiniteError(f"parameter_jacobian: chi^2 Hessian has a non-positive diagonal: {diagonal}")

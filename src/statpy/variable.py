@@ -501,14 +501,20 @@ class Variable:
             if not np.all(variance > 0):
                 raise ValueError("least_squares_fit: non-positive jackknife variance on fit_range; pass weight_matrix")
             weight_matrix = np.diag(1.0 / variance)
+        if np.shape(weight_matrix) != (len(fit_range), len(fit_range)):
+            raise ValueError(f"least_squares_fit: weight_matrix has shape {np.shape(weight_matrix)}, "
+                             f"expected {(len(fit_range), len(fit_range))}")
+        factor = least_squares.weight_factor(weight_matrix)
 
-        chi2_function = least_squares.chi2(model if numba_model is None else numba_model)
+        residual = least_squares.weighted_residual(model)
+        chi2_function = least_squares.chi2(
+            residual if numba_model is None else least_squares.weighted_residual(numba_model))
 
         def objective(y: np.ndarray, parameters: np.ndarray) -> float:
-            return float(chi2_function(fit_range, y, parameters, weight_matrix))
+            return float(chi2_function(parameters, y, fit_range, factor))
 
         def exact_gradient(y: np.ndarray, parameters: np.ndarray) -> jax.Array:
-            return least_squares.chi2_gradient(model, fit_range, y, parameters, weight_matrix)
+            return least_squares.chi2_gradient(residual, parameters, y, fit_range, factor)
 
         objective_gradient = exact_gradient if numba_model is None else None
 
@@ -520,7 +526,8 @@ class Variable:
         replica_central_values = fluctuations = jackknife_replicates = bootstrap_replicates = None
         external_inputs = {}
         if self.fluctuations is not None or self.external_inputs:
-            jacobian = least_squares.parameter_jacobian(model, fit_range, self.central_value[fit_range], parameters, weight_matrix)
+            jacobian = least_squares.parameter_jacobian(
+                residual, parameters, self.central_value[fit_range], fit_range, factor)
             if self.fluctuations is not None:
                 fluctuations = gamma.project_fluctuations([jacobian], [self.fluctuations[:, fit_range]])
             external_inputs = {
