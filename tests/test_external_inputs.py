@@ -107,6 +107,23 @@ def test_fit_of_a_constant_to_data_shifted_by_an_external_input():
     np.testing.assert_allclose(parameters.external_variances()["c"], C[1, 1], rtol=1e-10)
 
 
+def test_linear_fit_to_an_external_input_alone_has_covariance_k_c_k_transpose():
+    rng = np.random.default_rng(10)
+    t = np.arange(5, dtype=float)
+    X = np.column_stack([np.ones_like(t), t])
+    C = _covariance(len(t), rng) + 0.1 * np.eye(len(t))
+    W = _covariance(len(t), rng) + 0.1 * np.eye(len(t))
+    data = Variable.from_external("c", X @ np.array([2.0, -0.5]), C)
+
+    parameters = data.least_squares_fit(lambda t, p: p[0] + p[1] * t, np.arange(len(t)), [0.0, 0.0],
+                                        weight_matrix=W, tolerance=1e-8).parameters
+
+    # p_hat = K y with K = (X^T W X)^-1 X^T W, so Cov(p_hat) = K C K^T; statistical covariances are 0
+    K = np.linalg.solve(X.T @ W @ X, X.T @ W)
+    np.testing.assert_allclose(parameters.total_covariance(), K @ C @ K.T, rtol=1e-10)
+    np.testing.assert_allclose(parameters.total_covariance("jackknife"), K @ C @ K.T, rtol=1e-10)
+
+
 def test_drawn_bootstrap_replicates_have_the_given_mean_and_covariance():
     rng = np.random.default_rng(5)
     C = _covariance(2, rng)

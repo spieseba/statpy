@@ -471,6 +471,10 @@ class Variable:
         layout = Layout(ensemble, np.arange(num_bins), replicas=replicas, weights=bin_weights)
         return type(self).from_data(observations, layout, bootstrap_indices)
 
+    # ---------------------------------------------------------------------------
+    # Fits
+    # ---------------------------------------------------------------------------
+
     def least_squares_fit(self, model: least_squares.Model, fit_range: ArrayLike, initial_parameters: ArrayLike, *,
                           numba_model: least_squares.Model | None = None, weight_matrix: np.ndarray | None = None,
                           tolerance: float = 1e-4, max_calls: int | None = None) -> least_squares.LeastSquaresFit:
@@ -485,13 +489,18 @@ class Variable:
         Observations are not used. Returns a ``LeastSquaresFit``; its parameters have this variable's layout.
         ``tolerance`` is Migrad's; its default of 0.1 makes jackknife refits too small at large sample sizes.
         """
+        if self.central_value.ndim != 1:
+            raise ValueError(f"least_squares_fit: variable must be 1-D, got {self.central_value.ndim}-D")
         fit_range = np.asarray(fit_range)
         initial_parameters = np.asarray(initial_parameters, dtype=float)
         dof = len(fit_range) - len(initial_parameters)
         if dof <= 0:
             raise ValueError(f"least_squares_fit: {len(fit_range)} points for {len(initial_parameters)} parameters, dof = {dof}")
         if weight_matrix is None:
-            weight_matrix = np.diag(1.0 / self.jackknife_variance()[fit_range])
+            variance = self.jackknife_variance()[fit_range]
+            if not np.all(variance > 0):
+                raise ValueError("least_squares_fit: non-positive jackknife variance on fit_range; pass weight_matrix")
+            weight_matrix = np.diag(1.0 / variance)
 
         chi2_function = least_squares.chi2(model if numba_model is None else numba_model)
 

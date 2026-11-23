@@ -148,8 +148,9 @@ def fit_replicates(objective: Callable[[np.ndarray, np.ndarray], float], replica
                    initial_parameters: np.ndarray, *, tolerance: float | None, max_calls: int | None,
                    objective_gradient: Callable[[np.ndarray, np.ndarray], np.ndarray | jax.Array] | None) -> np.ndarray:
     """Return the parameters minimizing ``objective`` for each replicate, each fit starting from ``initial_parameters``."""
-    return np.array([minimize(objective, y, initial_parameters, tolerance=tolerance, max_calls=max_calls, objective_gradient=objective_gradient)
-                     for y in replicates])
+    fitted = [minimize(objective, y, initial_parameters, tolerance=tolerance, max_calls=max_calls,
+                       objective_gradient=objective_gradient) for y in replicates]
+    return np.array(fitted).reshape(len(replicates), len(initial_parameters))
 
 
 # ---------------------------------------------------------------------------
